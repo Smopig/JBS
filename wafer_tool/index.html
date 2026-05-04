@@ -106,8 +106,10 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 
 /* Chart grid */
 .chart-grid { display: grid; gap: 14px; }
+.cols-1 { grid-template-columns: 1fr; }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
 .cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-6 { grid-template-columns: repeat(6, 1fr); }
 .chart-card { background: white; border-radius: 8px; padding: 6px;
               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
 
@@ -133,9 +135,9 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
 .lib-error code { background: #fed7d7; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
 .lib-error ol { margin: 8px 0 0 20px; line-height: 2; }
 
-@media (max-width:1100px) { .cols-4 { grid-template-columns: repeat(3,1fr); } }
-@media (max-width: 800px) { .cols-4,.cols-3 { grid-template-columns: repeat(2,1fr); } }
-@media (max-width: 500px) { .cols-4,.cols-3 { grid-template-columns: 1fr; } }
+@media (max-width:1100px) { .cols-4,.cols-6 { grid-template-columns: repeat(3,1fr); } }
+@media (max-width: 800px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 500px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -238,7 +240,7 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <select id="mapItem" onchange="renderMap()"></select>
       <label style="margin-left:12px">每列欄數：</label>
       <select id="mapCols" onchange="renderMap()">
-        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+        <option value="1">1</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
       </select>
     </div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
@@ -653,7 +655,18 @@ function renderMap() {
       `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
     Plotly.newPlot(id,[{
       type:'heatmap',z,x:xSet,y:ySet,
-      colorscale:[[0,'#ffffff'],[0.5,'#ffff00'],[1,'#ff0000']],
+      colorscale:[
+        [0,   '#f7fbff'],
+        [0.1, '#c6dbef'],
+        [0.2, '#6baed6'],
+        [0.35,'#2196f3'],
+        [0.5, '#00e5ff'],
+        [0.6, '#69f0ae'],
+        [0.7, '#ffee58'],
+        [0.82,'#ff9800'],
+        [0.92,'#f44336'],
+        [1,   '#880000']
+      ],
       hoverongaps:false,
       hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
     }],{
