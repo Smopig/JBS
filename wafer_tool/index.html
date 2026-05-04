@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wafer Analysis Tool</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #333; font-size: 14px; }
+
+.header { background: #1a365d; color: white; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+.header h1 { font-size: 18px; }
+.header p  { font-size: 11px; opacity: 0.65; margin-top: 2px; }
+
+/* Tabs */
+.tab-nav { background: white; border-bottom: 2px solid #e2e8f0; display: flex; padding: 0 20px; gap: 4px; }
+.tab-btn  { padding: 11px 18px; border: none; background: none; cursor: pointer; font-size: 13px;
+            color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: color .15s; }
+.tab-btn.active { color: #1a365d; border-bottom-color: #1a365d; font-weight: 700; }
+.tab-btn:hover  { color: #1a365d; }
+.tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.content    { padding: 18px 22px; }
+.tab-panel  { display: none; }
+.tab-panel.active { display: block; }
+
+/* Upload */
+.upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 36px; text-align: center;
+               cursor: pointer; background: white; transition: all .2s; }
+.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: #ebf8ff; }
+.upload-icon { font-size: 44px; margin-bottom: 10px; }
+.upload-text { font-size: 15px; color: #4a5568; }
+.upload-hint { font-size: 11px; color: #a0aec0; margin-top: 4px; }
+
+/* Settings */
+.settings-row { display: flex; align-items: flex-end; gap: 20px; margin: 14px 0; flex-wrap: wrap; }
+.sg label { display: block; font-size: 11px; color: #4a5568; font-weight: 700; margin-bottom: 4px; }
+.sg input, .sg select { padding: 6px 10px; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 13px; }
+
+/* Buttons */
+.btn { padding: 8px 16px; border-radius: 5px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn-blue  { background: #3182ce; color: white; }
+.btn-blue:hover  { background: #2b6cb0; }
+.btn-green { background: #38a169; color: white; }
+.btn-green:hover { background: #276749; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Status */
+.status { border-radius: 6px; padding: 10px 14px; margin: 10px 0; font-size: 12px; border-left: 4px solid #4299e1; background: white; }
+.status.ok  { border-color: #48bb78; }
+.status.err { border-color: #fc8181; background: #fff5f5; }
+
+/* File list */
+.file-list  { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.file-item  { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: #f7fafc;
+              border-radius: 4px; font-size: 12px; }
+.lot-tag    { background: #3182ce; color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; }
+
+/* Control panel */
+.ctrl { background: white; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;
+        display: flex; align-items: center; gap: 14px; flex-wrap: wrap; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.ctrl label { font-size: 12px; color: #4a5568; font-weight: 700; white-space: nowrap; }
+.ctrl select { padding: 5px 9px; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 12px; }
+
+/* Chart grid */
+.chart-grid { display: grid; gap: 14px; }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.chart-card { background: white; border-radius: 8px; padding: 6px; box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+
+/* Stats table */
+.tbl-wrap { background: white; border-radius: 8px; overflow: auto; max-height: 70vh; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+table  { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th { background: #2d3748; color: white; padding: 7px 12px; text-align: center;
+           white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+tbody td { padding: 5px 10px; text-align: center; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+tbody tr:nth-child(even) { background: #f7fafc; }
+tbody tr:hover           { background: #ebf8ff; }
+.row-label { text-align: left !important; font-weight: 700; color: #2d3748;
+             background: #edf2f7 !important; position: sticky; left: 0; z-index: 1; }
+
+/* Section header (% dist) */
+.section-hd { font-size: 13px; font-weight: 700; color: #2d3748; padding: 6px 10px;
+               background: #edf2f7; border-radius: 6px 6px 0 0; }
+
+/* Library error */
+.lib-error { background: #fff5f5; border: 2px solid #fc8181; border-radius: 8px; padding: 20px 24px; margin: 20px 0; }
+.lib-error h3 { color: #c53030; margin-bottom: 10px; }
+.lib-error code { background: #fed7d7; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+.lib-error ol { margin: 10px 0 0 20px; line-height: 2; }
+
+@media (max-width: 1100px) { .cols-4 { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width:  800px) { .cols-4, .cols-3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width:  500px) { .cols-4, .cols-3 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<!-- ════ HEADER ════ -->
+<div class="header">
+  <div>
+    <h1>⬡ Wafer Analysis Tool</h1>
+    <p>上傳 CP 測試資料，自動產生 MAP、分布圖與統計</p>
+  </div>
+</div>
+
+<!-- ════ TAB NAV ════ -->
+<div class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('upload',this)">📂 資料載入</button>
+  <button class="tab-btn" id="tb-map"   onclick="switchTab('map',this)"   disabled>🗺 Wafer MAP</button>
+  <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
+  <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
+  <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
+</div>
+
+<!-- ════ CONTENT ════ -->
+<div class="content">
+
+  <!-- ── Upload ── -->
+  <div id="panel-upload" class="tab-panel active">
+    <div id="libError"></div>
+
+    <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
+      <div class="upload-icon">📁</div>
+      <div class="upload-text">點擊或拖曳上傳 Excel 檔案</div>
+      <div class="upload-hint">支援 .xls / .xlsx，可同時選取多個 wafer 檔案</div>
+    </div>
+    <input type="file" id="fi" multiple accept=".xls,.xlsx" style="display:none" onchange="handleFiles(this.files)">
+
+    <div class="settings-row">
+      <div class="sg">
+        <label>標題列號（第幾列是欄位名稱，預設 13）</label>
+        <input type="number" id="headerRow" value="13" min="1" max="100" style="width:80px">
+      </div>
+      <div class="sg">
+        <label>資料起始列號（預設 30）</label>
+        <input type="number" id="dataStart" value="30" min="1" max="200" style="width:80px">
+      </div>
+      <div class="sg">
+        <label>&nbsp;</label>
+        <button class="btn btn-blue" onclick="processAll()" id="btnRun" disabled>⚙️ 開始分析</button>
+      </div>
+      <div class="sg">
+        <label>&nbsp;</label>
+        <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
+      </div>
+    </div>
+
+    <div id="fileList" class="file-list"></div>
+    <div id="upStatus"></div>
+  </div>
+
+  <!-- ── Wafer MAP ── -->
+  <div id="panel-map" class="tab-panel">
+    <div class="ctrl">
+      <label>量測項目：</label>
+      <select id="mapItem" onchange="renderMap()"></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="mapCols" onchange="renderMap()">
+        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      </select>
+    </div>
+    <div id="mapGrid" class="chart-grid cols-4"></div>
+  </div>
+
+  <!-- ── Count Dist ── -->
+  <div id="panel-count" class="tab-panel">
+    <div class="ctrl">
+      <label>量測項目：</label>
+      <select id="cntItem" onchange="renderCount()"></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="cntCols" onchange="renderCount()">
+        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      </select>
+    </div>
+    <div id="cntGrid" class="chart-grid cols-4"></div>
+  </div>
+
+  <!-- ── % Dist ── -->
+  <div id="panel-pct" class="tab-panel">
+    <div class="ctrl">
+      <label>Lot 篩選：</label>
+      <select id="pctLot" onchange="renderPct()"><option value="all">全部</option></select>
+      <label style="margin-left:12px">量測項目：</label>
+      <select id="pctItem" onchange="renderPct()"><option value="all">全部指定項目</option></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="pctCols" onchange="renderPct()">
+        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      </select>
+    </div>
+    <div id="pctArea"></div>
+  </div>
+
+  <!-- ── Statistics ── -->
+  <div id="panel-stats" class="tab-panel">
+    <div class="ctrl">
+      <label>量測項目：</label>
+      <select id="stItem" onchange="renderStats()"></select>
+      <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
+    </div>
+    <div id="stTable" class="tbl-wrap"></div>
+  </div>
+
+</div><!-- /content -->
+
+<script src="libs/xlsx.full.min.js"></script>
+<script src="libs/plotly.min.js"></script>
+<script>
+'use strict';
+// ════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════
+const COL_RENAME = {
+  '2 VFBC':'VF_5mA(V)',   '3 ICBO':'IR_1V(uA)',    '4 ICBO2':'IR_10V(uA)',
+  '5 ICBO3':'IR_30V(uA)', '6 ICBO4':'IR_50V(uA)',  '7 ICBO5':'IR_60V(uA)',
+  '8 ICBO6':'IR_68V(uA)', '9 ICBO7':'IR_71V(uA)',  '10 ICBO8':'IR_74V(uA)',
+  '11 BVCBO':'VR_10uA(V)','12 BVCBO2':'VR_100uA(V)','13 BVCBO3':'VR_1mA(V)',
+  '14 BVCBO4':'VR_10mA(V)','16 VFBC2':'VF_10mA(V)','17 VFBC3':'VF_260mA(V)',
+  '18 VFBC4':'VF_1A(V)',  '19 VFBCH':'VF_10A(V)'
+};
+
+const PCT_ITEMS = [
+  'IR_68V(uA)','IR_71V(uA)','IR_74V(uA)',
+  'VR_10uA(V)','VR_100uA(V)','VR_1mA(V)','VR_10mA(V)',
+  'VF_260mA(V)','VF_1A(V)','VF_10A(V)'
+];
+
+const META_COLS = new Set(['Lot','Serial','Bin','Xpos','Ypos','YY,XX']);
+const N_BINS    = 25;
+
+// ════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════
+const S = { files:[], data:[], lots:[], items:[], globalBins:{} };
+
+// ════════════════════════════════════════════════
+// TAB NAVIGATION
+// ════════════════════════════════════════════════
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  // Resize Plotly charts (they may have been hidden when created)
+  setTimeout(() => {
+    document.querySelectorAll('#panel-' + name + ' [id^="ch-"]').forEach(el => {
+      if (el._fullLayout) Plotly.Plots.resize(el);
+    });
+  }, 50);
+}
+
+// ════════════════════════════════════════════════
+// DRAG & DROP
+// ════════════════════════════════════════════════
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
+
+// ════════════════════════════════════════════════
+// FILE HANDLING
+// ════════════════════════════════════════════════
+function getLotName(fname) {
+  const base  = fname.replace(/\.(xls|xlsx)$/i, '');
+  const parts = base.split('-');
+  return parts.length >= 2 ? parts[1] : base;
+}
+
+function handleFiles(files) {
+  S.files = Array.from(files);
+  document.getElementById('fileList').innerHTML =
+    S.files.map(f => {
+      const lot = getLotName(f.name);
+      return `<div class="file-item">📄 ${f.name} <span class="lot-tag">${lot}</span></div>`;
+    }).join('');
+  document.getElementById('btnRun').disabled  = S.files.length === 0;
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「開始分析」</div>`;
+}
+
+// ════════════════════════════════════════════════
+// DATA PROCESSING
+// ════════════════════════════════════════════════
+async function processAll() {
+  const headerIdx   = parseInt(document.getElementById('headerRow').value)  - 1;
+  const dataStartIdx = parseInt(document.getElementById('dataStart').value) - 1;
+
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status">⏳ 處理中，請稍候...</div>`;
+  await tick();
+
+  S.data = [];
+  const errs = [];
+
+  for (const file of S.files) {
+    try {
+      const lot = getLotName(file.name);
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type:'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+
+      if (rows.length <= headerIdx) { errs.push(`${file.name}：列數不足`); continue; }
+
+      const rawH = rows[headerIdx].map(h => h != null ? String(h).trim() : '');
+      const heads = rawH.map(h => COL_RENAME[h] || h);
+
+      const dataRows = rows.slice(dataStartIdx)
+        .filter(r => r && r.some(v => v !== null && v !== undefined && v !== ''));
+
+      if (!dataRows.length) { errs.push(`${file.name}：無資料`); continue; }
+
+      dataRows.forEach(row => {
+        const obj = { Lot: lot };
+        heads.forEach((h, i) => {
+          if (!h || h.includes('SOT_SOT')) return;
+          obj[h] = row[i] ?? null;
+        });
+        S.data.push(obj);
+      });
+    } catch(e) { errs.push(`${file.name}：${e.message}`); }
+  }
+
+  // Unit conversion
+  S.data.forEach(row => {
+    Object.keys(row).forEach(k => {
+      const v = parseFloat(row[k]);
+      if (isNaN(v)) return;
+      if      (k.startsWith('IR_')) row[k] = rd(v * 1e6, 2);
+      else if (k.startsWith('VR_')) row[k] = rd(v, 1);
+      else if (k.startsWith('VF_')) row[k] = rd(v, 3);
+    });
+  });
+
+  // Lots & items
+  S.lots  = [...new Set(S.data.map(r => r.Lot))].sort();
+  const allCols = new Set(S.data.flatMap(r => Object.keys(r)));
+  S.items = [...allCols].filter(c => !META_COLS.has(c) &&
+    (c.startsWith('IR_') || c.startsWith('VR_') || c.startsWith('VF_')));
+
+  // Global bin edges for % distribution
+  S.globalBins = {};
+  PCT_ITEMS.filter(it => S.items.includes(it)).forEach(it => {
+    const vals = validData(null, it); // all lots
+    if (vals.length >= 3) {
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      if (hi > lo) S.globalBins[it] = linspace(lo, hi, N_BINS + 1);
+    }
+  });
+
+  // Populate dropdowns
+  populateSels();
+
+  // Enable tabs
+  ['map','count','pct','stats'].forEach(t =>
+    document.getElementById('tb-' + t).disabled = false);
+
+  // Status
+  const errHtml = errs.length
+    ? `<div class="status err">⚠️ ${errs.join('<br>')}</div>` : '';
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status ok">✅ 完成：${S.lots.length} 個 Lot，${S.data.length} 筆資料，偵測到 ${S.items.length} 個量測項目</div>${errHtml}`;
+  document.getElementById('btnExp').disabled = false;
+
+  // Initial renders
+  renderMap(); renderCount(); renderPct(); renderStats();
+}
+
+function populateSels() {
+  const opts  = S.items.map(i => `<option value="${i}">${i}</option>`).join('');
+  ['mapItem','cntItem','stItem'].forEach(id =>
+    document.getElementById(id).innerHTML = opts);
+
+  const pctAvail = PCT_ITEMS.filter(i => S.items.includes(i));
+  document.getElementById('pctItem').innerHTML =
+    '<option value="all">全部指定項目</option>' +
+    pctAvail.map(i => `<option value="${i}">${i}</option>`).join('');
+
+  document.getElementById('pctLot').innerHTML =
+    '<option value="all">全部</option>' +
+    S.lots.map(l => `<option value="${l}">${l}</option>`).join('');
+}
+
+// ════════════════════════════════════════════════
+// MATH UTILS
+// ════════════════════════════════════════════════
+const rd = (v, d) => Math.round(v * 10**d) / 10**d;
+
+function mean(a)   { return a.reduce((s,v) => s+v, 0) / a.length; }
+function std(a)    {
+  if (a.length < 2) return 0;
+  const m = mean(a);
+  return Math.sqrt(a.reduce((s,v) => s+(v-m)**2, 0) / (a.length-1));
+}
+function median(a) {
+  const s = [...a].sort((x,y) => x-y), m = Math.floor(s.length/2);
+  return s.length%2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function normPDF(x, mu, sg) {
+  if (sg <= 0) return 0;
+  return Math.exp(-0.5*((x-mu)/sg)**2) / (sg*Math.sqrt(2*Math.PI));
+}
+function linspace(a, b, n) {
+  return Array.from({length:n}, (_,i) => a + (b-a)*i/(n-1));
+}
+function makeHist(data, edges) {
+  const n = edges.length-1;
+  const counts = new Array(n).fill(0);
+  const bw = edges[1]-edges[0];
+  data.forEach(v => {
+    let i = Math.floor((v-edges[0])/bw);
+    if (i < 0) i=0; if (i>=n) i=n-1;
+    counts[i]++;
+  });
+  return counts;
+}
+function binCenters(edges) {
+  return edges.slice(0,-1).map((e,i) => (e+edges[i+1])/2);
+}
+
+// Get numeric values; lot=null → all lots
+function validData(lot, item) {
+  return (lot ? S.data.filter(r => r.Lot===lot) : S.data)
+    .map(r => parseFloat(r[item])).filter(v => !isNaN(v));
+}
+
+function tick() { return new Promise(r => setTimeout(r, 10)); }
+
+// ════════════════════════════════════════════════
+// WAFER MAP
+// ════════════════════════════════════════════════
+function renderMap() {
+  const item = document.getElementById('mapItem').value;
+  const cols = document.getElementById('mapCols').value;
+  const grid = document.getElementById('mapGrid');
+  if (!item) return;
+  grid.className = `chart-grid cols-${cols}`;
+  grid.innerHTML = '';
+
+  S.lots.forEach(lot => {
+    const rows = S.data.filter(r => r.Lot===lot);
+    const xSet = [...new Set(rows.map(r=>parseFloat(r.Xpos)).filter(v=>!isNaN(v)))].sort((a,b)=>b-a);
+    const ySet = [...new Set(rows.map(r=>parseFloat(r.Ypos)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
+    const z = ySet.map(y => xSet.map(x => {
+      const m = rows.find(r=>parseFloat(r.Xpos)===x && parseFloat(r.Ypos)===y);
+      return m ? (parseFloat(m[item]) ?? null) : null;
+    }));
+
+    const id = uid('map', lot);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
+
+    Plotly.newPlot(id, [{
+      type:'heatmap', z, x:xSet, y:ySet,
+      colorscale:[[0,'#ffffff'],[0.5,'#ffff00'],[1,'#ff0000']],
+      hoverongaps:false,
+      hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
+    }], {
+      title:{text:`${lot} — ${item}`, font:{size:11}},
+      margin:{t:36,b:36,l:44,r:10},
+      xaxis:{title:{text:'Xpos',font:{size:10}}},
+      yaxis:{title:{text:'Ypos',font:{size:10}}, autorange:'reversed'},
+      height:290
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ════════════════════════════════════════════════
+// COUNT DISTRIBUTION
+// ════════════════════════════════════════════════
+function renderCount() {
+  const item = document.getElementById('cntItem').value;
+  const cols = document.getElementById('cntCols').value;
+  const grid = document.getElementById('cntGrid');
+  if (!item) return;
+  grid.className = `chart-grid cols-${cols}`;
+  grid.innerHTML = '';
+
+  S.lots.forEach(lot => {
+    const data = validData(lot, item);
+    if (data.length < 3) return;
+
+    const mu=mean(data), sg=std(data);
+    const lo=Math.min(...data), hi=Math.max(...data);
+    const edges = linspace(lo, hi, N_BINS+1);
+    const bw    = edges[1]-edges[0];
+    const bc    = binCenters(edges);
+    const cnts  = makeHist(data, edges);
+    const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
+
+    const id = uid('cnt', lot+item);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:250px"></div></div>`);
+
+    Plotly.newPlot(id, [
+      { type:'bar', x:bc, y:cnts, name:'Count', width:bw*0.98,
+        marker:{color:'rgba(66,153,225,0.65)', line:{color:'rgba(66,153,225,1)',width:0.5}},
+        hovertemplate:'%{x:.4g}: %{y}<extra></extra>' },
+      { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+        line:{color:'#e53e3e', width:2, shape:'spline'},
+        hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' }
+    ], {
+      title:{text:`${lot} — ${item}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`, font:{size:10}},
+      margin:{t:54,b:34,l:44,r:10},
+      showlegend:false, bargap:0,
+      yaxis:{title:{text:'Count',font:{size:10}}},
+      height:250
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ════════════════════════════════════════════════
+// PERCENTAGE DISTRIBUTION
+// ════════════════════════════════════════════════
+function renderPct() {
+  const selItem = document.getElementById('pctItem').value;
+  const selLot  = document.getElementById('pctLot').value;
+  const cols    = document.getElementById('pctCols').value;
+  const area    = document.getElementById('pctArea');
+  area.innerHTML = '';
+
+  const lots  = selLot==='all' ? S.lots : [selLot];
+  const items = selItem==='all'
+    ? PCT_ITEMS.filter(i => S.items.includes(i) && S.globalBins[i])
+    : (S.globalBins[selItem] ? [selItem] : []);
+
+  items.forEach(item => {
+    const edges = S.globalBins[item];
+    const bw    = edges[1]-edges[0];
+    const bc    = binCenters(edges);
+
+    // Section wrapper
+    const sec = document.createElement('div');
+    sec.style.cssText = 'margin-bottom:20px; background:white; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.08)';
+    sec.innerHTML = `<div class="section-hd">${item}（% 分布，X 軸統一，Y 軸 0–100%）</div>`;
+
+    const grid = document.createElement('div');
+    grid.className = `chart-grid cols-${cols}`;
+    grid.style.padding = '10px';
+    sec.appendChild(grid);
+    area.appendChild(sec);
+
+    lots.forEach(lot => {
+      const data = validData(lot, item);
+      if (data.length < 3) return;
+
+      const mu=mean(data), sg=std(data);
+      const cnts  = makeHist(data, edges);
+      const pct   = cnts.map(c => c/data.length*100);
+      const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+
+      const id = uid('pct', lot+item);
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
+
+      Plotly.newPlot(id, [
+        { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
+          marker:{color:'rgba(72,187,120,0.65)', line:{color:'rgba(72,187,120,1)',width:0.5}},
+          hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
+        { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+          line:{color:'#e53e3e', width:2, shape:'spline'},
+          hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
+      ], {
+        title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`, font:{size:10}},
+        margin:{t:50,b:34,l:44,r:10},
+        showlegend:false, bargap:0,
+        yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]},
+        xaxis:{range:[edges[0], edges[edges.length-1]]},
+        height:230
+      }, {responsive:true, displayModeBar:false});
+    });
+  });
+}
+
+// ════════════════════════════════════════════════
+// STATISTICS TABLE
+// ════════════════════════════════════════════════
+const STAT_FNS = {
+  'Count':  d => d.length,
+  'Min':    d => rd(Math.min(...d), 4),
+  'Max':    d => rd(Math.max(...d), 4),
+  'Mean':   d => rd(mean(d), 4),
+  'Median': d => rd(median(d), 4),
+  'Std':    d => rd(std(d), 4)
+};
+
+function renderStats() {
+  const item = document.getElementById('stItem').value;
+  const el   = document.getElementById('stTable');
+  if (!item) return;
+
+  let h = `<table><thead><tr><th class="row-label">統計項目</th>`;
+  S.lots.forEach(l => h += `<th>${l}</th>`);
+  h += `</tr></thead><tbody>`;
+
+  Object.entries(STAT_FNS).forEach(([name, fn]) => {
+    h += `<tr><td class="row-label">${name}</td>`;
+    S.lots.forEach(lot => {
+      const d = validData(lot, item);
+      h += `<td>${d.length ? fn(d) : '—'}</td>`;
+    });
+    h += `</tr>`;
+  });
+
+  h += `</tbody></table>`;
+  el.innerHTML = h;
+}
+
+// ════════════════════════════════════════════════
+// EXPORT EXCEL
+// ════════════════════════════════════════════════
+function exportExcel() {
+  if (!S.data.length) return;
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: merged data
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.json_to_sheet(S.data), '合併資料');
+
+  // Sheet 2: statistics (all items × all lots)
+  const statRows = [];
+  S.items.forEach(item => {
+    Object.entries(STAT_FNS).forEach(([stat, fn]) => {
+      const row = { '統計_項目': `${stat}_${item}` };
+      S.lots.forEach(lot => {
+        const d = validData(lot, item);
+        row[lot] = d.length ? fn(d) : null;
+      });
+      statRows.push(row);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.json_to_sheet(statRows), '統計');
+
+  XLSX.writeFile(wb, `wafer_analysis_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+// ════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════
+let _uidCnt = 0;
+function uid(prefix, key) {
+  // Sanitise key → valid HTML id
+  return `ch-${prefix}-${String(key).replace(/[^a-zA-Z0-9]/g,'_')}_${++_uidCnt}`;
+}
+
+// ════════════════════════════════════════════════
+// LIBRARY CHECK
+// ════════════════════════════════════════════════
+window.addEventListener('load', () => {
+  if (typeof XLSX === 'undefined' || typeof Plotly === 'undefined') {
+    document.getElementById('libError').innerHTML = `
+    <div class="lib-error">
+      <h3>⚠️ 找不到必要的 Library 檔案</h3>
+      <p>請依照以下步驟完成一次性設定（需要網路）：</p>
+      <ol>
+        <li>在 <code>libs/</code> 資料夾中放入以下兩個檔案：</li>
+        <li><strong>xlsx.full.min.js</strong>（SheetJS）<br>
+            下載網址：<code>https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js</code></li>
+        <li><strong>plotly.min.js</strong>（Plotly）<br>
+            下載網址：<code>https://cdn.plot.ly/plotly-2.26.0.min.js</code></li>
+        <li>下載後將兩個 <code>.js</code> 檔案放入 <code>libs/</code> 資料夾，再重新開啟此頁面</li>
+      </ol>
+    </div>`;
+  }
+});
+</script>
+</body>
+</html>
