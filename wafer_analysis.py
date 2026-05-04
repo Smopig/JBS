@@ -121,14 +121,14 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
 
     col_rename_dict = {
         '2 VFBC': 'VF_5mA(V)',
-        '3 ICBO': 'IR_1V(A)',
-        '4 ICBO2': 'IR_10V(A)',
-        '5 ICBO3': 'IR_30V(A)',
-        '6 ICBO4': 'IR_50V(A)',
-        '7 ICBO5': 'IR_60V(A)',
-        '8 ICBO6': 'IR_68V(A)',
-        '9 ICBO7': 'IR_71V(A)',
-        '10 ICBO8': 'IR_74V(A)',
+        '3 ICBO': 'IR_1V(uA)',
+        '4 ICBO2': 'IR_10V(uA)',
+        '5 ICBO3': 'IR_30V(uA)',
+        '6 ICBO4': 'IR_50V(uA)',
+        '7 ICBO5': 'IR_60V(uA)',
+        '8 ICBO6': 'IR_68V(uA)',
+        '9 ICBO7': 'IR_71V(uA)',
+        '10 ICBO8': 'IR_74V(uA)',
         '11 BVCBO': 'VR_10uA(V)',
         '12 BVCBO2': 'VR_100uA(V)',
         '13 BVCBO3': 'VR_1mA(V)',
@@ -141,14 +141,14 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
     merged_df.rename(columns=col_rename_dict, inplace=True)
 
     desired_order = ["Lot", "Serial", "Bin", "Xpos", "Ypos", "YY,XX",
-                     'IR_1V(A)',
-                     'IR_10V(A)',
-                     'IR_30V(A)',
-                     'IR_50V(A)',
-                     'IR_60V(A)',
-                     'IR_68V(A)',
-                     'IR_71V(A)',
-                     'IR_74V(A)',
+                     'IR_1V(uA)',
+                     'IR_10V(uA)',
+                     'IR_30V(uA)',
+                     'IR_50V(uA)',
+                     'IR_60V(uA)',
+                     'IR_68V(uA)',
+                     'IR_71V(uA)',
+                     'IR_74V(uA)',
                      'VR_10uA(V)',
                      'VR_100uA(V)',
                      'VR_1mA(V)',
@@ -160,6 +160,18 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
 
     existing_cols = [col for col in desired_order if col in merged_df.columns]
     merged_df = merged_df[existing_cols]
+
+    # IR: A → uA (×1e6)，取小數點第1位
+    for col in [c for c in merged_df.columns if c.startswith('IR_')]:
+        merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').mul(1e6).round(1)
+
+    # VR: 取小數點第1位
+    for col in [c for c in merged_df.columns if c.startswith('VR_')]:
+        merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').round(1)
+
+    # VF: 取小數點第3位
+    for col in [c for c in merged_df.columns if c.startswith('VF_')]:
+        merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').round(3)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     merged_output = os.path.join(output_folder, f"合併資料_{timestamp}.xlsx")
@@ -304,14 +316,14 @@ if __name__ == "__main__":
     df = pd.read_excel(merged_path)
 
     value_columns = [
-        'IR_1V(A)',
-        'IR_10V(A)',
-        'IR_30V(A)',
-        'IR_50V(A)',
-        'IR_60V(A)',
-        'IR_68V(A)',
-        'IR_71V(A)',
-        'IR_74V(A)',
+        'IR_1V(uA)',
+        'IR_10V(uA)',
+        'IR_30V(uA)',
+        'IR_50V(uA)',
+        'IR_60V(uA)',
+        'IR_68V(uA)',
+        'IR_71V(uA)',
+        'IR_74V(uA)',
         'VR_10uA(V)',
         'VR_100uA(V)',
         'VR_1mA(V)',
