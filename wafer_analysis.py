@@ -4,13 +4,9 @@
 #3.對整片 wafer 資料按 Lot 分組並進行數值統計輸出。
 
 import os
-import io
 import time
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 from scipy import stats
 from tkinter import Tk, simpledialog, filedialog
 from datetime import datetime
@@ -18,7 +14,7 @@ from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule
-from openpyxl.drawing.image import Image as XLImage
+from openpyxl.chart import BarChart, LineChart, Reference
 
 # 設定樣式
 thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
@@ -190,44 +186,91 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
 # Part 2: MAP 熱區圖 + 統計（整片 wafer）
 # ==========================================
 
-def build_normal_dist_chart(data, lot_label, val_col):
-    """繪製常態分佈圖（直方圖 + 正態曲線），回傳 BytesIO PNG"""
-    data = pd.to_numeric(data, errors='coerce').dropna()
-    if len(data) < 3:
-        return None
+def build_excel_dist_charts(wb, lot_groups, value_columns):
+    """
+    用 Excel 原生圖表建立常態分布圖。
+    排版：同一片 wafer 的所有量測欄位圖表放在同一列。
+    資料存於隱藏的「分布圖_data」sheet，圖表顯示於「分布圖」sheet。
+    """
+    N_BINS = 25
+    ROWS_PER_DATASET = N_BINS + 2   # header + N_BINS 資料列 + 1 空白列
+    CHART_W = 11    # 圖表寬度（cm）
+    CHART_H = 7     # 圖表高度（cm）
+    COLS_PER_CHART = 9   # 每張圖水平佔用的欄數（間距控制）
+    ROWS_PER_CHART = 15  # 每張圖垂直佔用的列數（間距控制）
 
-    mu, sigma = stats.norm.fit(data)
-    fig, ax = plt.subplots(figsize=(5, 3.5))
+    ws_data = wb.create_sheet(title="分布圖_data")
+    ws_chart = wb.create_sheet(title="分布圖")
 
-    # 直方圖（density=True 讓縱軸與常態曲線一致）
-    ax.hist(data, bins=30, density=True, alpha=0.55, color='steelblue',
-            edgecolor='white', linewidth=0.5)
+    # 將 lot_groups 展平成有序清單，每個元素 = 一片 wafer
+    all_lots = []
+    for main_lot, sublots in lot_groups.items():
+        for sub_lot, rows in sublots.items():
+            all_lots.append((main_lot, sub_lot, rows))
 
-    # 常態分佈曲線
-    x = np.linspace(data.min(), data.max(), 300)
-    ax.plot(x, stats.norm.pdf(x, mu, sigma), 'r-', linewidth=1.8)
+    data_row = 1  # ws_data 目前寫入位置
 
-    # 統計標註
-    stats_text = (f'n = {len(data)}\n'
-                  f'μ = {mu:.4g}\n'
-                  f'σ = {sigma:.4g}\n'
-                  f'min = {data.min():.4g}\n'
-                  f'max = {data.max():.4g}')
-    ax.text(0.97, 0.97, stats_text, transform=ax.transAxes,
-            fontsize=7, verticalalignment='top', horizontalalignment='right',
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+    for lot_idx, (main_lot, sub_lot, rows) in enumerate(all_lots):
+        lot_df = pd.DataFrame(rows)
+        lot_label = f"{main_lot}_{sub_lot}" if sub_lot else main_lot
+        chart_anchor_row = lot_idx * ROWS_PER_CHART + 1  # 同一 wafer 同一列
 
-    ax.set_title(f'{lot_label}  {val_col}', fontsize=8, pad=4)
-    ax.set_xlabel(val_col, fontsize=7)
-    ax.set_ylabel('Density', fontsize=7)
-    ax.tick_params(labelsize=7)
-    plt.tight_layout()
+        val_cols_present = [c for c in value_columns if c in lot_df.columns]
+        for val_idx, val_col in enumerate(val_cols_present):
+            series_data = pd.to_numeric(lot_df[val_col], errors='coerce').dropna()
+            if len(series_data) < 3:
+                data_row += ROWS_PER_DATASET
+                continue
 
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=110)
-    plt.close(fig)
-    buf.seek(0)
-    return buf
+            mu, sigma = stats.norm.fit(series_data)
+            counts, bin_edges = np.histogram(series_data, bins=N_BINS, density=True)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            pdf_vals = stats.norm.pdf(bin_centers, mu, sigma)
+
+            # 寫入 header
+            ws_data.cell(row=data_row, column=1, value=f"{lot_label}_{val_col}")
+            ws_data.cell(row=data_row, column=2, value="Density")
+            ws_data.cell(row=data_row, column=3, value="Normal PDF")
+
+            # 寫入資料列
+            for i in range(N_BINS):
+                r = data_row + 1 + i
+                ws_data.cell(row=r, column=1, value=round(float(bin_centers[i]), 4))
+                ws_data.cell(row=r, column=2, value=round(float(counts[i]), 6))
+                ws_data.cell(row=r, column=3, value=round(float(pdf_vals[i]), 6))
+
+            # 直方圖（BarChart）
+            bar = BarChart()
+            bar.type = "col"
+            bar.grouping = "clustered"
+            bar.overlap = 100
+            bar.gapWidth = 0
+            bar.title = f"{lot_label} | {val_col}  (n={len(series_data)}, mean={mu:.4g}, std={sigma:.4g})"
+            bar.y_axis.title = "Density"
+            bar.width = CHART_W
+            bar.height = CHART_H
+
+            hist_ref = Reference(ws_data, min_col=2, min_row=data_row, max_row=data_row + N_BINS)
+            cats = Reference(ws_data, min_col=1, min_row=data_row + 1, max_row=data_row + N_BINS)
+            bar.add_data(hist_ref, titles_from_data=True)
+            bar.set_categories(cats)
+
+            # 常態分布曲線（LineChart）
+            line = LineChart()
+            pdf_ref = Reference(ws_data, min_col=3, min_row=data_row, max_row=data_row + N_BINS)
+            line.add_data(pdf_ref, titles_from_data=True)
+            for s in line.series:
+                s.smooth = True
+
+            bar += line  # 合併成組合圖
+
+            chart_anchor_col = val_idx * COLS_PER_CHART + 1
+            anchor = ws_chart.cell(row=chart_anchor_row, column=chart_anchor_col).coordinate
+            ws_chart.add_chart(bar, anchor)
+
+            data_row += ROWS_PER_DATASET
+
+    ws_data.sheet_state = 'hidden'
 
 
 def build_pivot(df, val_col):
@@ -431,31 +474,10 @@ if __name__ == "__main__":
                     col_offset += (ncols + 2)
 
     # =============================
-    # 常態分布圖 sheet
+    # 常態分布圖（Excel 原生圖表）
+    # 同一 wafer → 同一列；不同欄位 → 同一列往右排
     # =============================
-    ws_dist = wb.create_sheet(title="分布圖")
-    IMG_W, IMG_H = 390, 270   # 圖片顯示尺寸（像素）
-    IMGS_PER_ROW = 4
-    COL_STEP = 7              # 每張圖佔幾欄（控制水平間距）
-    ROW_STEP = 15             # 每張圖佔幾列（控制垂直間距）
-
-    img_count = 0
-    for main_lot, sublots in lot_groups.items():
-        for sub_lot, rows in sublots.items():
-            lot_df = pd.DataFrame(rows)
-            lot_label = f"{main_lot}_{sub_lot}" if sub_lot else main_lot
-            for val_col in [col for col in value_columns if col in lot_df.columns]:
-                buf = build_normal_dist_chart(lot_df[val_col], lot_label, val_col)
-                if buf is None:
-                    continue
-                cur_row = (img_count // IMGS_PER_ROW) * ROW_STEP + 1
-                cur_col = (img_count % IMGS_PER_ROW) * COL_STEP + 1
-                anchor = ws_dist.cell(row=cur_row, column=cur_col).coordinate
-                img = XLImage(buf)
-                img.width = IMG_W
-                img.height = IMG_H
-                ws_dist.add_image(img, anchor)
-                img_count += 1
+    build_excel_dist_charts(wb, lot_groups, value_columns)
 
     if 'Sheet' in wb.sheetnames:
         del wb['Sheet']
