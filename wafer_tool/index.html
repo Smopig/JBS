@@ -79,6 +79,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .rename-input { width: 100%; padding: 4px 8px; border: 1px solid #cbd5e0; border-radius: 4px;
                 font-size: 12px; font-family: monospace; }
 .rename-input:focus { border-color: #4299e1; outline: none; }
+.sample-vals { font-size: 11px; color: #4a5568; font-family: monospace; line-height: 1.6;
+               white-space: nowrap; }
 
 /* Conversion badge */
 .cbadge      { padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; white-space: nowrap; }
@@ -210,9 +212,10 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
         <table class="rename-table">
           <thead>
             <tr>
-              <th style="width:35%">原始欄位名稱</th>
-              <th style="width:40%">新名稱（可直接修改）</th>
-              <th style="width:25%">數值換算方式</th>
+              <th style="width:24%">原始欄位名稱</th>
+              <th style="width:30%">新名稱（可直接修改）</th>
+              <th style="width:18%">數值換算方式</th>
+              <th style="width:28%">參考數值（第14~19列）</th>
             </tr>
           </thead>
           <tbody id="renameBody"></tbody>
@@ -366,7 +369,8 @@ async function loadColumns() {
     '<div class="status">⏳ 讀取欄位中...</div>';
   await tick();
 
-  const allCols = new Set();
+  const allCols    = new Set();
+  const colSamples = {};  // colName → string[]
   const errs = [];
 
   for (const file of S.files) {
@@ -376,16 +380,26 @@ async function loadColumns() {
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
       if (rows.length <= S._headerIdx) { errs.push(file.name); continue; }
-      rows[S._headerIdx].forEach(h => {
+      const headerRow  = rows[S._headerIdx];
+      const sampleRows = rows.slice(S._headerIdx + 1, S._headerIdx + 7); // 6 rows below header
+      headerRow.forEach((h, ci) => {
         if (h != null) {
           const s = String(h).trim();
-          if (s && !META_COLS.has(s) && !s.includes('SOT_SOT')) allCols.add(s);
+          if (s && !META_COLS.has(s) && !s.includes('SOT_SOT')) {
+            allCols.add(s);
+            if (!colSamples[s]) {
+              colSamples[s] = sampleRows
+                .map(r => (r && r[ci] != null) ? String(r[ci]).trim() : '')
+                .filter(v => v !== '');
+            }
+          }
         }
       });
     } catch(e) { errs.push(file.name); }
   }
 
-  S._rawCols = [...allCols];
+  S._rawCols     = [...allCols];
+  S._colSamples  = colSamples;
   buildRenameTable(S._rawCols);
   document.getElementById('renameSection').style.display = 'block';
 
@@ -404,6 +418,10 @@ function buildRenameTable(cols) {
     const tr = document.createElement('tr');
     const inputId = `ri_${idx}`;
     const badgeId = `rb_${idx}`;
+    const samples  = (S._colSamples[col] || []).slice(0, 6);
+    const sampHtml = samples.length
+      ? samples.map(v => escHtml(v)).join('<br>')
+      : '<span style="color:#a0aec0">—</span>';
     tr.innerHTML = `
       <td><span class="orig-name">${escHtml(col)}</span></td>
       <td>
@@ -412,7 +430,8 @@ function buildRenameTable(cols) {
       </td>
       <td style="text-align:center">
         <span id="${badgeId}" class="cbadge none">不換算</span>
-      </td>`;
+      </td>
+      <td class="sample-vals">${sampHtml}</td>`;
     tbody.appendChild(tr);
     updateBadge(document.getElementById(inputId), badgeId);
   });
