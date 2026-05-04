@@ -644,12 +644,16 @@ function renderMap() {
 
   S.lots.forEach(lot=>{
     const rows=S.data.filter(r=>r.Lot===lot);
-    const xSet=[...new Set(rows.map(r=>parseFloat(r.Xpos)).filter(v=>!isNaN(v)))].sort((a,b)=>b-a);
+    const xSet=[...new Set(rows.map(r=>parseFloat(r.Xpos)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
     const ySet=[...new Set(rows.map(r=>parseFloat(r.Ypos)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
     const z=ySet.map(y=>xSet.map(x=>{
       const m=rows.find(r=>parseFloat(r.Xpos)===x&&parseFloat(r.Ypos)===y);
       return m?(parseFloat(m[item])??null):null;
     }));
+    const xMin=xSet[0], xMax=xSet[xSet.length-1];
+    const yMin=ySet[0], yMax=ySet[ySet.length-1];
+    const xPad=(xMax-xMin)*0.03||0.5;
+    const yPad=(yMax-yMin)*0.03||0.5;
     const id=uid('map',lot);
     grid.insertAdjacentHTML('beforeend',
       `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
@@ -672,8 +676,8 @@ function renderMap() {
     }],{
       title:{text:`${lot} — ${item}`,font:{size:11}},
       margin:{t:36,b:36,l:44,r:10},
-      xaxis:{title:{text:'Xpos',font:{size:10}}},
-      yaxis:{title:{text:'Ypos',font:{size:10}}},
+      xaxis:{title:{text:'Xpos',font:{size:10}}, range:[xMax+xPad, xMin-xPad]},
+      yaxis:{title:{text:'Ypos',font:{size:10}}, range:[yMax+yPad, yMin-yPad]},
       height:290
     },{responsive:true,displayModeBar:false});
   });
