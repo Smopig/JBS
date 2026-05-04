@@ -203,7 +203,7 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
           </div>
         </div>
         <div class="btns">
-          <button class="btn btn-gray" style="font-size:12px" onclick="autoFillRename()">🔄 套用標準命名</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="autoFillRename()">🔄 自動命名（VFBC/BVCBO/ICBO）</button>
           <button class="btn btn-gray" style="font-size:12px" onclick="resetRename()">↩ 還原原始名稱</button>
         </div>
       </div>
@@ -453,13 +453,35 @@ function updateBadge(inputEl, badgeId) {
 
 function autoFillRename() {
   S._rawCols.forEach((col, idx) => {
-    const std = STD_RENAME[col];
-    if (std) {
-      const inp = document.getElementById(`ri_${idx}`);
-      inp.value = std;
+    const inp     = document.getElementById(`ri_${idx}`);
+    const samples = S._colSamples[col] || [];
+    const cond    = parseConditionLabel(samples[0]);
+    let newName   = null;
+
+    if      (col.includes('VFBC')  && cond) newName = `VF_${cond}`;
+    else if (col.includes('BVCBO') && cond) newName = `VR_${cond}`;
+    else if (col.includes('ICBO')  && cond) newName = `IR_${cond}`;
+
+    if (newName) {
+      inp.value = newName;
       updateBadge(inp, `rb_${idx}`);
     }
   });
+}
+
+// 解析條件字串：去掉 "IC=" / "VCB=" 等前綴，正規化數字（21.0→21）
+function parseConditionLabel(raw) {
+  if (raw == null || raw === '') return null;
+  // 去掉 "IC=" / "VCB=" / "IF=" 等前綴
+  let s = String(raw).replace(/^[A-Za-z_]+=\s*/, '').trim();
+  // 比對數字 + 單位，例如 "21.0V"、"100uA"、"260mA"、"1A"
+  const m = s.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
+  if (!m) return null;
+  const num  = parseFloat(m[1]);
+  const unit = m[2];
+  // 整數值去掉小數點（21.0 → 21，1.5 保留）
+  const numStr = (num === Math.floor(num)) ? String(Math.floor(num)) : String(num);
+  return numStr + unit;
 }
 
 function resetRename() {
