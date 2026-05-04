@@ -326,6 +326,8 @@ def build_pct_dist_charts(wb, lot_groups, pct_columns, df_all):
             bar.gapWidth = 0
             bar.title = f"{lot_label} | {val_col}  (n={len(series_data)}, mean={mu:.4g}, std={sigma:.4g})"
             bar.y_axis.title = "%"
+            bar.y_axis.scaling.min = 0
+            bar.y_axis.scaling.max = 100
             bar.width = CHART_W
             bar.height = CHART_H
 
