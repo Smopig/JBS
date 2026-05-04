@@ -4,15 +4,21 @@
 #3.對整片 wafer 資料按 Lot 分組並進行數值統計輸出。
 
 import os
+import io
 import time
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from scipy import stats
 from tkinter import Tk, simpledialog, filedialog
 from datetime import datetime
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule
+from openpyxl.drawing.image import Image as XLImage
 
 # 設定樣式
 thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
@@ -161,9 +167,9 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
     existing_cols = [col for col in desired_order if col in merged_df.columns]
     merged_df = merged_df[existing_cols]
 
-    # IR: A → uA (×1e6)，取小數點第1位
+    # IR: A → uA (×1e6)，取小數點第2位
     for col in [c for c in merged_df.columns if c.startswith('IR_')]:
-        merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').mul(1e6).round(1)
+        merged_df[col] = pd.to_numeric(merged_df[col], errors='coerce').mul(1e6).round(2)
 
     # VR: 取小數點第1位
     for col in [c for c in merged_df.columns if c.startswith('VR_')]:
@@ -183,6 +189,46 @@ def merge_excel_with_custom_header(folder_path, output_folder, header_row_index=
 # ==========================================
 # Part 2: MAP 熱區圖 + 統計（整片 wafer）
 # ==========================================
+
+def build_normal_dist_chart(data, lot_label, val_col):
+    """繪製常態分佈圖（直方圖 + 正態曲線），回傳 BytesIO PNG"""
+    data = pd.to_numeric(data, errors='coerce').dropna()
+    if len(data) < 3:
+        return None
+
+    mu, sigma = stats.norm.fit(data)
+    fig, ax = plt.subplots(figsize=(5, 3.5))
+
+    # 直方圖（density=True 讓縱軸與常態曲線一致）
+    ax.hist(data, bins=30, density=True, alpha=0.55, color='steelblue',
+            edgecolor='white', linewidth=0.5)
+
+    # 常態分佈曲線
+    x = np.linspace(data.min(), data.max(), 300)
+    ax.plot(x, stats.norm.pdf(x, mu, sigma), 'r-', linewidth=1.8)
+
+    # 統計標註
+    stats_text = (f'n = {len(data)}\n'
+                  f'μ = {mu:.4g}\n'
+                  f'σ = {sigma:.4g}\n'
+                  f'min = {data.min():.4g}\n'
+                  f'max = {data.max():.4g}')
+    ax.text(0.97, 0.97, stats_text, transform=ax.transAxes,
+            fontsize=7, verticalalignment='top', horizontalalignment='right',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+
+    ax.set_title(f'{lot_label}  {val_col}', fontsize=8, pad=4)
+    ax.set_xlabel(val_col, fontsize=7)
+    ax.set_ylabel('Density', fontsize=7)
+    ax.tick_params(labelsize=7)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=110)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
 
 def build_pivot(df, val_col):
     df[val_col] = pd.to_numeric(df[val_col], errors='coerce')
@@ -384,10 +430,38 @@ if __name__ == "__main__":
                 else:
                     col_offset += (ncols + 2)
 
+    # =============================
+    # 常態分布圖 sheet
+    # =============================
+    ws_dist = wb.create_sheet(title="分布圖")
+    IMG_W, IMG_H = 390, 270   # 圖片顯示尺寸（像素）
+    IMGS_PER_ROW = 4
+    COL_STEP = 7              # 每張圖佔幾欄（控制水平間距）
+    ROW_STEP = 15             # 每張圖佔幾列（控制垂直間距）
+
+    img_count = 0
+    for main_lot, sublots in lot_groups.items():
+        for sub_lot, rows in sublots.items():
+            lot_df = pd.DataFrame(rows)
+            lot_label = f"{main_lot}_{sub_lot}" if sub_lot else main_lot
+            for val_col in [col for col in value_columns if col in lot_df.columns]:
+                buf = build_normal_dist_chart(lot_df[val_col], lot_label, val_col)
+                if buf is None:
+                    continue
+                cur_row = (img_count // IMGS_PER_ROW) * ROW_STEP + 1
+                cur_col = (img_count % IMGS_PER_ROW) * COL_STEP + 1
+                anchor = ws_dist.cell(row=cur_row, column=cur_col).coordinate
+                img = XLImage(buf)
+                img.width = IMG_W
+                img.height = IMG_H
+                ws_dist.add_image(img, anchor)
+                img_count += 1
+
     if 'Sheet' in wb.sheetnames:
         del wb['Sheet']
     for ws in wb.worksheets:
-        format_numeric_cells(ws)
+        if ws.title != "分布圖":
+            format_numeric_cells(ws)
     map_path = merged_path.replace('.xlsx', '_MAP.xlsx')
     wb.save(map_path)
     print(f"✅ 整片 wafer MAP 圖與統計已完成：{map_path}")
