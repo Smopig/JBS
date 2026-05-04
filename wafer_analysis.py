@@ -25,9 +25,11 @@ left_align = Alignment(horizontal='left', vertical='center')
 # ==========================================
 
 def get_lot_name(filename):
+    # AAA002Y-N64S03A_01-data.xls → N64S03A_01
     base_name = os.path.splitext(filename)[0]
-    if '-' in base_name:
-        return base_name.rsplit('-', 1)[1]
+    parts = base_name.split('-')
+    if len(parts) >= 2:
+        return parts[1]
     return base_name
 
 def format_excel_file(filepath):
