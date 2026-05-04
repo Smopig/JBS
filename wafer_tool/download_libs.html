@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>下載 Library（一次性設定）</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; background:#f0f2f5; display:flex;
+         justify-content:center; align-items:center; min-height:100vh; margin:0; }
+  .box { background:white; border-radius:12px; padding:40px 48px; max-width:520px; width:100%;
+         box-shadow:0 4px 20px rgba(0,0,0,.1); text-align:center; }
+  h2   { color:#1a365d; margin-bottom:8px; }
+  p    { color:#4a5568; font-size:13px; line-height:1.7; margin-bottom:24px; }
+  .btn { display:inline-block; padding:14px 36px; background:#3182ce; color:white;
+         border:none; border-radius:8px; font-size:15px; font-weight:700; cursor:pointer;
+         transition:background .2s; }
+  .btn:hover { background:#2b6cb0; }
+  .btn:disabled { background:#a0aec0; cursor:not-allowed; }
+  .progress { margin-top:24px; }
+  .item { display:flex; align-items:center; gap:10px; padding:10px 14px; margin:8px 0;
+          border-radius:6px; background:#f7fafc; font-size:13px; text-align:left; }
+  .icon { font-size:20px; width:28px; text-align:center; }
+  .label { flex:1; color:#2d3748; }
+  .badge { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+  .wait  { background:#edf2f7; color:#718096; }
+  .ing   { background:#bee3f8; color:#2b6cb0; }
+  .done  { background:#c6f6d5; color:#276749; }
+  .fail  { background:#fed7d7; color:#c53030; }
+  .note  { margin-top:20px; padding:12px 16px; background:#fffbeb; border-radius:6px;
+           font-size:12px; color:#744210; border-left:4px solid #f6ad55; text-align:left; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div style="font-size:52px;margin-bottom:12px">📦</div>
+  <h2>Library 一鍵下載</h2>
+  <p>
+    此頁面會自動下載 Wafer Analysis Tool 所需的兩個檔案。<br>
+    請在<strong>有網路</strong>的電腦開啟此頁面，點擊下方按鈕後，<br>
+    將下載的 <code>.js</code> 檔案放入 <code>libs/</code> 資料夾即可。
+  </p>
+
+  <button class="btn" id="btnDL" onclick="downloadAll()">⬇️ 開始下載兩個 Library</button>
+
+  <div class="progress">
+    <div class="item">
+      <div class="icon">📊</div>
+      <div class="label">plotly.min.js（圖表 Library，約 3.5 MB）</div>
+      <div class="badge wait" id="s1">待下載</div>
+    </div>
+    <div class="item">
+      <div class="icon">📋</div>
+      <div class="label">xlsx.full.min.js（Excel Library，約 1 MB）</div>
+      <div class="badge wait" id="s2">待下載</div>
+    </div>
+  </div>
+
+  <div class="note">
+    💡 下載後將兩個 <code>.js</code> 檔案放入 <code>libs/</code> 資料夾，
+    之後開啟 <code>index.html</code> 就能完全離線使用，不需再連網。
+  </div>
+</div>
+
+<script>
+const LIBS = [
+  {
+    url: 'https://cdn.plot.ly/plotly-2.26.0.min.js',
+    filename: 'plotly.min.js',
+    statusId: 's1'
+  },
+  {
+    url: 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js',
+    filename: 'xlsx.full.min.js',
+    statusId: 's2'
+  }
+];
+
+function setStatus(id, state, text) {
+  const el = document.getElementById(id);
+  el.className = 'badge ' + state;
+  el.textContent = text;
+}
+
+async function downloadOne(lib) {
+  setStatus(lib.statusId, 'ing', '下載中...');
+  try {
+    const res = await fetch(lib.url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = lib.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    setStatus(lib.statusId, 'done', '✓ 完成');
+  } catch(e) {
+    setStatus(lib.statusId, 'fail', '✗ 失敗');
+    console.error(lib.filename, e);
+    throw e;
+  }
+}
+
+async function downloadAll() {
+  const btn = document.getElementById('btnDL');
+  btn.disabled = true;
+  btn.textContent = '下載中，請稍候...';
+
+  let allOk = true;
+  for (const lib of LIBS) {
+    try {
+      await downloadOne(lib);
+      await new Promise(r => setTimeout(r, 800)); // 避免瀏覽器攔截連續下載
+    } catch {
+      allOk = false;
+    }
+  }
+
+  btn.textContent = allOk ? '✅ 全部下載完成！' : '⚠️ 部分失敗，請重試';
+  if (!allOk) btn.disabled = false;
+}
+</script>
+</body>
+</html>
