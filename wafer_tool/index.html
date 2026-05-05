@@ -114,8 +114,13 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
 
 /* Stats table */
-.tbl-wrap { background: white; border-radius: 8px; overflow: auto; max-height: 70vh;
-            box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.tbl-wrap { overflow: auto; }
+.stats-block { background: white; border-radius: 8px; margin-bottom: 16px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.stats-block-hd { display:flex; align-items:center; justify-content:space-between;
+                  padding: 8px 14px; background: #2d3748; color: white; }
+.stats-block-hd .title { font-size: 13px; font-weight: 700; }
+.stats-block-scroll { overflow-x: auto; }
 table.stats  { width: 100%; border-collapse: collapse; font-size: 12px; }
 table.stats thead th { background: #2d3748; color: white; padding: 7px 12px; text-align: center;
                        white-space: nowrap; position: sticky; top: 0; z-index: 2; }
@@ -363,9 +368,10 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
   <!-- ══ Statistics ══ -->
   <div id="panel-stats" class="tab-panel">
     <!-- Row 1: item + export -->
-    <div class="ctrl">
-      <label>量測項目：</label>
-      <select id="stItem" onchange="switchStatItem()"></select>
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">量測項目：</label>
+      <div id="stItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <button class="btn btn-gray" style="font-size:12px" onclick="addStatItem()">＋ 新增項目</button>
       <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
     </div>
     <!-- Row 2: stat chips + reset -->
@@ -418,11 +424,12 @@ const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 const S = {
   files: [], data: [], lots: [], items: [], globalBins: {},
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
-  activeStats:   [...DEFAULT_STATS],
-  customStats:   [],
-  statSpecs:     {},
-  statFormats:   {},                   // { statKey: { type:'fixed'|'sci', decimals:N } }
-  _prevStatItem: ''
+  activeStats:      [...DEFAULT_STATS],
+  customStats:      [],
+  statSpecs:        {},
+  statFormats:      {},
+  statItems:        [''],              // list of selected measurement items
+  itemRemovedStats: {}                 // { item: Set<statKey> }  per-item hidden rows
 };
 
 // ══════════════════════════════════════════════════
@@ -695,11 +702,12 @@ function populateSels() {
   const opts    = S.items.map(i => `<option value="${i}">${i}</option>`).join('');
   const lotOpts = '<option value="all">全部</option>' +
                   S.lots.map(l => `<option value="${l}">${l}</option>`).join('');
-  ['mapItem','cntItem','stItem'].forEach(id =>
+  ['mapItem','cntItem'].forEach(id =>
     document.getElementById(id).innerHTML = opts);
   document.getElementById('pctItem').innerHTML  = '<option value="all">全部項目</option>' + opts;
   document.getElementById('pctLot').innerHTML   = lotOpts;
   document.getElementById('cntLot').innerHTML   = lotOpts;
+  renderStatItemSelects();
 }
 
 // ══════════════════════════════════════════════════
@@ -818,7 +826,55 @@ function getAllStatFns() {
   return fns;
 }
 
-// ── Active stats management ──
+// ── Multiple item selects ──
+function addStatItem() {
+  S.statItems.push('');
+  renderStatItemSelects();
+}
+function removeStatItem(i) {
+  S.statItems.splice(i, 1);
+  if (S.statItems.length === 0) S.statItems.push('');
+  renderStatItemSelects();
+  renderStats();
+}
+function setStatItem(i, val) {
+  S.statItems[i] = val;
+  renderStats();
+}
+function renderStatItemSelects() {
+  const el = document.getElementById('stItemList');
+  if (!el) return;
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  el.innerHTML = S.statItems.map((item, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px">
+       <select onchange="setStatItem(${i},this.value)"
+               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+         <option value="">-- 選擇項目 --</option>${opts}
+       </select>
+       ${S.statItems.length > 1
+         ? `<button onclick="removeStatItem(${i})"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;font-size:17px;line-height:1;padding:0 2px"
+                    title="移除此項目">×</button>` : ''}
+     </span>`).join('');
+  // restore selected values
+  S.statItems.forEach((item, i) => {
+    const sel = el.querySelectorAll('select')[i];
+    if (sel && item) sel.value = item;
+  });
+}
+
+// ── Per-item row hide ──
+function hideStatForItem(item, key) {
+  if (!S.itemRemovedStats[item]) S.itemRemovedStats[item] = new Set();
+  S.itemRemovedStats[item].add(key);
+  renderStats();
+}
+function resetItemStats(item) {
+  delete S.itemRemovedStats[item];
+  renderStats();
+}
+
+// ── Active stats management (global) ──
 function addStat(key) {
   if (!S.activeStats.includes(key)) { S.activeStats.push(key); renderStatChips(); renderStats(); }
 }
@@ -833,12 +889,12 @@ function resetStats() {
 function renderStatChips() {
   const el = document.getElementById('stChips');
   if (!el) return;
-  const allKeys  = [...DEFAULT_STATS, ...S.customStats.map(cs => cs.label)];
+  const allKeys   = [...DEFAULT_STATS, ...S.customStats.map(cs => cs.label)];
   const activeSet = new Set(S.activeStats);
   el.innerHTML = allKeys.map(key => {
     const on = activeSet.has(key);
     return `<span onclick="${on ? `removeStat('${escHtml(key)}')` : `addStat('${escHtml(key)}')`}"
-                  title="${on ? '點擊移除此列' : '點擊加入此列'}"
+                  title="${on ? '點擊從所有項目移除' : '點擊加入所有項目'}"
                   style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;
                          font-size:12px;cursor:pointer;user-select:none;transition:all .15s;
                          ${on ? 'background:#3182ce;color:white' : 'background:#e2e8f0;color:#4a5568'}">
@@ -900,7 +956,7 @@ function recolorStatRow(item, key) {
   const fn   = getAllStatFns()[key];
   if (!fn) return;
   S.lots.forEach(lot => {
-    const cell = document.getElementById(`stc_${sk(key)}_${sk(lot)}`);
+    const cell = document.getElementById(`stc_${sk(item)}_${sk(key)}_${sk(lot)}`);
     if (!cell) return;
     const d      = validData(lot, item);
     if (!d.length) return;
@@ -935,11 +991,6 @@ function saveStatFormat(key, field, val) {
   renderStats();
 }
 
-// ── Switch item ──
-function switchStatItem() {
-  S._prevStatItem = document.getElementById('stItem').value;
-  renderStats();
-}
 
 // ══════════════════════════════════════════════════
 // WAFER MAP
@@ -1138,46 +1189,62 @@ const STAT_FNS={
   'Std':   d=>std(d)
 };
 function renderStats() {
-  const item = document.getElementById('stItem').value;
-  const el   = document.getElementById('stTable');
-  if (!item) return;
+  const el = document.getElementById('stTable');
+  el.innerHTML = '';
+  S.statItems.forEach(item => {
+    if (!item) return;
+    el.appendChild(buildItemStatsBlock(item));
+  });
+}
 
-  const allFns = getAllStatFns();
-  const SINP   = `style="width:68px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
-  const FINP   = `style="width:40px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
-  const FSEL   = `style="font-size:11px;padding:2px 3px;border:1px solid #e2e8f0;border-radius:3px;max-width:52px"`;
+function buildItemStatsBlock(item) {
+  const allFns  = getAllStatFns();
+  const removed = S.itemRemovedStats[item] || new Set();
+  const visKeys = S.activeStats.filter(k => !removed.has(k));
+  const esc_item = escHtml(item);
+  const SINP = `style="width:68px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
+  const FINP = `style="width:40px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
+  const FSEL = `style="font-size:11px;padding:2px 3px;border:1px solid #e2e8f0;border-radius:3px;max-width:52px"`;
 
-  let h = `<table class="stats"><thead><tr>
-    <th class="row-label" style="min-width:90px">統計項目</th>`;
+  let h = `<div class="stats-block">
+    <div class="stats-block-hd">
+      <span class="title">${esc_item}</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        ${removed.size > 0
+          ? `<button onclick="resetItemStats('${esc_item}')"
+                     style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+                            color:white;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">
+               ↩ 還原隱藏列（${removed.size}）</button>` : ''}
+      </span>
+    </div>
+    <div class="stats-block-scroll">
+    <table class="stats"><thead><tr>
+      <th class="row-label" style="min-width:90px">統計項目</th>`;
   S.lots.forEach(l => { h += `<th>${escHtml(l)}</th>`; });
   h += `<th style="background:#744210;min-width:72px">LSL</th>
         <th style="background:#744210;min-width:72px">Typical</th>
         <th style="background:#744210;min-width:72px">USL</th>
         <th style="background:#276749;min-width:60px">格式</th>
         <th style="background:#276749;min-width:50px">位數</th>
-        <th style="background:#4a5568;width:28px"></th>
-        </tr></thead><tbody>`;
+        <th style="background:#4a5568;width:28px" title="隱藏此列（僅此項目）"></th>
+      </tr></thead><tbody>`;
 
-  S.activeStats.forEach(key => {
-    const fn    = allFns[key];
+  visKeys.forEach(key => {
+    const fn   = allFns[key];
     if (!fn) return;
     const spec  = (S.statSpecs[item] || {})[key] || {};
     const fmt   = getStatFmt(key);
-    const safeK = sk(key);
-    const esc_item = escHtml(item), esc_key = escHtml(key);
+    const esc_key = escHtml(key);
 
-    h += `<tr><td class="row-label">${escHtml(key)}</td>`;
-
+    h += `<tr><td class="row-label">${esc_key}</td>`;
     S.lots.forEach(lot => {
       const d = validData(lot, item);
-      if (!d.length) { h += `<td id="stc_${safeK}_${sk(lot)}">—</td>`; return; }
+      if (!d.length) { h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}">—</td>`; return; }
       const rawVal  = fn(d, spec);
       const dispVal = formatStatVal(key, rawVal);
       const sty     = specColor(key, rawVal, spec);
-      h += `<td id="stc_${safeK}_${sk(lot)}" style="${sty}">${dispVal}</td>`;
+      h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}" style="${sty}">${dispVal}</td>`;
     });
-
-    // LSL / Typical / USL
     h += `<td style="padding:3px 5px">
             <input type="number" step="any" placeholder="—" ${SINP}
                    value="${spec.lsl ?? ''}"
@@ -1192,33 +1259,30 @@ function renderStats() {
             <input type="number" step="any" placeholder="—" ${SINP}
                    value="${spec.usl ?? ''}"
                    onchange="saveSpecCell('${esc_item}','${esc_key}','usl',this.value)">
-          </td>`;
-
-    // Format type select
-    h += `<td style="padding:3px 5px;text-align:center">
+          </td>
+          <td style="padding:3px 5px;text-align:center">
             <select ${FSEL} onchange="saveStatFormat('${esc_key}','type',this.value)">
               <option value="fixed" ${fmt.type==='fixed'?'selected':''}>0.0</option>
               <option value="sci"   ${fmt.type==='sci'  ?'selected':''}>1e</option>
             </select>
-          </td>`;
-
-    // Decimal places input
-    h += `<td style="padding:3px 5px;text-align:center">
+          </td>
+          <td style="padding:3px 5px;text-align:center">
             <input type="number" min="0" max="10" ${FINP}
                    value="${fmt.decimals}"
                    onchange="saveStatFormat('${esc_key}','decimals',this.value)">
-          </td>`;
-
-    // Delete button
-    h += `<td style="text-align:center">
-            <button onclick="removeStat('${esc_key}')" title="移除此列"
+          </td>
+          <td style="text-align:center">
+            <button onclick="hideStatForItem('${esc_item}','${esc_key}')"
+                    title="隱藏此列（僅此項目，不影響其他）"
                     style="border:none;background:none;cursor:pointer;color:#a0aec0;
-                           font-size:17px;line-height:1;padding:0 4px">×</button>
+                           font-size:17px;line-height:1;padding:0 4px">−</button>
           </td></tr>`;
   });
 
-  h += `</tbody></table>`;
-  el.innerHTML = h;
+  h += `</tbody></table></div></div>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = h;
+  return wrap.firstChild;
 }
 
 // ══════════════════════════════════════════════════
