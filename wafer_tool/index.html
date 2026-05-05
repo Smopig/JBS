@@ -252,6 +252,25 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
         <option value="desc" selected>大 → 小</option>
         <option value="asc">小 → 大</option>
       </select>
+      <label style="margin-left:12px">色階：</label>
+      <select id="mapColorscale" onchange="renderMap()">
+        <option value="WhRd">白 → 紅</option>
+        <option value="RdBu">藍 ↔ 紅（對稱）</option>
+        <option value="Viridis">Viridis</option>
+        <option value="Rainbow">彩虹</option>
+        <option value="YlOrRd">黃 → 橙 → 紅</option>
+        <option value="Greys">灰階</option>
+      </select>
+      <label style="margin-left:12px">色階範圍：</label>
+      <input id="mapZmin" type="number" placeholder="auto" step="any"
+             style="width:72px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderMap()">
+      <span style="font-size:12px;color:#718096;margin:0 4px">～</span>
+      <input id="mapZmax" type="number" placeholder="auto" step="any"
+             style="width:72px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderMap()">
+      <button class="btn btn-gray" style="font-size:11px;padding:4px 10px;margin-left:6px"
+              onclick="autoZRange()">自動填入</button>
     </div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
@@ -642,14 +661,47 @@ let _uid=0;
 function uid(p,k) { return `ch-${p}-${String(k).replace(/[^a-zA-Z0-9]/g,'_')}_${++_uid}`; }
 
 // ══════════════════════════════════════════════════
+// COLORSCALE PRESETS
+// ══════════════════════════════════════════════════
+const COLORSCALES = {
+  WhRd:    [[0,'#ffffff'],[0.15,'#c6dbef'],[0.3,'#6baed6'],[0.5,'#00e5ff'],
+            [0.65,'#69f0ae'],[0.78,'#ffee58'],[0.9,'#ff9800'],[1,'#b71c1c']],
+  RdBu:    [[0,'#053061'],[0.2,'#2166ac'],[0.4,'#92c5de'],[0.5,'#f7f7f7'],
+            [0.6,'#f4a582'],[0.8,'#d6604d'],[1,'#67001f']],
+  Viridis: [[0,'#440154'],[0.2,'#3b528b'],[0.4,'#21908c'],[0.6,'#5dc963'],
+            [0.8,'#aad156'],[1,'#fde725']],
+  Rainbow: [[0,'#6e40aa'],[0.15,'#4c6edb'],[0.3,'#1fa8a0'],[0.45,'#40d54a'],
+            [0.6,'#c8df27'],[0.75,'#fb8c25'],[0.9,'#f03b20'],[1,'#b10026']],
+  YlOrRd:  [[0,'#ffffcc'],[0.25,'#fed976'],[0.5,'#fd8d3c'],[0.75,'#e31a1c'],[1,'#800026']],
+  Greys:   [[0,'#ffffff'],[1,'#000000']]
+};
+
+// 自動填入目前 item 的全局 min/max 到色階範圍輸入框
+function autoZRange() {
+  const item = document.getElementById('mapItem').value;
+  if (!item) return;
+  const vals = validData(null, item);
+  if (!vals.length) return;
+  document.getElementById('mapZmin').value = rd(Math.min(...vals), 6);
+  document.getElementById('mapZmax').value = rd(Math.max(...vals), 6);
+  renderMap();
+}
+
+// ══════════════════════════════════════════════════
 // WAFER MAP
 // ══════════════════════════════════════════════════
 function renderMap() {
-  const item  = document.getElementById('mapItem').value;
-  const cols  = document.getElementById('mapCols').value;
-  const xDesc = document.getElementById('mapXDir').value === 'desc';
-  const yDesc = document.getElementById('mapYDir').value === 'desc';
-  const grid  = document.getElementById('mapGrid');
+  const item       = document.getElementById('mapItem').value;
+  const cols       = document.getElementById('mapCols').value;
+  const xDesc      = document.getElementById('mapXDir').value === 'desc';
+  const yDesc      = document.getElementById('mapYDir').value === 'desc';
+  const csKey      = document.getElementById('mapColorscale').value;
+  const colorscale = COLORSCALES[csKey] || COLORSCALES.WhRd;
+  const zminRaw    = document.getElementById('mapZmin').value;
+  const zmaxRaw    = document.getElementById('mapZmax').value;
+  const zmin       = zminRaw !== '' ? parseFloat(zminRaw) : undefined;
+  const zmax       = zmaxRaw !== '' ? parseFloat(zmaxRaw) : undefined;
+  const grid       = document.getElementById('mapGrid');
   if(!item) return;
   grid.className = `chart-grid cols-${cols}`;
   grid.innerHTML = '';
@@ -679,11 +731,9 @@ function renderMap() {
       `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
     Plotly.newPlot(id, [{
       type:'heatmap', z, x:xSet, y:ySet,
-      colorscale:[
-        [0,   '#f7fbff'],[0.1, '#c6dbef'],[0.2, '#6baed6'],
-        [0.35,'#2196f3'],[0.5, '#00e5ff'],[0.6, '#69f0ae'],
-        [0.7, '#ffee58'],[0.82,'#ff9800'],[0.92,'#f44336'],[1,'#880000']
-      ],
+      colorscale,
+      zmin: zmin !== undefined ? zmin : undefined,
+      zmax: zmax !== undefined ? zmax : undefined,
       hoverongaps:false,
       hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
     }], {
