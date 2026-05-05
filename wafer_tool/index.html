@@ -510,9 +510,13 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
         <option value="">-- 選擇 Y 項目 --</option>
       </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Lot 篩選：</label>
+      <select id="caCorrLot" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="all">全部 Lot</option>
+      </select>
       <label style="margin-left:12px;font-size:12px;font-weight:700">迴歸線 + R²：</label>
       <input type="checkbox" id="caCorrReg" onchange="renderChart()" checked style="width:15px;height:15px">
-      <span style="font-size:11px;color:#718096;margin-left:4px">（X 軸 = 量測項目，各 Lot 不同色）</span>
     </div>
 
     <!-- Row 4: SPEC lines -->
@@ -843,7 +847,8 @@ function populateSels() {
   document.getElementById('pctItem').innerHTML  = '<option value="all">全部項目</option>' + opts;
   document.getElementById('pctLot').innerHTML   = lotOpts;
   document.getElementById('cntLot').innerHTML   = lotOpts;
-  document.getElementById('caCorrY').innerHTML  = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
+  document.getElementById('caCorrY').innerHTML    = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
+  document.getElementById('caCorrLot').innerHTML  = '<option value="all">全部 Lot</option>' + S.lots.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
   renderStatItemSelects();
   renderChartItemSelects();
 }
@@ -2018,11 +2023,15 @@ function caCorr(items, grid) {
   const showSpec = document.getElementById('caShowSpec').checked;
   const showReg  = document.getElementById('caCorrReg').checked;
   const yItem    = document.getElementById('caCorrY').value;
-  if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請在右方選擇 Y 軸項目</div>'; return; }
+  const selLot   = document.getElementById('caCorrLot').value;
+  if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請選擇 Y 軸項目</div>'; return; }
+
+  const activeLots = selLot === 'all' ? S.lots : [selLot];
 
   items.forEach(item => {
     if (item === yItem) return;
-    const allPairs = S.lots.flatMap((lot,li) => {
+    const allPairs = activeLots.flatMap(lot => {
+      const li = S.lots.indexOf(lot);
       const rows = S.data.filter(r => r.Lot === lot);
       return rows.map(r => {
         const x = parseFloat(r[item]);
@@ -2032,7 +2041,8 @@ function caCorr(items, grid) {
     });
     if (!allPairs.length) return;
 
-    const traces = S.lots.map((lot, li) => {
+    const traces = activeLots.map(lot => {
+      const li  = S.lots.indexOf(lot);
       const pts = allPairs.filter(p => p.lot === lot);
       if (!pts.length) return null;
       return {
