@@ -143,6 +143,17 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
 @media (max-width:1100px) { .cols-4,.cols-6 { grid-template-columns: repeat(3,1fr); } }
 @media (max-width: 800px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: repeat(2,1fr); } }
 @media (max-width: 500px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: 1fr; } }
+
+/* Chart analysis */
+.ca-type-btn { padding:5px 13px; border-radius:20px; border:2px solid #e2e8f0; cursor:pointer;
+               font-size:12px; font-weight:600; background:white; color:#4a5568;
+               transition:all .15s; white-space:nowrap; }
+.ca-type-btn.active { background:#1a365d; color:white; border-color:#1a365d; }
+.ca-type-btn:hover:not(.active) { border-color:#a0aec0; color:#1a365d; }
+.spec-input-group { display:inline-flex; align-items:center; gap:5px; background:#f7fafc;
+                    border:1px solid #e2e8f0; border-radius:5px; padding:4px 8px; font-size:11px; }
+.spec-input-group b { color:#2d3748; }
+.spec-inp { width:78px; padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; font-size:11px; }
 </style>
 </head>
 <body>
@@ -158,6 +169,7 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
   <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
   <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
+  <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析</button>
 </div>
 
 <div class="content">
@@ -396,6 +408,125 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
     <div id="stTable" class="tbl-wrap"></div>
   </div>
 
+  <!-- ══ Chart Analysis ══ -->
+  <div id="panel-chart" class="tab-panel">
+
+    <!-- Row 1: Items + Lot mode + Cols -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-size:12px;font-weight:700">量測項目：</label>
+      <div id="caItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <button class="btn btn-gray" style="font-size:12px" onclick="addChartItem()">＋ 新增項目</button>
+      <span id="caLotModeWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px">
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">Lot 顯示：</label>
+        <select id="caLotMode" onchange="renderChart()"
+                style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+          <option value="overlay">全部疊加</option>
+          <option value="split" selected>每 Lot 獨立</option>
+        </select>
+      </span>
+      <label style="margin-left:12px;white-space:nowrap;font-size:12px;font-weight:700">每列欄數：</label>
+      <select id="caColsSel" onchange="syncCols('ca',renderChart)"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
+      </select>
+      <input id="caColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderChart()">
+    </div>
+
+    <!-- Row 2: Chart type buttons -->
+    <div class="ctrl" style="gap:6px;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap;margin-right:4px">圖表類型：</label>
+      <div id="caTypeButtons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+
+    <!-- Row 3a: Scatter contextual -->
+    <div id="caCtxScatter" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">X 軸：</label>
+      <select id="caScatterX" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="xpos">Xpos</option>
+        <option value="ypos">Ypos</option>
+        <option value="index">Index</option>
+      </select>
+      <label style="margin-left:10px;font-size:12px;font-weight:700">點大小：</label>
+      <input type="range" id="caScatterSize" min="2" max="14" value="5" style="width:80px;vertical-align:middle"
+             oninput="renderChart()">
+    </div>
+
+    <!-- Row 3b: Trend contextual -->
+    <div id="caCtxTrend" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">誤差棒：</label>
+      <select id="caTrendErr" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1sigma">±1σ</option>
+        <option value="2sigma" selected>±2σ</option>
+        <option value="3sigma">±3σ</option>
+        <option value="range">Min～Max</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Cpk 標示：</label>
+      <input type="checkbox" id="caTrendCpk" onchange="renderChart()" checked style="width:15px;height:15px">
+    </div>
+
+    <!-- Row 3c: Bar+Error contextual -->
+    <div id="caCtxBar" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">誤差棒：</label>
+      <select id="caBarErr" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1sigma">±1σ</option>
+        <option value="2sigma" selected>±2σ</option>
+        <option value="3sigma">±3σ</option>
+        <option value="range">Min～Max</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Cpk 標示：</label>
+      <input type="checkbox" id="caBarCpk" onchange="renderChart()" checked style="width:15px;height:15px">
+    </div>
+
+    <!-- Row 3d: SPC contextual -->
+    <div id="caCtxSPC" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">X 軸：</label>
+      <select id="caSPCxAxis" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="index">Index</option>
+        <option value="lot">Lot 分組</option>
+        <option value="xpos">Xpos</option>
+        <option value="ypos">Ypos</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">管制線 σ：</label>
+      <select id="caSPCsigma" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1">±1σ</option>
+        <option value="2">±2σ</option>
+        <option value="3" selected>±3σ</option>
+      </select>
+    </div>
+
+    <!-- Row 3e: Correlation contextual -->
+    <div id="caCtxCorr" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">Y 軸項目：</label>
+      <select id="caCorrY" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="">-- 選擇 Y 項目 --</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">迴歸線 + R²：</label>
+      <input type="checkbox" id="caCorrReg" onchange="renderChart()" checked style="width:15px;height:15px">
+      <span style="font-size:11px;color:#718096;margin-left:4px">（X 軸 = 量測項目，各 Lot 不同色）</span>
+    </div>
+
+    <!-- Row 4: SPEC lines -->
+    <div class="ctrl" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap">SPEC 線：</label>
+      <input type="checkbox" id="caShowSpec" onchange="renderChart()" checked style="width:15px;height:15px">
+      <span style="font-size:11px;color:#718096">顯示 LSL / Typical / USL 水平線（紅虛線 / 綠點線）</span>
+      <div id="caSpecInputs" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;width:100%"></div>
+    </div>
+
+    <!-- Chart output grid -->
+    <div id="caGrid" class="chart-grid"></div>
+  </div>
+
 </div><!-- /content -->
 
 <script src="libs/xlsx.full.min.js"></script>
@@ -429,7 +560,11 @@ const S = {
   statSpecs:        {},
   statFormats:      {},
   statItems:        [''],              // list of selected measurement items
-  itemRemovedStats: {}                 // { item: Set<statKey> }  per-item hidden rows
+  itemRemovedStats: {},               // { item: Set<statKey> }  per-item hidden rows
+  // Chart Analysis
+  chartItems:       [''],
+  chartType:        'box',
+  chartSpecs:       {}                // { item: { lsl, typical, usl } }
 };
 
 // ══════════════════════════════════════════════════
@@ -686,7 +821,7 @@ async function applyAndAnalyze() {
 
   populateSels();
 
-  ['map','count','pct','stats'].forEach(t =>
+  ['map','count','pct','stats','chart'].forEach(t =>
     document.getElementById('tb-' + t).disabled = false);
 
   const errHtml = errs.length ? `<div class="status err">⚠️ ${errs.join('<br>')}</div>` : '';
@@ -696,6 +831,7 @@ async function applyAndAnalyze() {
 
   renderStatChips(); renderCustomStatTags();
   renderMap(); renderCount(); renderPct(); renderStats();
+  initChartTab();
 }
 
 function populateSels() {
@@ -707,7 +843,9 @@ function populateSels() {
   document.getElementById('pctItem').innerHTML  = '<option value="all">全部項目</option>' + opts;
   document.getElementById('pctLot').innerHTML   = lotOpts;
   document.getElementById('cntLot').innerHTML   = lotOpts;
+  document.getElementById('caCorrY').innerHTML  = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
   renderStatItemSelects();
+  renderChartItemSelects();
 }
 
 // ══════════════════════════════════════════════════
@@ -1283,6 +1421,669 @@ function buildItemStatsBlock(item) {
   const wrap = document.createElement('div');
   wrap.innerHTML = h;
   return wrap.firstChild;
+}
+
+// ══════════════════════════════════════════════════
+// CHART ANALYSIS
+// ══════════════════════════════════════════════════
+
+const CHART_TYPES = [
+  {key:'box',    label:'📦 箱型圖'},
+  {key:'violin', label:'🎻 小提琴'},
+  {key:'scatter',label:'🔵 散佈圖'},
+  {key:'trend',  label:'📉 趨勢圖'},
+  {key:'bar',    label:'📊 長條圖'},
+  {key:'spc',    label:'🎯 SPC'},
+  {key:'cdf',    label:'📈 CDF'},
+  {key:'corr',   label:'🔗 相關分析'},
+];
+
+const LOT_COLORS = [
+  '#3182ce','#38a169','#d69e2e','#e53e3e',
+  '#805ad5','#dd6b20','#319795','#d53f8c',
+  '#2b6cb0','#276749','#b7791f','#c53030'
+];
+function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
+
+// Chart types where lot mode is not meaningful (always one chart per item)
+const CA_NO_LOTMODE = new Set(['box','violin','bar','corr']);
+
+function initChartTab() {
+  renderChartTypeButtons();
+  renderChartItemSelects();
+  updateChartCtxPanels();
+}
+
+function renderChartTypeButtons() {
+  const el = document.getElementById('caTypeButtons');
+  if (!el) return;
+  el.innerHTML = CHART_TYPES.map(t =>
+    `<button class="ca-type-btn ${S.chartType===t.key?'active':''}"
+             onclick="switchChartType('${t.key}')">${t.label}</button>`
+  ).join('');
+}
+
+function switchChartType(type) {
+  S.chartType = type;
+  renderChartTypeButtons();
+  updateChartCtxPanels();
+  renderChart();
+}
+
+function updateChartCtxPanels() {
+  const ctxIds = ['caCtxScatter','caCtxTrend','caCtxBar','caCtxSPC','caCtxCorr'];
+  const show = {
+    scatter:'caCtxScatter', trend:'caCtxTrend',
+    bar:'caCtxBar', spc:'caCtxSPC', corr:'caCtxCorr'
+  };
+  ctxIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const showId = show[S.chartType];
+  if (showId) { const el = document.getElementById(showId); if (el) el.style.display = ''; }
+  // Lot mode not meaningful for box/violin/bar/corr
+  const lmw = document.getElementById('caLotModeWrap');
+  if (lmw) lmw.style.display = CA_NO_LOTMODE.has(S.chartType) ? 'none' : 'inline-flex';
+}
+
+// ── Item selects ──
+function addChartItem() {
+  S.chartItems.push('');
+  renderChartItemSelects();
+}
+function removeChartItem(i) {
+  S.chartItems.splice(i, 1);
+  if (!S.chartItems.length) S.chartItems.push('');
+  renderChartItemSelects();
+  renderChartSpecInputs();
+  renderChart();
+}
+function setChartItem(i, val) {
+  S.chartItems[i] = val;
+  renderChartSpecInputs();
+  renderChart();
+}
+function renderChartItemSelects() {
+  const el = document.getElementById('caItemList');
+  if (!el) return;
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  el.innerHTML = S.chartItems.map((item, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px">
+       <select onchange="setChartItem(${i},this.value)"
+               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+         <option value="">-- 選擇項目 --</option>${opts}
+       </select>
+       ${S.chartItems.length > 1
+         ? `<button onclick="removeChartItem(${i})"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;
+                           font-size:17px;line-height:1;padding:0 2px">×</button>` : ''}
+     </span>`).join('');
+  S.chartItems.forEach((item, i) => {
+    const sel = el.querySelectorAll('select')[i];
+    if (sel && item) sel.value = item;
+  });
+}
+
+// ── Spec inputs per item ──
+function saveChartSpec(item, field, val) {
+  if (!S.chartSpecs[item]) S.chartSpecs[item] = {};
+  S.chartSpecs[item][field] = val !== '' ? parseFloat(val) : null;
+  renderChart();
+}
+function renderChartSpecInputs() {
+  const el = document.getElementById('caSpecInputs');
+  if (!el) return;
+  const items = S.chartItems.filter(Boolean);
+  if (!items.length) { el.innerHTML = ''; return; }
+  el.innerHTML = items.map(item => {
+    const spec = S.chartSpecs[item] || {};
+    return `<div class="spec-input-group">
+      <b>${escHtml(item)}</b>&nbsp;
+      <label style="color:#718096">LSL</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.lsl ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','lsl',this.value)">
+      <label style="color:#718096">Typical</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.typical ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','typical',this.value)">
+      <label style="color:#718096">USL</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.usl ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','usl',this.value)">
+    </div>`;
+  }).join('');
+}
+
+// ── Spec shapes/annotations helpers ──
+function buildSpecShapes(spec, show) {
+  if (!show) return [];
+  const out = [];
+  const base = {type:'line', xref:'paper', x0:0, x1:1};
+  if (spec.lsl != null) out.push({...base, yref:'y', y0:spec.lsl, y1:spec.lsl,
+    line:{color:'#e53e3e', width:2, dash:'dash'}});
+  if (spec.usl != null) out.push({...base, yref:'y', y0:spec.usl, y1:spec.usl,
+    line:{color:'#e53e3e', width:2, dash:'dash'}});
+  if (spec.typical != null) out.push({...base, yref:'y', y0:spec.typical, y1:spec.typical,
+    line:{color:'#38a169', width:1.5, dash:'dot'}});
+  return out;
+}
+function buildSpecAnnotations(spec, show) {
+  if (!show) return [];
+  const out = [];
+  const base = {xref:'paper', x:0.01, showarrow:false,
+    font:{size:10}, bgcolor:'rgba(255,255,255,0.75)', xanchor:'left'};
+  if (spec.lsl != null) out.push({...base, yref:'y', y:spec.lsl,
+    text:'LSL', font:{...base.font, color:'#e53e3e'}});
+  if (spec.usl != null) out.push({...base, yref:'y', y:spec.usl,
+    text:'USL', font:{...base.font, color:'#e53e3e'}});
+  if (spec.typical != null) out.push({...base, yref:'y', y:spec.typical,
+    text:'Typ', font:{...base.font, color:'#38a169'}});
+  return out;
+}
+
+// ── Cpk / error bar helpers ──
+function calcCpk(d, spec) {
+  if (!spec || (spec.lsl == null && spec.usl == null)) return null;
+  const mu = mean(d), sg = std(d);
+  if (sg === 0) return null;
+  const cpu = spec.usl != null ? (spec.usl - mu) / (3 * sg) : Infinity;
+  const cpl = spec.lsl != null ? (mu - spec.lsl) / (3 * sg) : Infinity;
+  return Math.min(cpu, cpl);
+}
+function errBarVals(d, mode) {
+  const mu = mean(d), sg = std(d);
+  if (mode === 'range') return [mu - Math.min(...d), Math.max(...d) - mu];
+  const k = mode === '1sigma' ? 1 : mode === '2sigma' ? 2 : 3;
+  return [k * sg, k * sg];
+}
+function linRegress(xs, ys) {
+  const n = xs.length;
+  const mx = mean(xs), my = mean(ys);
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { num += (xs[i]-mx)*(ys[i]-my); den += (xs[i]-mx)**2; }
+  const slope = den ? num/den : 0;
+  const intercept = my - slope*mx;
+  const ssTot = ys.reduce((s,y)=>s+(y-my)**2, 0);
+  const ssRes = ys.reduce((s,y,i)=>s+(y-(slope*xs[i]+intercept))**2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes/ssTot : 0;
+  return {slope, intercept, r2};
+}
+
+// ── Main dispatcher ──
+function renderChart() {
+  const items = S.chartItems.filter(Boolean);
+  const grid  = document.getElementById('caGrid');
+  if (!items.length || !grid) return;
+  setGridCols(grid, getCols('ca'));
+  grid.innerHTML = '';
+  renderChartSpecInputs();
+  switch (S.chartType) {
+    case 'box':    caBox(items, grid);    break;
+    case 'violin': caViolin(items, grid); break;
+    case 'scatter':caScatter(items, grid);break;
+    case 'trend':  caTrend(items, grid);  break;
+    case 'bar':    caBar(items, grid);    break;
+    case 'spc':    caSPC(items, grid);    break;
+    case 'cdf':    caCDF(items, grid);    break;
+    case 'corr':   caCorr(items, grid);   break;
+  }
+}
+
+// ── Box ──
+function caBox(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const traces = S.lots.map((lot, li) => ({
+      type:'box', y:validData(lot, item), name:lot,
+      boxpoints:'outliers', marker:{color:getColor(li)}, line:{color:getColor(li)}
+    }));
+    const id = uid('ca', item+'box');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+      shapes, annotations:annots, height:340,
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── Violin ──
+function caViolin(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const traces = S.lots.map((lot, li) => ({
+      type:'violin', y:validData(lot, item), name:lot,
+      box:{visible:true}, meanline:{visible:true},
+      fillcolor:getColor(li), line:{color:getColor(li)}, opacity:0.7
+    }));
+    const id = uid('ca', item+'violin');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:36,l:44,r:10}, showlegend:true, violinmode:'group',
+      shapes, annotations:annots, height:340,
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── Scatter ──
+function caScatter(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const xAxisKey = document.getElementById('caScatterX').value;
+  const ptSize   = parseInt(document.getElementById('caScatterSize').value) || 5;
+  const xLabel   = xAxisKey === 'xpos' ? 'Xpos' : xAxisKey === 'ypos' ? 'Ypos' : 'Index';
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+
+    if (lotMode === 'overlay') {
+      const traces = S.lots.map((lot, li) => {
+        const rows = S.data.filter(r => r.Lot === lot);
+        const pts  = rows.map((r, idx) => {
+          const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
+                  : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
+          const y = parseFloat(r[item]);
+          return [x, y];
+        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+        return {
+          type:'scatter', mode:'markers', name:lot,
+          x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
+          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+        };
+      });
+      const id = uid('ca', item+'sc');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, traces, {
+        title:{text:escHtml(item), font:{size:12}},
+        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+        shapes, annotations:annots, height:320,
+        xaxis:{title:{text:xLabel,font:{size:10}}},
+        yaxis:{title:{text:escHtml(item),font:{size:10}}}
+      }, {responsive:true, displayModeBar:false});
+    } else {
+      S.lots.forEach((lot, li) => {
+        const rows = S.data.filter(r => r.Lot === lot);
+        const pts  = rows.map((r, idx) => {
+          const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
+                  : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
+          return [x, parseFloat(r[item])];
+        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+        if (!pts.length) return;
+        const id = uid('ca', item+lot+'sc');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'markers', name:lot,
+          x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
+          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+        }], {
+          title:{text:`${lot} — ${escHtml(item)}`, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:false,
+          shapes:buildSpecShapes(spec, showSpec),
+          annotations:buildSpecAnnotations(spec, showSpec),
+          height:320,
+          xaxis:{title:{text:xLabel,font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Trend (Mean per Lot with error bars) ──
+function caTrend(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const errMode  = document.getElementById('caTrendErr').value;
+  const showCpk  = document.getElementById('caTrendCpk').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+
+    if (lotMode === 'overlay') {
+      // All lots on one chart: X=Lots, Y=Mean, error bars
+      const mus = [], ep = [], em = [], xs = [];
+      S.lots.forEach(lot => {
+        const d = validData(lot, item);
+        if (!d.length) return;
+        const mu = mean(d);
+        const [emv, epv] = errBarVals(d, errMode);
+        xs.push(lot); mus.push(mu); em.push(emv); ep.push(epv);
+      });
+      const annots = buildSpecAnnotations(spec, showSpec);
+      if (showCpk) {
+        xs.forEach((lot, xi) => {
+          const d = validData(lot, item);
+          const cpk = calcCpk(d, spec);
+          if (cpk !== null) annots.push({
+            x:lot, yref:'y', y:mus[xi],
+            text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
+            font:{size:10, color:'#333'}, ax:0, ay:-28
+          });
+        });
+      }
+      const id = uid('ca', item+'trend');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, [{
+        type:'scatter', mode:'lines+markers', name:item,
+        x:xs, y:mus,
+        error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
+                 color:'rgba(50,50,50,.4)',thickness:1.5,width:4},
+        marker:{color:'#3182ce',size:8}, line:{color:'#3182ce',width:2}
+      }], {
+        title:{text:escHtml(item), font:{size:12}},
+        margin:{t:40,b:50,l:44,r:10}, showlegend:false,
+        shapes, annotations:annots, height:320,
+        xaxis:{title:{text:'Lot',font:{size:10}}},
+        yaxis:{title:{text:escHtml(item),font:{size:10}}}
+      }, {responsive:true, displayModeBar:false});
+
+    } else {
+      // Split: one chart per lot — scatter points + mean line
+      S.lots.forEach((lot, li) => {
+        const d = validData(lot, item);
+        if (!d.length) return;
+        const mu = mean(d), sg = std(d);
+        const sh = [...buildSpecShapes(spec, showSpec)];
+        sh.push({type:'line', xref:'paper', x0:0, x1:1,
+                 yref:'y', y0:mu, y1:mu,
+                 line:{color:'#3182ce', width:1.5, dash:'dot'}});
+        const annots = buildSpecAnnotations(spec, showSpec);
+        if (showCpk) {
+          const cpk = calcCpk(d, spec);
+          if (cpk !== null) annots.push({
+            xref:'paper', x:0.99, yref:'paper', y:0.99,
+            text:`Cpk = ${rd(cpk,2)}`, showarrow:false,
+            xanchor:'right', yanchor:'top',
+            font:{size:11, color:'#3182ce'},
+            bgcolor:'rgba(255,255,255,.85)', bordercolor:'#3182ce', borderwidth:1
+          });
+        }
+        const id = uid('ca', item+lot+'trend');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'lines+markers', name:lot,
+          x:Array.from({length:d.length},(_,i)=>i+1), y:d,
+          marker:{color:getColor(li),size:4}, line:{color:getColor(li),width:1.5}
+        }], {
+          title:{text:`${lot} — ${escHtml(item)}<br><sup>n=${d.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,
+                 font:{size:10}},
+          margin:{t:50,b:36,l:44,r:10}, showlegend:false,
+          shapes:sh, annotations:annots, height:320,
+          xaxis:{title:{text:'Index',font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Bar + Error Bar ──
+function caBar(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const errMode  = document.getElementById('caBarErr').value;
+  const showCpk  = document.getElementById('caBarCpk').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const mus = [], ep = [], em = [];
+    S.lots.forEach(lot => {
+      const d = validData(lot, item);
+      if (!d.length) { mus.push(null); ep.push(null); em.push(null); return; }
+      const mu = mean(d);
+      const [emv, epv] = errBarVals(d, errMode);
+      mus.push(mu); ep.push(epv); em.push(emv);
+    });
+    if (showCpk) {
+      S.lots.forEach((lot, li) => {
+        const d = validData(lot, item);
+        const cpk = calcCpk(d, spec);
+        if (cpk !== null && mus[li] !== null) annots.push({
+          x:lot, yref:'y', y:mus[li],
+          text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
+          font:{size:10,color:'#555'}, ax:0, ay:-26
+        });
+      });
+    }
+    const id = uid('ca', item+'bar');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+    Plotly.newPlot(id, [{
+      type:'bar', name:item,
+      x:S.lots, y:mus,
+      error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
+               color:'rgba(0,0,0,.45)',thickness:1.5,width:4},
+      marker:{color:S.lots.map((_,li)=>getColor(li)),opacity:0.8}
+    }], {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:50,l:44,r:10}, showlegend:false,
+      shapes, annotations:annots, height:320,
+      xaxis:{title:{text:'Lot',font:{size:10}}},
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── SPC ──
+function caSPC(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const xAxisKey = document.getElementById('caSPCxAxis').value;
+  const sigma    = parseInt(document.getElementById('caSPCsigma').value) || 3;
+
+  items.forEach(item => {
+    const spec = S.chartSpecs[item] || {};
+    const allRows = xAxisKey === 'lot'
+      ? S.lots.flatMap(lot => S.data.filter(r => r.Lot === lot))
+      : S.data;
+    const pairs = allRows.map((r, idx) => {
+      const y = parseFloat(r[item]);
+      if (isNaN(y)) return null;
+      let x;
+      if      (xAxisKey === 'xpos') x = parseFloat(r.Xpos);
+      else if (xAxisKey === 'ypos') x = parseFloat(r.Ypos);
+      else if (xAxisKey === 'lot')  x = r.Lot + '_' + idx;
+      else x = idx + 1;
+      return {x, y, lot:r.Lot};
+    }).filter(Boolean);
+    if (!pairs.length) return;
+
+    const yVals = pairs.map(p => p.y);
+    const mu = mean(yVals), sg = std(yVals);
+    const ucl = mu + sigma * sg;
+    const lcl = mu - sigma * sg;
+
+    const outOfCtrl = pairs.map(p => p.y > ucl || p.y < lcl);
+    const shapes = [...buildSpecShapes(spec, showSpec)];
+    const shapeBase = {type:'line', xref:'paper', x0:0, x1:1};
+    shapes.push({...shapeBase, yref:'y', y0:mu,  y1:mu,  line:{color:'#3182ce',width:1.5,dash:'dot'}});
+    shapes.push({...shapeBase, yref:'y', y0:ucl, y1:ucl, line:{color:'#e53e3e',width:1.5,dash:'dashdot'}});
+    shapes.push({...shapeBase, yref:'y', y0:lcl, y1:lcl, line:{color:'#e53e3e',width:1.5,dash:'dashdot'}});
+
+    const annots = [
+      ...buildSpecAnnotations(spec, showSpec),
+      {xref:'paper',x:0.99,yref:'y',y:mu,  text:'CL',  showarrow:false,xanchor:'right',font:{size:9,color:'#3182ce'}},
+      {xref:'paper',x:0.99,yref:'y',y:ucl, text:`UCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
+      {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
+    ];
+
+    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getColor(S.lots.indexOf(p.lot)));
+    const id = uid('ca', item+'spc');
+    const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, [{
+      type:'scatter', mode:'markers', name:item,
+      x:pairs.map(p=>p.x), y:pairs.map(p=>p.y),
+      marker:{color:colorArr, size:5}
+    }], {
+      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}</sup>`,
+             font:{size:10}},
+      margin:{t:52,b:36,l:44,r:10}, showlegend:false,
+      shapes, annotations:annots, height:340,
+      xaxis:{title:{text:xLabel,font:{size:10}}},
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── CDF ──
+function caCDF(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = [];
+    if (showSpec) {
+      if (spec.lsl != null) shapes.push({
+        type:'line', xref:'x', x0:spec.lsl, x1:spec.lsl, yref:'paper', y0:0, y1:1,
+        line:{color:'#e53e3e',width:2,dash:'dash'}});
+      if (spec.usl != null) shapes.push({
+        type:'line', xref:'x', x0:spec.usl, x1:spec.usl, yref:'paper', y0:0, y1:1,
+        line:{color:'#e53e3e',width:2,dash:'dash'}});
+      if (spec.typical != null) shapes.push({
+        type:'line', xref:'x', x0:spec.typical, x1:spec.typical, yref:'paper', y0:0, y1:1,
+        line:{color:'#38a169',width:1.5,dash:'dot'}});
+    }
+
+    if (lotMode === 'overlay') {
+      const traces = S.lots.map((lot, li) => {
+        const d = [...validData(lot, item)].sort((a,b)=>a-b);
+        if (!d.length) return null;
+        const cdf = d.map((_,i)=>(i+1)/d.length*100);
+        return {
+          type:'scatter', mode:'lines', name:lot,
+          x:d, y:cdf,
+          line:{color:getColor(li), width:2, shape:'hv'}
+        };
+      }).filter(Boolean);
+      const id = uid('ca', item+'cdf');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, traces, {
+        title:{text:`${escHtml(item)} CDF`, font:{size:12}},
+        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+        shapes, height:320,
+        xaxis:{title:{text:escHtml(item),font:{size:10}}},
+        yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
+      }, {responsive:true, displayModeBar:false});
+    } else {
+      S.lots.forEach((lot, li) => {
+        const d = [...validData(lot, item)].sort((a,b)=>a-b);
+        if (!d.length) return;
+        const cdf = d.map((_,i)=>(i+1)/d.length*100);
+        const id = uid('ca', item+lot+'cdf');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'lines', name:lot,
+          x:d, y:cdf,
+          line:{color:getColor(li), width:2, shape:'hv'},
+          fill:'tozeroy', fillcolor:getColor(li)+'28'
+        }], {
+          title:{text:`${lot} — ${escHtml(item)} CDF`, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:false,
+          shapes, height:320,
+          xaxis:{title:{text:escHtml(item),font:{size:10}}},
+          yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Correlation ──
+function caCorr(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const showReg  = document.getElementById('caCorrReg').checked;
+  const yItem    = document.getElementById('caCorrY').value;
+  if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請在右方選擇 Y 軸項目</div>'; return; }
+
+  items.forEach(item => {
+    if (item === yItem) return;
+    const allPairs = S.lots.flatMap((lot,li) => {
+      const rows = S.data.filter(r => r.Lot === lot);
+      return rows.map(r => {
+        const x = parseFloat(r[item]);
+        const y = parseFloat(r[yItem]);
+        return isNaN(x)||isNaN(y) ? null : {x,y,lot,li};
+      }).filter(Boolean);
+    });
+    if (!allPairs.length) return;
+
+    const traces = S.lots.map((lot, li) => {
+      const pts = allPairs.filter(p => p.lot === lot);
+      if (!pts.length) return null;
+      return {
+        type:'scatter', mode:'markers', name:lot,
+        x:pts.map(p=>p.x), y:pts.map(p=>p.y),
+        marker:{color:getColor(li), size:5, opacity:0.75}
+      };
+    }).filter(Boolean);
+
+    const annots = [];
+    if (showReg && allPairs.length >= 2) {
+      const xs = allPairs.map(p=>p.x), ys = allPairs.map(p=>p.y);
+      const {slope, intercept, r2} = linRegress(xs, ys);
+      const xMin = Math.min(...xs), xMax = Math.max(...xs);
+      traces.push({
+        type:'scatter', mode:'lines', name:`迴歸 (R²=${rd(r2,3)})`,
+        x:[xMin, xMax], y:[slope*xMin+intercept, slope*xMax+intercept],
+        line:{color:'#333',width:1.5,dash:'dash'}
+      });
+      annots.push({
+        xref:'paper', x:0.99, yref:'paper', y:0.01,
+        text:`y = ${rd(slope,4)}x + ${rd(intercept,4)}<br>R² = ${rd(r2,4)}`,
+        showarrow:false, xanchor:'right', yanchor:'bottom',
+        font:{size:11,color:'#333'},
+        bgcolor:'rgba(255,255,255,.85)', bordercolor:'#ccc', borderwidth:1
+      });
+    }
+
+    const specX = S.chartSpecs[item]  || {};
+    const specY = S.chartSpecs[yItem] || {};
+    const shapes = [];
+    if (showSpec) {
+      if (specX.lsl    != null) shapes.push({type:'line',xref:'x',x0:specX.lsl,   x1:specX.lsl,   yref:'paper',y0:0,y1:1,line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specX.usl    != null) shapes.push({type:'line',xref:'x',x0:specX.usl,   x1:specX.usl,   yref:'paper',y0:0,y1:1,line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specX.typical!= null) shapes.push({type:'line',xref:'x',x0:specX.typical,x1:specX.typical,yref:'paper',y0:0,y1:1,line:{color:'#38a169',width:1,dash:'dot'}});
+      if (specY.lsl    != null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.lsl,   y1:specY.lsl,   line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specY.usl    != null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.usl,   y1:specY.usl,   line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specY.typical!= null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.typical,y1:specY.typical,line:{color:'#38a169',width:1,dash:'dot'}});
+    }
+
+    const id = uid('ca', item+yItem+'corr');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:360px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:`${escHtml(item)} vs ${escHtml(yItem)}`, font:{size:12}},
+      margin:{t:40,b:44,l:52,r:10}, showlegend:true,
+      shapes, annotations:annots, height:360,
+      xaxis:{title:{text:escHtml(item),font:{size:10}}},
+      yaxis:{title:{text:escHtml(yItem),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
 }
 
 // ══════════════════════════════════════════════════
