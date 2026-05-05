@@ -336,32 +336,30 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
 
   <!-- ══ Statistics ══ -->
   <div id="panel-stats" class="tab-panel">
+    <!-- Row 1: item + export -->
     <div class="ctrl">
       <label>量測項目：</label>
       <select id="stItem" onchange="switchStatItem()"></select>
-      <label style="margin-left:16px">LSL：</label>
-      <input id="stLSL" type="number" step="any" placeholder="—"
-             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
-             oninput="renderStats()">
-      <label style="margin-left:8px">Typical：</label>
-      <input id="stTypical" type="number" step="any" placeholder="—"
-             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
-             oninput="renderStats()">
-      <label style="margin-left:8px">USL：</label>
-      <input id="stUSL" type="number" step="any" placeholder="—"
-             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
-             oninput="renderStats()">
       <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
     </div>
-    <div class="ctrl" style="flex-wrap:wrap;gap:8px">
-      <label style="white-space:nowrap">自訂計算：</label>
-      <input id="stFnLabel" type="text" placeholder="名稱（如 Cpk）"
-             style="width:110px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
-      <span style="font-size:11px;color:#718096">=</span>
-      <input id="stFnFormula" type="text" placeholder="公式，可用 Count Min Max Mean Median Std LSL USL Typical"
-             style="width:340px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
-      <button class="btn btn-blue" style="font-size:12px" onclick="addCustomStat()">新增</button>
-      <div id="stFnList" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+    <!-- Row 2: stat chips + reset -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">顯示統計列：</label>
+      <div id="stChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetStats()">↩ 一鍵還原預設</button>
+    </div>
+    <!-- Row 3: custom formula -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">自訂計算：</label>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input id="stFnLabel" type="text" placeholder="名稱（如 Cpk）"
+               style="width:110px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <span style="font-size:11px;color:#718096">=</span>
+        <input id="stFnFormula" type="text" placeholder="可用：Count Min Max Mean Median Std LSL USL Typical"
+               style="width:360px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <button class="btn btn-blue" style="font-size:12px" onclick="addCustomStat()">新增</button>
+      </div>
+      <div id="stFnList" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;width:100%"></div>
     </div>
     <div id="stTable" class="tbl-wrap"></div>
   </div>
@@ -384,8 +382,9 @@ const STD_RENAME = {
   '18 VFBC4':'VF_1A(V)',   '19 VFBCH':'VF_10A(V)'
 };
 
-const META_COLS = new Set(['Lot','Serial','Bin','Xpos','Ypos','YY,XX']);
-const N_BINS    = 25;
+const META_COLS     = new Set(['Lot','Serial','Bin','Xpos','Ypos','YY,XX']);
+const N_BINS        = 25;
+const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 
 // ══════════════════════════════════════════════════
 // STATE
@@ -393,7 +392,10 @@ const N_BINS    = 25;
 const S = {
   files: [], data: [], lots: [], items: [], globalBins: {},
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
-  specs: {}, customStats: []
+  activeStats:   [...DEFAULT_STATS],   // currently shown stat rows (ordered)
+  customStats:   [],                   // [{ label, formula }]
+  statSpecs:     {},                   // { item: { statKey: { lsl, typical, usl } } }
+  _prevStatItem: ''
 };
 
 // ══════════════════════════════════════════════════
@@ -658,6 +660,7 @@ async function applyAndAnalyze() {
     `<div class="status ok">✅ 完成：${S.lots.length} 個 Lot，${S.data.length} 筆資料，${S.items.length} 個量測項目</div>${errHtml}`;
   document.getElementById('btnExp').disabled = false;
 
+  renderStatChips(); renderCustomStatTags();
   renderMap(); renderCount(); renderPct(); renderStats();
 }
 
@@ -780,30 +783,45 @@ function resetPctAxes() {
 // ══════════════════════════════════════════════════
 // SPEC / CUSTOM STATS
 // ══════════════════════════════════════════════════
-function saveSpecInputs() {
-  const item = document.getElementById('stItem').value;
-  if (!item) return;
-  const toNum = id => { const v = document.getElementById(id).value; return v !== '' ? parseFloat(v) : null; };
-  S.specs[item] = { lsl: toNum('stLSL'), usl: toNum('stUSL'), typical: toNum('stTypical') };
+function sk(key) { return key.replace(/[^a-zA-Z0-9]/g, '_'); } // safe ID fragment
+
+function getAllStatFns() {
+  const fns = {};
+  Object.entries(STAT_FNS).forEach(([k, fn]) => fns[k] = fn);
+  S.customStats.forEach(cs => { fns[cs.label] = makeCustomFn(cs.formula); });
+  return fns;
 }
-function loadSpecInputs(item) {
-  const sp = S.specs[item] || {};
-  document.getElementById('stLSL').value     = sp.lsl     ?? '';
-  document.getElementById('stUSL').value     = sp.usl     ?? '';
-  document.getElementById('stTypical').value = sp.typical ?? '';
+
+// ── Active stats management ──
+function addStat(key) {
+  if (!S.activeStats.includes(key)) { S.activeStats.push(key); renderStatChips(); renderStats(); }
 }
-function switchStatItem() {
-  loadSpecInputs(document.getElementById('stItem').value);
-  renderStats();
+function removeStat(key) {
+  S.activeStats = S.activeStats.filter(k => k !== key);
+  renderStatChips(); renderStats();
 }
-function specColor(statName, value, spec) {
-  if (!spec || statName === 'Count') return '';
-  const v = parseFloat(value);
-  if (isNaN(v)) return '';
-  if (spec.lsl != null && v < spec.lsl) return 'background:#fed7d7;color:#c53030;font-weight:700';
-  if (spec.usl != null && v > spec.usl) return 'background:#fed7d7;color:#c53030;font-weight:700';
-  return '';
+function resetStats() {
+  S.activeStats = [...DEFAULT_STATS];
+  renderStatChips(); renderStats();
 }
+function renderStatChips() {
+  const el = document.getElementById('stChips');
+  if (!el) return;
+  const allKeys  = [...DEFAULT_STATS, ...S.customStats.map(cs => cs.label)];
+  const activeSet = new Set(S.activeStats);
+  el.innerHTML = allKeys.map(key => {
+    const on = activeSet.has(key);
+    return `<span onclick="${on ? `removeStat('${escHtml(key)}')` : `addStat('${escHtml(key)}')`}"
+                  title="${on ? '點擊移除此列' : '點擊加入此列'}"
+                  style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;
+                         font-size:12px;cursor:pointer;user-select:none;transition:all .15s;
+                         ${on ? 'background:#3182ce;color:white' : 'background:#e2e8f0;color:#4a5568'}">
+              ${escHtml(key)}&nbsp;${on ? '×' : '+'}
+            </span>`;
+  }).join('');
+}
+
+// ── Custom formulas ──
 function makeCustomFn(formula) {
   return (d, spec) => {
     try {
@@ -819,25 +837,65 @@ function addCustomStat() {
   const label   = document.getElementById('stFnLabel').value.trim();
   const formula = document.getElementById('stFnFormula').value.trim();
   if (!label || !formula) return;
+  if (S.customStats.some(cs => cs.label === label)) return;
   S.customStats.push({ label, formula });
-  document.getElementById('stFnLabel').value   = '';
+  S.activeStats.push(label);
+  document.getElementById('stFnLabel').value = '';
   document.getElementById('stFnFormula').value = '';
-  renderCustomStatTags();
-  renderStats();
+  renderCustomStatTags(); renderStatChips(); renderStats();
 }
-function removeCustomStat(i) {
+function removeCustomFormula(i) {
+  const label = S.customStats[i].label;
   S.customStats.splice(i, 1);
-  renderCustomStatTags();
-  renderStats();
+  S.activeStats = S.activeStats.filter(k => k !== label);
+  renderCustomStatTags(); renderStatChips(); renderStats();
 }
 function renderCustomStatTags() {
-  document.getElementById('stFnList').innerHTML = S.customStats.map((cs, i) =>
+  const el = document.getElementById('stFnList');
+  if (!el) return;
+  el.innerHTML = S.customStats.map((cs, i) =>
     `<span style="display:inline-flex;align-items:center;gap:4px;background:#edf2f7;
                   border-radius:4px;padding:2px 8px;font-size:11px;white-space:nowrap">
        <b>${escHtml(cs.label)}</b>: <code style="color:#553c9a">${escHtml(cs.formula)}</code>
-       <button onclick="removeCustomStat(${i})"
-               style="border:none;background:none;cursor:pointer;color:#a0aec0;font-size:14px;line-height:1;padding:0 2px">×</button>
+       <button onclick="removeCustomFormula(${i})" title="永久刪除此公式"
+               style="border:none;background:none;cursor:pointer;color:#fc8181;font-size:14px;line-height:1;padding:0 2px">×</button>
      </span>`).join('');
+}
+
+// ── Spec per cell ──
+function saveSpecCell(item, key, field, val) {
+  if (!S.statSpecs[item])      S.statSpecs[item] = {};
+  if (!S.statSpecs[item][key]) S.statSpecs[item][key] = {};
+  S.statSpecs[item][key][field] = val !== '' ? parseFloat(val) : null;
+  recolorStatRow(item, key);
+}
+function recolorStatRow(item, key) {
+  const spec = (S.statSpecs[item] || {})[key] || {};
+  const fn   = getAllStatFns()[key];
+  if (!fn) return;
+  S.lots.forEach(lot => {
+    const cell = document.getElementById(`stc_${sk(key)}_${sk(lot)}`);
+    if (!cell) return;
+    const d   = validData(lot, item);
+    if (!d.length) return;
+    const val = fn(d, spec);
+    const sty = specColor(key, val, spec);
+    cell.setAttribute('style', sty || 'padding:5px 10px;text-align:center');
+  });
+}
+function specColor(statName, value, spec) {
+  if (!spec || statName === 'Count') return '';
+  const v = parseFloat(value);
+  if (isNaN(v)) return '';
+  if (spec.lsl != null && v < spec.lsl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  if (spec.usl != null && v > spec.usl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  return '';
+}
+
+// ── Switch item ──
+function switchStatItem() {
+  S._prevStatItem = document.getElementById('stItem').value;
+  renderStats();
 }
 
 // ══════════════════════════════════════════════════
@@ -1019,40 +1077,62 @@ const STAT_FNS={
   'Std':   d=>rd(std(d),4)
 };
 function renderStats() {
-  saveSpecInputs();
   const item = document.getElementById('stItem').value;
   const el   = document.getElementById('stTable');
   if (!item) return;
-  const spec = S.specs[item] || {};
 
-  const allStats = [
-    ...Object.entries(STAT_FNS),
-    ...S.customStats.map(cs => [cs.label, makeCustomFn(cs.formula)])
-  ];
+  const allFns = getAllStatFns();
+  const INP    = `style="width:68px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
 
-  let h = `<table class="stats"><thead><tr><th class="row-label">統計項目</th>`;
+  let h = `<table class="stats"><thead><tr>
+    <th class="row-label" style="min-width:90px">統計項目</th>`;
   S.lots.forEach(l => { h += `<th>${escHtml(l)}</th>`; });
-  h += `</tr></thead><tbody>`;
+  h += `<th style="background:#744210;min-width:76px">LSL</th>
+        <th style="background:#744210;min-width:76px">Typical</th>
+        <th style="background:#744210;min-width:76px">USL</th>
+        <th style="background:#4a5568;width:28px"></th>
+        </tr></thead><tbody>`;
 
-  // SPEC reference rows
-  [['LSL', spec.lsl], ['Typical', spec.typical], ['USL', spec.usl]].forEach(([name, val]) => {
-    if (val == null) return;
-    h += `<tr style="background:#fffbeb"><td class="row-label" style="color:#744210;font-style:italic">${name}</td>`;
-    S.lots.forEach(() => { h += `<td style="color:#744210;font-weight:700">${val}</td>`; });
-    h += `</tr>`;
-  });
+  S.activeStats.forEach(key => {
+    const fn   = allFns[key];
+    if (!fn) return;
+    const spec = (S.statSpecs[item] || {})[key] || {};
+    const safeK = sk(key);
+    const esc_item = escHtml(item), esc_key = escHtml(key);
 
-  // Data rows
-  allStats.forEach(([name, fn]) => {
-    h += `<tr><td class="row-label">${escHtml(name)}</td>`;
+    h += `<tr><td class="row-label">${escHtml(key)}</td>`;
+
     S.lots.forEach(lot => {
-      const d = validData(lot, item);
-      if (!d.length) { h += `<td>—</td>`; return; }
-      const val   = fn(d, spec);
-      const style = specColor(name, val, spec);
-      h += `<td style="${style}">${val}</td>`;
+      const d   = validData(lot, item);
+      if (!d.length) { h += `<td id="stc_${safeK}_${sk(lot)}">—</td>`; return; }
+      const val = fn(d, spec);
+      const sty = specColor(key, val, spec);
+      h += `<td id="stc_${safeK}_${sk(lot)}" style="${sty}">${val}</td>`;
     });
-    h += `</tr>`;
+
+    // LSL / Typical / USL input cells
+    h += `<td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${INP}
+                   value="${spec.lsl ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','lsl',this.value)">
+          </td>
+          <td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${INP}
+                   value="${spec.typical ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','typical',this.value)">
+          </td>
+          <td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${INP}
+                   value="${spec.usl ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','usl',this.value)">
+          </td>`;
+
+    // Delete row button
+    h += `<td style="text-align:center">
+            <button onclick="removeStat('${esc_key}')" title="移除此列"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;
+                           font-size:17px;line-height:1;padding:0 4px">×</button>
+          </td></tr>`;
   });
 
   h += `</tbody></table>`;
