@@ -252,7 +252,9 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
         <option value="desc" selected>大 → 小</option>
         <option value="asc">小 → 大</option>
       </select>
-      <label style="margin-left:12px">色階：</label>
+    </div>
+    <div class="ctrl">
+      <label>色階樣式：</label>
       <select id="mapColorscale" onchange="renderMap()">
         <option value="WhRd">白 → 紅</option>
         <option value="RdBu">藍 ↔ 紅（對稱）</option>
@@ -261,16 +263,16 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
         <option value="YlOrRd">黃 → 橙 → 紅</option>
         <option value="Greys">灰階</option>
       </select>
-      <label style="margin-left:12px">色階範圍：</label>
-      <input id="mapZmin" type="number" placeholder="auto" step="any"
-             style="width:72px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+      <label style="margin-left:16px">色階範圍：</label>
+      <input id="mapZmin" type="number" placeholder="min（auto）" step="any"
+             style="width:110px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
              oninput="renderMap()">
-      <span style="font-size:12px;color:#718096;margin:0 4px">～</span>
-      <input id="mapZmax" type="number" placeholder="auto" step="any"
-             style="width:72px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+      <span style="font-size:13px;color:#718096;margin:0 6px">～</span>
+      <input id="mapZmax" type="number" placeholder="max（auto）" step="any"
+             style="width:110px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
              oninput="renderMap()">
-      <button class="btn btn-gray" style="font-size:11px;padding:4px 10px;margin-left:6px"
-              onclick="autoZRange()">自動填入</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="autoZRange()">自動填入</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:4px" onclick="clearZRange()">清除</button>
     </div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
@@ -684,6 +686,11 @@ function autoZRange() {
   if (!vals.length) return;
   document.getElementById('mapZmin').value = rd(Math.min(...vals), 6);
   document.getElementById('mapZmax').value = rd(Math.max(...vals), 6);
+  renderMap();
+}
+function clearZRange() {
+  document.getElementById('mapZmin').value = '';
+  document.getElementById('mapZmax').value = '';
   renderMap();
 }
 
