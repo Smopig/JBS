@@ -283,11 +283,16 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <label>量測項目：</label>
       <select id="cntItem" onchange="renderCount()"></select>
       <label style="margin-left:12px">每列欄數：</label>
-      <select id="cntCols" onchange="renderCount()">
-        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      <select id="cntColsSel" onchange="syncCols('cnt',renderCount)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
       </select>
+      <input id="cntColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderCount()">
     </div>
-    <div id="cntGrid" class="chart-grid cols-4"></div>
+    <div id="cntGrid" class="chart-grid"></div>
   </div>
 
   <!-- ══ % Dist ══ -->
@@ -298,9 +303,33 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <label style="margin-left:12px">量測項目：</label>
       <select id="pctItem" onchange="renderPct()"><option value="all">全部項目</option></select>
       <label style="margin-left:12px">每列欄數：</label>
-      <select id="pctCols" onchange="renderPct()">
-        <option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      <select id="pctColsSel" onchange="syncCols('pct',renderPct)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
       </select>
+      <input id="pctColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderPct()">
+    </div>
+    <div class="ctrl">
+      <label>X 軸範圍：</label>
+      <input id="pctXmin" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="pctXmax" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <label style="margin-left:16px">Y 軸範圍：</label>
+      <input id="pctYmin" type="number" step="any" placeholder="0"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="pctYmax" type="number" step="any" placeholder="100"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetPctAxes()">還原預設</button>
     </div>
     <div id="pctArea"></div>
   </div>
@@ -309,8 +338,30 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
   <div id="panel-stats" class="tab-panel">
     <div class="ctrl">
       <label>量測項目：</label>
-      <select id="stItem" onchange="renderStats()"></select>
+      <select id="stItem" onchange="switchStatItem()"></select>
+      <label style="margin-left:16px">LSL：</label>
+      <input id="stLSL" type="number" step="any" placeholder="—"
+             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderStats()">
+      <label style="margin-left:8px">Typical：</label>
+      <input id="stTypical" type="number" step="any" placeholder="—"
+             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderStats()">
+      <label style="margin-left:8px">USL：</label>
+      <input id="stUSL" type="number" step="any" placeholder="—"
+             style="width:80px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderStats()">
       <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
+    </div>
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px">
+      <label style="white-space:nowrap">自訂計算：</label>
+      <input id="stFnLabel" type="text" placeholder="名稱（如 Cpk）"
+             style="width:110px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+      <span style="font-size:11px;color:#718096">=</span>
+      <input id="stFnFormula" type="text" placeholder="公式，可用 Count Min Max Mean Median Std LSL USL Typical"
+             style="width:340px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+      <button class="btn btn-blue" style="font-size:12px" onclick="addCustomStat()">新增</button>
+      <div id="stFnList" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
     </div>
     <div id="stTable" class="tbl-wrap"></div>
   </div>
@@ -341,7 +392,8 @@ const N_BINS    = 25;
 // ══════════════════════════════════════════════════
 const S = {
   files: [], data: [], lots: [], items: [], globalBins: {},
-  _rawCols: [], _headerIdx: 12, _dataStartIdx: 29
+  _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
+  specs: {}, customStats: []
 };
 
 // ══════════════════════════════════════════════════
@@ -695,6 +747,100 @@ function clearZRange() {
 }
 
 // ══════════════════════════════════════════════════
+// COLS HELPERS (每列欄數 select + custom input)
+// ══════════════════════════════════════════════════
+function getCols(prefix) {
+  const sel = document.getElementById(prefix + 'ColsSel');
+  if (!sel) return 4;
+  if (sel.value === '0') {
+    return Math.max(1, parseInt(document.getElementById(prefix + 'ColsNum').value) || 4);
+  }
+  return parseInt(sel.value) || 4;
+}
+function syncCols(prefix, renderFn) {
+  const sel = document.getElementById(prefix + 'ColsSel');
+  const inp = document.getElementById(prefix + 'ColsNum');
+  inp.style.display = sel.value === '0' ? 'inline-block' : 'none';
+  renderFn();
+}
+function setGridCols(el, n) {
+  el.className = 'chart-grid';
+  el.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+}
+
+// ══════════════════════════════════════════════════
+// % DIST AXIS HELPERS
+// ══════════════════════════════════════════════════
+function resetPctAxes() {
+  ['pctXmin','pctXmax','pctYmin','pctYmax'].forEach(id =>
+    document.getElementById(id).value = '');
+  renderPct();
+}
+
+// ══════════════════════════════════════════════════
+// SPEC / CUSTOM STATS
+// ══════════════════════════════════════════════════
+function saveSpecInputs() {
+  const item = document.getElementById('stItem').value;
+  if (!item) return;
+  const toNum = id => { const v = document.getElementById(id).value; return v !== '' ? parseFloat(v) : null; };
+  S.specs[item] = { lsl: toNum('stLSL'), usl: toNum('stUSL'), typical: toNum('stTypical') };
+}
+function loadSpecInputs(item) {
+  const sp = S.specs[item] || {};
+  document.getElementById('stLSL').value     = sp.lsl     ?? '';
+  document.getElementById('stUSL').value     = sp.usl     ?? '';
+  document.getElementById('stTypical').value = sp.typical ?? '';
+}
+function switchStatItem() {
+  loadSpecInputs(document.getElementById('stItem').value);
+  renderStats();
+}
+function specColor(statName, value, spec) {
+  if (!spec || statName === 'Count') return '';
+  const v = parseFloat(value);
+  if (isNaN(v)) return '';
+  if (spec.lsl != null && v < spec.lsl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  if (spec.usl != null && v > spec.usl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  return '';
+}
+function makeCustomFn(formula) {
+  return (d, spec) => {
+    try {
+      const r = new Function('Count','Min','Max','Mean','Median','Std','LSL','USL','Typical',
+        `"use strict"; return (${formula})`)(
+        d.length, Math.min(...d), Math.max(...d), mean(d), median(d), std(d),
+        spec?.lsl ?? null, spec?.usl ?? null, spec?.typical ?? null);
+      return typeof r === 'number' ? rd(r, 4) : r;
+    } catch(e) { return 'ERR'; }
+  };
+}
+function addCustomStat() {
+  const label   = document.getElementById('stFnLabel').value.trim();
+  const formula = document.getElementById('stFnFormula').value.trim();
+  if (!label || !formula) return;
+  S.customStats.push({ label, formula });
+  document.getElementById('stFnLabel').value   = '';
+  document.getElementById('stFnFormula').value = '';
+  renderCustomStatTags();
+  renderStats();
+}
+function removeCustomStat(i) {
+  S.customStats.splice(i, 1);
+  renderCustomStatTags();
+  renderStats();
+}
+function renderCustomStatTags() {
+  document.getElementById('stFnList').innerHTML = S.customStats.map((cs, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:#edf2f7;
+                  border-radius:4px;padding:2px 8px;font-size:11px;white-space:nowrap">
+       <b>${escHtml(cs.label)}</b>: <code style="color:#553c9a">${escHtml(cs.formula)}</code>
+       <button onclick="removeCustomStat(${i})"
+               style="border:none;background:none;cursor:pointer;color:#a0aec0;font-size:14px;line-height:1;padding:0 2px">×</button>
+     </span>`).join('');
+}
+
+// ══════════════════════════════════════════════════
 // WAFER MAP
 // ══════════════════════════════════════════════════
 function renderMap() {
@@ -757,39 +903,39 @@ function renderMap() {
 // COUNT DISTRIBUTION
 // ══════════════════════════════════════════════════
 function renderCount() {
-  const item=document.getElementById('cntItem').value;
-  const cols=document.getElementById('cntCols').value;
-  const grid=document.getElementById('cntGrid');
-  if(!item) return;
-  grid.className=`chart-grid cols-${cols}`;
-  grid.innerHTML='';
+  const item = document.getElementById('cntItem').value;
+  const n    = getCols('cnt');
+  const grid = document.getElementById('cntGrid');
+  if (!item) return;
+  setGridCols(grid, n);
+  grid.innerHTML = '';
 
-  S.lots.forEach(lot=>{
-    const data=validData(lot,item);
-    if(data.length<3) return;
-    const mu=mean(data),sg=std(data);
-    const edges=linspace(Math.min(...data),Math.max(...data),N_BINS+1);
-    const bw=edges[1]-edges[0];
-    const bc=binCenters(edges);
-    const cnts=makeHist(data,edges);
-    const curve=bc.map(x=>normPDF(x,mu,sg)*data.length*bw);
+  S.lots.forEach(lot => {
+    const data = validData(lot, item);
+    if (data.length < 3) return;
+    const mu = mean(data), sg = std(data);
+    const edges = linspace(Math.min(...data), Math.max(...data), N_BINS + 1);
+    const bw = edges[1] - edges[0];
+    const bc = binCenters(edges);
+    const cnts  = makeHist(data, edges);
+    const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
 
-    const id=uid('cnt',lot+item);
+    const id = uid('cnt', lot + item);
     grid.insertAdjacentHTML('beforeend',
       `<div class="chart-card"><div id="${id}" style="height:250px"></div></div>`);
-    Plotly.newPlot(id,[
-      {type:'bar',x:bc,y:cnts,name:'Count',width:bw*0.98,
-       marker:{color:'rgba(66,153,225,0.65)',line:{color:'rgba(66,153,225,1)',width:0.5}},
-       hovertemplate:'%{x:.4g}: %{y}<extra></extra>'},
-      {type:'scatter',mode:'lines',x:bc,y:curve,name:'Normal',
-       line:{color:'#e53e3e',width:2,shape:'spline'},
-       hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>'}
-    ],{
+    Plotly.newPlot(id, [
+      { type:'bar', x:bc, y:cnts, name:'Count', width:bw*0.98,
+        marker:{color:'rgba(66,153,225,0.65)',line:{color:'rgba(66,153,225,1)',width:0.5}},
+        hovertemplate:'%{x:.4g}: %{y}<extra></extra>' },
+      { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+        line:{color:'#e53e3e',width:2,shape:'spline'},
+        hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' }
+    ], {
       title:{text:`${lot} — ${item}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
-      margin:{t:54,b:34,l:44,r:10},showlegend:false,bargap:0,
+      margin:{t:54,b:34,l:44,r:10}, showlegend:false, bargap:0,
       yaxis:{title:{text:'Count',font:{size:10}}},
       height:250
-    },{responsive:true,displayModeBar:false});
+    }, {responsive:true, displayModeBar:false});
   });
 }
 
@@ -797,56 +943,66 @@ function renderCount() {
 // PERCENTAGE DISTRIBUTION
 // ══════════════════════════════════════════════════
 function renderPct() {
-  const selItem=document.getElementById('pctItem').value;
-  const selLot =document.getElementById('pctLot').value;
-  const cols   =document.getElementById('pctCols').value;
-  const area   =document.getElementById('pctArea');
-  area.innerHTML='';
+  const selItem = document.getElementById('pctItem').value;
+  const selLot  = document.getElementById('pctLot').value;
+  const n       = getCols('pct');
+  const area    = document.getElementById('pctArea');
+  area.innerHTML = '';
 
-  const lots =(selLot==='all') ? S.lots : [selLot];
-  const items=(selItem==='all')
-    ? S.items.filter(i=>S.globalBins[i])
+  const xMinV = document.getElementById('pctXmin').value;
+  const xMaxV = document.getElementById('pctXmax').value;
+  const yMinV = document.getElementById('pctYmin').value;
+  const yMaxV = document.getElementById('pctYmax').value;
+  const hasXOvr = xMinV !== '' && xMaxV !== '';
+  const yMin = yMinV !== '' ? parseFloat(yMinV) : 0;
+  const yMax = yMaxV !== '' ? parseFloat(yMaxV) : 100;
+
+  const lots  = (selLot === 'all') ? S.lots : [selLot];
+  const items = (selItem === 'all')
+    ? S.items.filter(i => S.globalBins[i])
     : (S.globalBins[selItem] ? [selItem] : []);
 
-  items.forEach(item=>{
-    const edges=S.globalBins[item];
-    const bw=edges[1]-edges[0];
-    const bc=binCenters(edges);
+  items.forEach(item => {
+    const edges = S.globalBins[item];
+    const bw    = edges[1] - edges[0];
+    const bc    = binCenters(edges);
+    const xRange = hasXOvr
+      ? [parseFloat(xMinV), parseFloat(xMaxV)]
+      : [edges[0], edges[edges.length - 1]];
 
-    const sec=document.createElement('div');
-    sec.style.cssText='margin-bottom:18px;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)';
-    sec.innerHTML=`<div class="section-hd">${item}（% 分布 ｜ X 軸統一 ｜ Y 軸 0–100%）</div>`;
-    const grid=document.createElement('div');
-    grid.className=`chart-grid cols-${cols}`;
-    grid.style.padding='10px';
+    const sec = document.createElement('div');
+    sec.style.cssText = 'margin-bottom:18px;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)';
+    sec.innerHTML = `<div class="section-hd">${item}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
+    const grid = document.createElement('div');
+    grid.style.cssText = `display:grid;gap:14px;grid-template-columns:repeat(${n},1fr);padding:10px`;
     sec.appendChild(grid);
     area.appendChild(sec);
 
-    lots.forEach(lot=>{
-      const data=validData(lot,item);
-      if(data.length<3) return;
-      const mu=mean(data),sg=std(data);
-      const cnts=makeHist(data,edges);
-      const pct=cnts.map(c=>c/data.length*100);
-      const curve=bc.map(x=>normPDF(x,mu,sg)*bw*100);
+    lots.forEach(lot => {
+      const data = validData(lot, item);
+      if (data.length < 3) return;
+      const mu   = mean(data), sg = std(data);
+      const cnts = makeHist(data, edges);
+      const pct  = cnts.map(c => c / data.length * 100);
+      const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
 
-      const id=uid('pct',lot+item);
+      const id = uid('pct', lot + item);
       grid.insertAdjacentHTML('beforeend',
         `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
-      Plotly.newPlot(id,[
-        {type:'bar',x:bc,y:pct,name:'%',width:bw*0.98,
-         marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
-         hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>'},
-        {type:'scatter',mode:'lines',x:bc,y:curve,name:'Normal',
-         line:{color:'#e53e3e',width:2,shape:'spline'},
-         hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>'}
-      ],{
+      Plotly.newPlot(id, [
+        { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
+          marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
+          hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
+        { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+          line:{color:'#e53e3e',width:2,shape:'spline'},
+          hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
+      ], {
         title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
-        margin:{t:50,b:34,l:44,r:10},showlegend:false,bargap:0,
-        yaxis:{title:{text:'%',font:{size:10}},range:[0,100]},
-        xaxis:{range:[edges[0],edges[edges.length-1]]},
+        margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
+        yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
+        xaxis:{range: xRange},
         height:230
-      },{responsive:true,displayModeBar:false});
+      }, {responsive:true, displayModeBar:false});
     });
   });
 }
@@ -863,19 +1019,44 @@ const STAT_FNS={
   'Std':   d=>rd(std(d),4)
 };
 function renderStats() {
-  const item=document.getElementById('stItem').value;
-  const el=document.getElementById('stTable');
-  if(!item) return;
-  let h=`<table class="stats"><thead><tr><th class="row-label">統計項目</th>`;
-  S.lots.forEach(l=>{ h+=`<th>${l}</th>`; });
-  h+=`</tr></thead><tbody>`;
-  Object.entries(STAT_FNS).forEach(([name,fn])=>{
-    h+=`<tr><td class="row-label">${name}</td>`;
-    S.lots.forEach(lot=>{ const d=validData(lot,item); h+=`<td>${d.length?fn(d):'—'}</td>`; });
-    h+=`</tr>`;
+  saveSpecInputs();
+  const item = document.getElementById('stItem').value;
+  const el   = document.getElementById('stTable');
+  if (!item) return;
+  const spec = S.specs[item] || {};
+
+  const allStats = [
+    ...Object.entries(STAT_FNS),
+    ...S.customStats.map(cs => [cs.label, makeCustomFn(cs.formula)])
+  ];
+
+  let h = `<table class="stats"><thead><tr><th class="row-label">統計項目</th>`;
+  S.lots.forEach(l => { h += `<th>${escHtml(l)}</th>`; });
+  h += `</tr></thead><tbody>`;
+
+  // SPEC reference rows
+  [['LSL', spec.lsl], ['Typical', spec.typical], ['USL', spec.usl]].forEach(([name, val]) => {
+    if (val == null) return;
+    h += `<tr style="background:#fffbeb"><td class="row-label" style="color:#744210;font-style:italic">${name}</td>`;
+    S.lots.forEach(() => { h += `<td style="color:#744210;font-weight:700">${val}</td>`; });
+    h += `</tr>`;
   });
-  h+=`</tbody></table>`;
-  el.innerHTML=h;
+
+  // Data rows
+  allStats.forEach(([name, fn]) => {
+    h += `<tr><td class="row-label">${escHtml(name)}</td>`;
+    S.lots.forEach(lot => {
+      const d = validData(lot, item);
+      if (!d.length) { h += `<td>—</td>`; return; }
+      const val   = fn(d, spec);
+      const style = specColor(name, val, spec);
+      h += `<td style="${style}">${val}</td>`;
+    });
+    h += `</tr>`;
+  });
+
+  h += `</tbody></table>`;
+  el.innerHTML = h;
 }
 
 // ══════════════════════════════════════════════════
