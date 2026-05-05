@@ -239,9 +239,14 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <label>量測項目：</label>
       <select id="mapItem" onchange="renderMap()"></select>
       <label style="margin-left:12px">每列欄數：</label>
-      <select id="mapCols" onchange="renderMap()">
-        <option value="1">1</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
+      <select id="mapColsSel" onchange="syncCols('map',renderMap)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
       </select>
+      <input id="mapColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderMap()">
       <label style="margin-left:12px">X 軸：</label>
       <select id="mapXDir" onchange="renderMap()">
         <option value="desc" selected>大 → 小</option>
@@ -280,7 +285,9 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
   <!-- ══ Count Dist ══ -->
   <div id="panel-count" class="tab-panel">
     <div class="ctrl">
-      <label>量測項目：</label>
+      <label>Lot 篩選：</label>
+      <select id="cntLot" onchange="renderCount()"><option value="all">全部</option></select>
+      <label style="margin-left:12px">量測項目：</label>
       <select id="cntItem" onchange="renderCount()"></select>
       <label style="margin-left:12px">每列欄數：</label>
       <select id="cntColsSel" onchange="syncCols('cnt',renderCount)">
@@ -291,6 +298,25 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <input id="cntColsNum" type="number" min="1" max="20" value="4"
              style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
              oninput="renderCount()">
+    </div>
+    <div class="ctrl">
+      <label>X 軸範圍：</label>
+      <input id="cntXmin" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="cntXmax" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <label style="margin-left:16px">Y 軸範圍：</label>
+      <input id="cntYmin" type="number" step="any" placeholder="auto"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="cntYmax" type="number" step="any" placeholder="auto"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetCntAxes()">還原預設</button>
     </div>
     <div id="cntGrid" class="chart-grid"></div>
   </div>
@@ -666,15 +692,14 @@ async function applyAndAnalyze() {
 }
 
 function populateSels() {
-  const opts = S.items.map(i => `<option value="${i}">${i}</option>`).join('');
+  const opts    = S.items.map(i => `<option value="${i}">${i}</option>`).join('');
+  const lotOpts = '<option value="all">全部</option>' +
+                  S.lots.map(l => `<option value="${l}">${l}</option>`).join('');
   ['mapItem','cntItem','stItem'].forEach(id =>
     document.getElementById(id).innerHTML = opts);
-
-  document.getElementById('pctItem').innerHTML =
-    '<option value="all">全部項目</option>' + opts;
-  document.getElementById('pctLot').innerHTML =
-    '<option value="all">全部</option>' +
-    S.lots.map(l => `<option value="${l}">${l}</option>`).join('');
+  document.getElementById('pctItem').innerHTML  = '<option value="all">全部項目</option>' + opts;
+  document.getElementById('pctLot').innerHTML   = lotOpts;
+  document.getElementById('cntLot').innerHTML   = lotOpts;
 }
 
 // ══════════════════════════════════════════════════
@@ -895,7 +920,7 @@ function specColor(statName, value, spec) {
 
 // ── Number format ──
 function getStatFmt(key) {
-  return S.statFormats[key] || { type: 'fixed', decimals: key === 'Count' ? 0 : 4 };
+  return S.statFormats[key] || { type: 'fixed', decimals: key === 'Count' ? 0 : 2 };
 }
 function formatStatVal(key, val) {
   if (typeof val !== 'number' || isNaN(val)) return String(val ?? '—');
@@ -921,7 +946,6 @@ function switchStatItem() {
 // ══════════════════════════════════════════════════
 function renderMap() {
   const item       = document.getElementById('mapItem').value;
-  const cols       = document.getElementById('mapCols').value;
   const xDesc      = document.getElementById('mapXDir').value === 'desc';
   const yDesc      = document.getElementById('mapYDir').value === 'desc';
   const csKey      = document.getElementById('mapColorscale').value;
@@ -930,9 +954,9 @@ function renderMap() {
   const zmaxRaw    = document.getElementById('mapZmax').value;
   const zmin       = zminRaw !== '' ? parseFloat(zminRaw) : undefined;
   const zmax       = zmaxRaw !== '' ? parseFloat(zmaxRaw) : undefined;
-  const grid       = document.getElementById('mapGrid');
+  const grid = document.getElementById('mapGrid');
   if(!item) return;
-  grid.className = `chart-grid cols-${cols}`;
+  setGridCols(grid, getCols('map'));
   grid.innerHTML = '';
 
   S.lots.forEach(lot => {
@@ -978,21 +1002,38 @@ function renderMap() {
 // ══════════════════════════════════════════════════
 // COUNT DISTRIBUTION
 // ══════════════════════════════════════════════════
+function resetCntAxes() {
+  ['cntXmin','cntXmax','cntYmin','cntYmax'].forEach(id =>
+    document.getElementById(id).value = '');
+  renderCount();
+}
 function renderCount() {
-  const item = document.getElementById('cntItem').value;
-  const n    = getCols('cnt');
-  const grid = document.getElementById('cntGrid');
+  const selLot = document.getElementById('cntLot').value;
+  const item   = document.getElementById('cntItem').value;
+  const n      = getCols('cnt');
+  const grid   = document.getElementById('cntGrid');
   if (!item) return;
+
+  const xMinV = document.getElementById('cntXmin').value;
+  const xMaxV = document.getElementById('cntXmax').value;
+  const yMinV = document.getElementById('cntYmin').value;
+  const yMaxV = document.getElementById('cntYmax').value;
+  const hasXOvr = xMinV !== '' && xMaxV !== '';
+  const hasYOvr = yMinV !== '' && yMaxV !== '';
+
   setGridCols(grid, n);
   grid.innerHTML = '';
 
-  S.lots.forEach(lot => {
+  const lots = selLot === 'all' ? S.lots : [selLot];
+  lots.forEach(lot => {
     const data = validData(lot, item);
     if (data.length < 3) return;
     const mu = mean(data), sg = std(data);
-    const edges = linspace(Math.min(...data), Math.max(...data), N_BINS + 1);
-    const bw = edges[1] - edges[0];
-    const bc = binCenters(edges);
+    const edges = hasXOvr
+      ? linspace(parseFloat(xMinV), parseFloat(xMaxV), N_BINS + 1)
+      : linspace(Math.min(...data), Math.max(...data), N_BINS + 1);
+    const bw    = edges[1] - edges[0];
+    const bc    = binCenters(edges);
     const cnts  = makeHist(data, edges);
     const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
 
@@ -1009,7 +1050,9 @@ function renderCount() {
     ], {
       title:{text:`${lot} — ${item}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
       margin:{t:54,b:34,l:44,r:10}, showlegend:false, bargap:0,
-      yaxis:{title:{text:'Count',font:{size:10}}},
+      xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
+      yaxis:{ title:{text:'Count',font:{size:10}},
+              range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
       height:250
     }, {responsive:true, displayModeBar:false});
   });
