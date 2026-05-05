@@ -242,6 +242,16 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       <select id="mapCols" onchange="renderMap()">
         <option value="1">1</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option>
       </select>
+      <label style="margin-left:12px">X 軸：</label>
+      <select id="mapXDir" onchange="renderMap()">
+        <option value="desc" selected>大 → 小</option>
+        <option value="asc">小 → 大</option>
+      </select>
+      <label style="margin-left:8px">Y 軸：</label>
+      <select id="mapYDir" onchange="renderMap()">
+        <option value="desc" selected>大 → 小</option>
+        <option value="asc">小 → 大</option>
+      </select>
     </div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
@@ -635,51 +645,54 @@ function uid(p,k) { return `ch-${p}-${String(k).replace(/[^a-zA-Z0-9]/g,'_')}_${
 // WAFER MAP
 // ══════════════════════════════════════════════════
 function renderMap() {
-  const item=document.getElementById('mapItem').value;
-  const cols=document.getElementById('mapCols').value;
-  const grid=document.getElementById('mapGrid');
+  const item  = document.getElementById('mapItem').value;
+  const cols  = document.getElementById('mapCols').value;
+  const xDesc = document.getElementById('mapXDir').value === 'desc';
+  const yDesc = document.getElementById('mapYDir').value === 'desc';
+  const grid  = document.getElementById('mapGrid');
   if(!item) return;
-  grid.className=`chart-grid cols-${cols}`;
-  grid.innerHTML='';
+  grid.className = `chart-grid cols-${cols}`;
+  grid.innerHTML = '';
 
-  S.lots.forEach(lot=>{
-    const rows=S.data.filter(r=>r.Lot===lot);
-    const xSet=[...new Set(rows.map(r=>parseFloat(r.Xpos)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
-    const ySet=[...new Set(rows.map(r=>parseFloat(r.Ypos)).filter(v=>!isNaN(v)))].sort((a,b)=>a-b);
-    const z=ySet.map(y=>xSet.map(x=>{
-      const m=rows.find(r=>parseFloat(r.Xpos)===x&&parseFloat(r.Ypos)===y);
-      return m?(parseFloat(m[item])??null):null;
+  S.lots.forEach(lot => {
+    const rows = S.data.filter(r => r.Lot === lot);
+    const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
+    const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
+    const z = ySet.map(y => xSet.map(x => {
+      const m = rows.find(r => parseFloat(r.Xpos)===x && parseFloat(r.Ypos)===y);
+      return m ? (parseFloat(m[item]) ?? null) : null;
     }));
-    const xMin=xSet[0], xMax=xSet[xSet.length-1];
-    const yMin=ySet[0], yMax=ySet[ySet.length-1];
-    const xPad=(xMax-xMin)*0.03||0.5;
-    const yPad=(yMax-yMin)*0.03||0.5;
-    const id=uid('map',lot);
+    const xMin = xSet[0], xMax = xSet[xSet.length-1];
+    const yMin = ySet[0], yMax = ySet[ySet.length-1];
+    const xPad = (xMax-xMin)*0.03 || 0.5;
+    const yPad = (yMax-yMin)*0.03 || 0.5;
+
+    // X: desc → reversed (大在左)；asc → 正常 (小在左)
+    const xAxis = { title:{text:'Xpos',font:{size:10}},
+                    autorange: xDesc ? 'reversed' : true };
+    // Y: desc → 大在上 range[yMax,yMin]；asc → 小在上 range[yMin,yMax]
+    const yAxis = { title:{text:'Ypos',font:{size:10}},
+                    range: yDesc ? [yMax+yPad, yMin-yPad] : [yMin-yPad, yMax+yPad] };
+
+    const id = uid('map', lot);
     grid.insertAdjacentHTML('beforeend',
       `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
-    Plotly.newPlot(id,[{
-      type:'heatmap',z,x:xSet,y:ySet,
+    Plotly.newPlot(id, [{
+      type:'heatmap', z, x:xSet, y:ySet,
       colorscale:[
-        [0,   '#f7fbff'],
-        [0.1, '#c6dbef'],
-        [0.2, '#6baed6'],
-        [0.35,'#2196f3'],
-        [0.5, '#00e5ff'],
-        [0.6, '#69f0ae'],
-        [0.7, '#ffee58'],
-        [0.82,'#ff9800'],
-        [0.92,'#f44336'],
-        [1,   '#880000']
+        [0,   '#f7fbff'],[0.1, '#c6dbef'],[0.2, '#6baed6'],
+        [0.35,'#2196f3'],[0.5, '#00e5ff'],[0.6, '#69f0ae'],
+        [0.7, '#ffee58'],[0.82,'#ff9800'],[0.92,'#f44336'],[1,'#880000']
       ],
       hoverongaps:false,
       hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
-    }],{
+    }], {
       title:{text:`${lot} — ${item}`,font:{size:11}},
       margin:{t:36,b:36,l:44,r:10},
-      xaxis:{title:{text:'Xpos',font:{size:10}}, autorange:'reversed'},
-      yaxis:{title:{text:'Ypos',font:{size:10}}, range:[yMax+yPad, yMin-yPad]},
+      xaxis: xAxis,
+      yaxis: yAxis,
       height:290
-    },{responsive:true,displayModeBar:false});
+    }, {responsive:true, displayModeBar:false});
   });
 }
 
