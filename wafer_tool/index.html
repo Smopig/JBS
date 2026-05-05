@@ -517,6 +517,9 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
       </select>
       <label style="margin-left:12px;font-size:12px;font-weight:700">迴歸線 + R²：</label>
       <input type="checkbox" id="caCorrReg" onchange="renderChart()" checked style="width:15px;height:15px">
+      <label style="margin-left:12px;font-size:12px;font-weight:700">依 SPEC 篩選資料：</label>
+      <input type="checkbox" id="caCorrFilterSpec" onchange="renderChart()" style="width:15px;height:15px">
+      <span style="font-size:11px;color:#718096">（打勾後僅顯示並計算 SPEC 範圍內的點）</span>
     </div>
 
     <!-- Row 4: SPEC lines -->
@@ -1539,12 +1542,16 @@ function saveChartSpec(item, field, val) {
 function renderChartSpecInputs() {
   const el = document.getElementById('caSpecInputs');
   if (!el) return;
-  const items = S.chartItems.filter(Boolean);
-  if (!items.length) { el.innerHTML = ''; return; }
-  el.innerHTML = items.map(item => {
+  const xItems = S.chartItems.filter(Boolean);
+  // In corr mode, also show Y item spec (with distinct label)
+  const yItem  = S.chartType === 'corr'
+    ? (document.getElementById('caCorrY')?.value || '') : '';
+  const yOnly  = yItem && !xItems.includes(yItem);  // Y item is different from X items
+
+  const renderGroup = (item, label) => {
     const spec = S.chartSpecs[item] || {};
     return `<div class="spec-input-group">
-      <b>${escHtml(item)}</b>&nbsp;
+      ${label}&nbsp;
       <label style="color:#718096">LSL</label>
       <input class="spec-inp" type="number" step="any" placeholder="—"
              value="${spec.lsl ?? ''}"
@@ -1558,7 +1565,16 @@ function renderChartSpecInputs() {
              value="${spec.usl ?? ''}"
              onchange="saveChartSpec('${escHtml(item)}','usl',this.value)">
     </div>`;
-  }).join('');
+  };
+
+  const parts = xItems.map(item =>
+    renderGroup(item, `<b>${escHtml(item)}</b>`)
+  );
+  if (yOnly) parts.push(
+    renderGroup(yItem, `<b style="color:#805ad5">Y: ${escHtml(yItem)}</b>`)
+  );
+
+  el.innerHTML = parts.join('');
 }
 
 // ── Spec shapes/annotations helpers ──
@@ -2020,30 +2036,45 @@ function caCDF(items, grid) {
 
 // ── Correlation ──
 function caCorr(items, grid) {
-  const showSpec = document.getElementById('caShowSpec').checked;
-  const showReg  = document.getElementById('caCorrReg').checked;
-  const yItem    = document.getElementById('caCorrY').value;
-  const selLot   = document.getElementById('caCorrLot').value;
+  const showSpec      = document.getElementById('caShowSpec').checked;
+  const showReg       = document.getElementById('caCorrReg').checked;
+  const filterSpec    = document.getElementById('caCorrFilterSpec').checked;
+  const yItem         = document.getElementById('caCorrY').value;
+  const selLot        = document.getElementById('caCorrLot').value;
   if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請選擇 Y 軸項目</div>'; return; }
 
   const activeLots = selLot === 'all' ? S.lots : [selLot];
 
   items.forEach(item => {
     if (item === yItem) return;
-    const allPairs = activeLots.flatMap(lot => {
+    const specX = S.chartSpecs[item]  || {};
+    const specY = S.chartSpecs[yItem] || {};
+
+    const rawPairs = activeLots.flatMap(lot => {
       const li = S.lots.indexOf(lot);
-      const rows = S.data.filter(r => r.Lot === lot);
-      return rows.map(r => {
+      return S.data.filter(r => r.Lot === lot).map(r => {
         const x = parseFloat(r[item]);
         const y = parseFloat(r[yItem]);
-        return isNaN(x)||isNaN(y) ? null : {x,y,lot,li};
+        return isNaN(x)||isNaN(y) ? null : {x, y, lot, li};
       }).filter(Boolean);
     });
-    if (!allPairs.length) return;
+    if (!rawPairs.length) return;
+
+    // Apply SPEC filter if requested
+    const inSpec = p => {
+      if (specX.lsl != null && p.x < specX.lsl) return false;
+      if (specX.usl != null && p.x > specX.usl) return false;
+      if (specY.lsl != null && p.y < specY.lsl) return false;
+      if (specY.usl != null && p.y > specY.usl) return false;
+      return true;
+    };
+    const displayPairs = filterSpec ? rawPairs.filter(inSpec) : rawPairs;
+    const regrPairs    = filterSpec ? rawPairs.filter(inSpec) : rawPairs;  // same set
+    if (!displayPairs.length) return;
 
     const traces = activeLots.map(lot => {
       const li  = S.lots.indexOf(lot);
-      const pts = allPairs.filter(p => p.lot === lot);
+      const pts = displayPairs.filter(p => p.lot === lot);
       if (!pts.length) return null;
       return {
         type:'scatter', mode:'markers', name:lot,
@@ -2053,18 +2084,20 @@ function caCorr(items, grid) {
     }).filter(Boolean);
 
     const annots = [];
-    if (showReg && allPairs.length >= 2) {
-      const xs = allPairs.map(p=>p.x), ys = allPairs.map(p=>p.y);
+    if (showReg && regrPairs.length >= 2) {
+      const xs = regrPairs.map(p=>p.x), ys = regrPairs.map(p=>p.y);
       const {slope, intercept, r2} = linRegress(xs, ys);
       const xMin = Math.min(...xs), xMax = Math.max(...xs);
       traces.push({
-        type:'scatter', mode:'lines', name:`迴歸 (R²=${rd(r2,3)})`,
+        type:'scatter', mode:'lines',
+        name:`迴歸 (R²=${rd(r2,3)})${filterSpec?' [SPEC內]':''}`,
         x:[xMin, xMax], y:[slope*xMin+intercept, slope*xMax+intercept],
         line:{color:'#333',width:1.5,dash:'dash'}
       });
       annots.push({
         xref:'paper', x:0.99, yref:'paper', y:0.01,
-        text:`y = ${rd(slope,4)}x + ${rd(intercept,4)}<br>R² = ${rd(r2,4)}`,
+        text:`y = ${rd(slope,4)}x + ${rd(intercept,4)}<br>R² = ${rd(r2,4)}` +
+             (filterSpec ? '<br><i style="font-size:9px">※ 僅 SPEC 範圍內資料</i>' : ''),
         showarrow:false, xanchor:'right', yanchor:'bottom',
         font:{size:11,color:'#333'},
         bgcolor:'rgba(255,255,255,.85)', bordercolor:'#ccc', borderwidth:1
