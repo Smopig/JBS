@@ -154,6 +154,39 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
                     border:1px solid #e2e8f0; border-radius:5px; padding:4px 8px; font-size:11px; }
 .spec-input-group b { color:#2d3748; }
 .spec-inp { width:78px; padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; font-size:11px; }
+
+/* Manual */
+.manual { max-width:860px; margin:0 auto; }
+.manual h2 { font-size:16px; font-weight:700; color:#1a365d; border-bottom:2px solid #e2e8f0;
+             padding-bottom:6px; margin:28px 0 12px; }
+.manual h3 { font-size:13px; font-weight:700; color:#2d3748; margin:18px 0 8px; }
+.manual h4 { font-size:12px; font-weight:700; color:#4a5568; margin:14px 0 6px; }
+.manual p  { font-size:13px; line-height:1.8; color:#4a5568; margin:6px 0; }
+.manual ul, .manual ol { font-size:13px; line-height:1.9; color:#4a5568; margin:6px 0 6px 22px; }
+.manual table { width:100%; border-collapse:collapse; font-size:12px; margin:10px 0; }
+.manual table th { background:#2d3748; color:white; padding:7px 12px; text-align:left; }
+.manual table td { padding:6px 12px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
+.manual table tr:nth-child(even) td { background:#f7fafc; }
+.manual code { background:#edf2f7; padding:1px 5px; border-radius:3px; font-family:monospace; font-size:12px; color:#553c9a; }
+.manual pre  { background:#2d3748; color:#e2e8f0; padding:14px 16px; border-radius:6px;
+               font-size:12px; overflow-x:auto; line-height:1.7; margin:10px 0; }
+.manual pre code { background:none; color:inherit; padding:0; font-size:12px; }
+.manual .note { background:#ebf8ff; border-left:4px solid #4299e1; padding:10px 14px;
+                border-radius:0 6px 6px 0; margin:10px 0; font-size:12px; color:#2b6cb0; }
+.manual .warn { background:#fffbeb; border-left:4px solid #d69e2e; padding:10px 14px;
+                border-radius:0 6px 6px 0; margin:10px 0; font-size:12px; color:#744210; }
+.manual .toc  { background:white; border-radius:8px; padding:14px 20px;
+                box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:20px; }
+.manual .toc a { color:#3182ce; text-decoration:none; font-size:13px; }
+.manual .toc a:hover { text-decoration:underline; }
+.manual .toc li { margin:3px 0; }
+.manual .sec { background:white; border-radius:8px; padding:18px 22px; margin-bottom:16px;
+               box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.manual .badge { display:inline-block; background:#3182ce; color:white; border-radius:3px;
+                 padding:1px 7px; font-size:11px; font-weight:700; margin-right:4px; }
+.manual .badge.green { background:#38a169; }
+.manual .badge.red   { background:#e53e3e; }
+.manual .badge.purple{ background:#805ad5; }
 </style>
 </head>
 <body>
@@ -170,6 +203,7 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
   <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
   <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析</button>
+  <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
 </div>
 
 <div class="content">
@@ -532,6 +566,270 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
 
     <!-- Chart output grid -->
     <div id="caGrid" class="chart-grid"></div>
+  </div>
+
+  <!-- ══ Manual ══ -->
+  <div id="panel-manual" class="tab-panel">
+  <div class="manual">
+
+    <div class="toc">
+      <strong style="font-size:13px;color:#2d3748">目錄</strong>
+      <ol style="margin:8px 0 0 20px">
+        <li><a href="#m1">環境準備</a></li>
+        <li><a href="#m2">資料載入</a></li>
+        <li><a href="#m3">Wafer MAP</a></li>
+        <li><a href="#m4">Count 分布</a></li>
+        <li><a href="#m5">% 分布</a></li>
+        <li><a href="#m6">統計</a></li>
+        <li><a href="#m7">圖表分析</a></li>
+        <li><a href="#m8">匯出 Excel</a></li>
+        <li><a href="#m9">常見問題</a></li>
+      </ol>
+    </div>
+
+    <!-- 1 -->
+    <div class="sec" id="m1">
+      <h2>1. 環境準備</h2>
+      <h3>需要的檔案</h3>
+      <pre><code>wafer_tool/
+├── index.html            ← 主程式（本頁）
+├── 操作手冊.md
+└── libs/
+    ├── plotly.min.js     ← 圖表庫
+    └── xlsx.full.min.js  ← Excel 讀寫庫</code></pre>
+      <div class="warn">若 <code>libs/</code> 內缺少檔案，開啟工具時會出現紅色錯誤。請先在有網路的環境下開啟 <code>download_libs.html</code>（只需執行一次）下載後即可完全離線使用。</div>
+      <h3>開啟方式</h3>
+      <p>用任意瀏覽器（Chrome / Edge / Firefox）直接開啟 <code>index.html</code>，無需伺服器。所有資料均在本機處理，不上傳任何伺服器。</p>
+    </div>
+
+    <!-- 2 -->
+    <div class="sec" id="m2">
+      <h2>2. 📂 資料載入</h2>
+
+      <h3>上傳檔案</h3>
+      <ul>
+        <li>點擊上傳區，或將 Excel 檔案<strong>拖曳</strong>進去。</li>
+        <li>支援 <code>.xls</code> / <code>.xlsx</code>，可<strong>一次選取多個檔案</strong>（每個檔案 = 一個 Lot）。</li>
+        <li>Lot 名稱自動從檔名解析：取第一個 <code>-</code> 之後的部分。<br>
+            例：<code>CP-L24A001.xlsx</code> → Lot = <strong>L24A001</strong></li>
+      </ul>
+
+      <h3>設定列號</h3>
+      <table>
+        <tr><th>欄位</th><th>說明</th><th>預設值</th></tr>
+        <tr><td>標題列號</td><td>Excel 中欄位名稱所在的列（從 1 開始）</td><td>13</td></tr>
+        <tr><td>資料起始列號</td><td>實際量測資料從哪一列開始</td><td>30</td></tr>
+      </table>
+      <p>設定好後點擊 <strong>「① 載入欄位」</strong>。</p>
+
+      <h3>欄位命名</h3>
+      <p>載入欄位後，下方出現欄位命名表格。「參考數值」欄顯示該欄位第 14～19 列的樣本值，輔助判斷量測條件。</p>
+      <table>
+        <tr><th>名稱前綴</th><th>自動換算</th><th>用途</th></tr>
+        <tr><td><code>IR_</code></td><td>原始值 × 1,000,000（A → μA）</td><td>漏電流</td></tr>
+        <tr><td><code>VR_</code></td><td>四捨五入至小數 1 位</td><td>逆向崩潰電壓</td></tr>
+        <tr><td><code>VF_</code></td><td>四捨五入至小數 3 位</td><td>順向電壓</td></tr>
+        <tr><td>其他</td><td>不換算</td><td>—</td></tr>
+      </table>
+      <p><strong>🔄 自動命名</strong>：根據原始欄位名稱中的關鍵字（VFBC / BVCBO / ICBO）及樣本值解析條件，自動填入標準名稱（如 <code>VF_5mA</code>、<code>VR_10uA</code>、<code>IR_1V</code>）。</p>
+      <p>確認命名後點擊 <strong>「③ 套用命名並開始分析」</strong>，工具自動讀取所有檔案、套用換算、啟用所有分析分頁。</p>
+    </div>
+
+    <!-- 3 -->
+    <div class="sec" id="m3">
+      <h2>3. 🗺 Wafer MAP</h2>
+      <p>每個 Lot 各一張熱圖，以 (Xpos, Ypos) 坐標顯示量測值。</p>
+      <h3>控制列一</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>量測項目</td><td>選擇要顯示的量測參數</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或「自訂…」</td></tr>
+        <tr><td>X 軸方向</td><td>大→小（預設，大值在左）/ 小→大</td></tr>
+        <tr><td>Y 軸方向</td><td>大→小（預設，大值在上）/ 小→大</td></tr>
+      </table>
+      <h3>控制列二（色階）</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>色階樣式</td><td>白→紅 / 藍↔紅（對稱）/ Viridis / 彩虹 / 黃→橙→紅 / 灰階</td></tr>
+        <tr><td>色階範圍</td><td>手動輸入 min / max；留白則自動計算</td></tr>
+        <tr><td>自動填入</td><td>根據目前項目的全域最小／最大值填入</td></tr>
+        <tr><td>清除</td><td>清空手動輸入，恢復自動</td></tr>
+      </table>
+    </div>
+
+    <!-- 4 -->
+    <div class="sec" id="m4">
+      <h2>4. 📊 Count 分布</h2>
+      <p>顯示每個 Lot 的量測值次數分布直方圖，疊加常態分布曲線。圖表標題顯示 n（樣本數）、mean、std。</p>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>Lot 篩選</td><td>全部 / 指定單一 Lot</td></tr>
+        <tr><td>量測項目</td><td>選擇量測參數</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>X 軸範圍</td><td>手動輸入 min～max；留白自動</td></tr>
+        <tr><td>Y 軸範圍</td><td>手動輸入 min～max；留白自動</td></tr>
+        <tr><td>還原預設</td><td>清除所有手動輸入</td></tr>
+      </table>
+    </div>
+
+    <!-- 5 -->
+    <div class="sec" id="m5">
+      <h2>5. 📈 % 分布</h2>
+      <p>Y 軸以百分比（%）顯示。所有 Lot 使用<strong>相同的 X 軸 bin 邊界</strong>（全域統一），方便 Lot 間比較。</p>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>Lot 篩選</td><td>全部 / 指定單一 Lot</td></tr>
+        <tr><td>量測項目</td><td>全部項目 / 指定單一項目</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>X 軸範圍</td><td>手動輸入；留白則使用全域 bin 範圍</td></tr>
+        <tr><td>Y 軸範圍</td><td>預設 0～100%；可手動縮放</td></tr>
+      </table>
+    </div>
+
+    <!-- 6 -->
+    <div class="sec" id="m6">
+      <h2>6. 📋 統計</h2>
+
+      <h3>量測項目選擇</h3>
+      <p>頂部可新增多個下拉選單，每個選單對應一個量測項目，各自產生獨立統計區塊。</p>
+
+      <h3>統計列開關（Chip）</h3>
+      <p>預設顯示：<code>Count</code> <code>Min</code> <code>Max</code> <code>Mean</code> <code>Median</code> <code>Std</code></p>
+      <ul>
+        <li>點擊 Chip 的 <strong>×</strong> 從所有項目隱藏；點擊 <strong>+</strong> 重新加入。</li>
+        <li>每列右側的 <strong>−</strong> 按鈕：只對該項目隱藏這一列（不影響其他項目）。</li>
+        <li>區塊標題列的「↩ 還原隱藏列」可復原該項目所有隱藏列。</li>
+      </ul>
+
+      <h3>SPEC 設定</h3>
+      <table>
+        <tr><th>欄位</th><th>說明</th></tr>
+        <tr><td>LSL</td><td>下規格限；數值低於此值時格子標紅</td></tr>
+        <tr><td>Typical</td><td>目標典型值（僅供參考，不影響顏色）</td></tr>
+        <tr><td>USL</td><td>上規格限；數值高於此值時格子標紅</td></tr>
+      </table>
+
+      <h3>數值格式</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>0.0（固定小數）</td><td>預設；Count 為 0 位，其餘 2 位</td></tr>
+        <tr><td>1e（科學符號）</td><td>適合極小或極大數值</td></tr>
+        <tr><td>位數</td><td>小數位數（0～10）</td></tr>
+      </table>
+
+      <h3>自訂計算</h3>
+      <p>輸入名稱和公式，可用的變數：</p>
+      <p><code>Count</code> <code>Min</code> <code>Max</code> <code>Mean</code> <code>Median</code> <code>Std</code> <code>LSL</code> <code>USL</code> <code>Typical</code></p>
+      <table>
+        <tr><th>公式範例</th><th>說明</th></tr>
+        <tr><td><code>Math.min((USL-Mean)/(3*Std),(Mean-LSL)/(3*Std))</code></td><td>Cpk</td></tr>
+        <tr><td><code>(USL-LSL)/(6*Std)</code></td><td>Cp</td></tr>
+        <tr><td><code>Max-Min</code></td><td>Range</td></tr>
+        <tr><td><code>(Mean-LSL)/(3*Std)</code></td><td>Cpl</td></tr>
+        <tr><td><code>(USL-Mean)/(3*Std)</code></td><td>Cpu</td></tr>
+      </table>
+    </div>
+
+    <!-- 7 -->
+    <div class="sec" id="m7">
+      <h2>7. 📉 圖表分析</h2>
+
+      <h3>通用控制</h3>
+      <table>
+        <tr><th>控制</th><th>說明</th></tr>
+        <tr><td>量測項目</td><td>可新增多個，同時分析多個參數</td></tr>
+        <tr><td>Lot 顯示</td><td><strong>全部疊加</strong>：所有 Lot 在同一張圖（不同色）<br><strong>每 Lot 獨立</strong>：每 Lot 各自一張圖</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>SPEC 線</td><td>勾選後顯示 LSL（<span class="badge red">紅虛線</span>）/ Typical（<span class="badge green">綠點線</span>）/ USL（<span class="badge red">紅虛線</span>）水平線</td></tr>
+      </table>
+
+      <h3>圖表類型</h3>
+
+      <h4>📦 箱型圖（Box Plot）</h4>
+      <p>X 軸 = 各 Lot，Y 軸 = 量測值。顯示中位數、四分位距、最大最小值、離群值。每個量測項目一張圖。</p>
+
+      <h4>🎻 小提琴圖（Violin Plot）</h4>
+      <p>同箱型圖佈局，額外顯示資料的機率密度形狀，內含 Box 及均值線。</p>
+
+      <h4>🔵 散佈圖（Scatter Plot）</h4>
+      <ul>
+        <li><strong>X 軸</strong>：Xpos / Ypos / Index</li>
+        <li><strong>疊加模式</strong>：所有 Lot 同圖（不同色）；<strong>獨立模式</strong>：每 Lot 一張</li>
+        <li>點大小滑桿可調整</li>
+      </ul>
+
+      <h4>📉 趨勢圖（Trend）</h4>
+      <ul>
+        <li>以 Lot 為 X 軸，Y 軸為每個 Lot 的均值 ± 誤差棒</li>
+        <li><strong>誤差棒</strong>：±1σ / ±2σ / ±3σ / Min～Max</li>
+        <li><strong>Cpk 標示</strong>：需設定 LSL 與 USL，勾選後在各點旁標示 Cpk 值</li>
+        <li>獨立模式下顯示逐點數值折線（含均值參考線）</li>
+      </ul>
+
+      <h4>📊 長條圖 + 誤差棒（Bar）</h4>
+      <p>X 軸 = Lot，長條高度 = 均值，誤差棒選項與 Cpk 標示同趨勢圖。每個量測項目一張圖。</p>
+
+      <h4>🎯 SPC</h4>
+      <ul>
+        <li>顯示每個量測點，並繪製 CL（中心線）/ UCL / LCL</li>
+        <li><strong>X 軸</strong>：Index / Lot 分組 / Xpos / Ypos</li>
+        <li><strong>管制線 σ</strong>：±1σ / ±2σ / ±3σ（預設 ±3σ）</li>
+        <li>超出管制線的點以<span class="badge red">紅色</span>標示，圖表標題顯示 CL / UCL / LCL 數值</li>
+      </ul>
+
+      <h4>📈 CDF（累積分布）</h4>
+      <ul>
+        <li>X 軸 = 量測值，Y 軸 = 累積百分比（0～100%）</li>
+        <li>疊加模式 = 所有 Lot 同圖；獨立模式 = 每 Lot 一張（含填色）</li>
+      </ul>
+
+      <h4>🔗 相關分析（Correlation）</h4>
+      <ul>
+        <li>X 軸 = 量測項目選單的項目；Y 軸 = 獨立下拉選單的第二個項目</li>
+        <li>各 Lot 以不同顏色區分；可用 <strong>Lot 篩選</strong>選擇全部或個別 Lot</li>
+        <li><strong>迴歸線 + R²</strong>：勾選後疊加最小平方迴歸線，圖角顯示方程式與 R²</li>
+        <li><strong>依 SPEC 篩選資料</strong>：勾選後，只顯示並計算 X、Y 皆在各自 SPEC 範圍內的點；迴歸標示加上「[SPEC 內]」備註</li>
+        <li>Y 軸的 SPEC 在 SPEC 列以<span class="badge purple">紫色 Y:</span>標示獨立輸入</li>
+      </ul>
+    </div>
+
+    <!-- 8 -->
+    <div class="sec" id="m8">
+      <h2>8. 💾 匯出 Excel</h2>
+      <p>點擊任一分頁右上角的「💾 匯出 Excel」，產生含兩個工作表的 Excel 檔：</p>
+      <table>
+        <tr><th>工作表</th><th>內容</th></tr>
+        <tr><td>合併資料</td><td>所有 Lot 的原始量測資料（已套用換算）合併為單一表格</td></tr>
+        <tr><td>統計</td><td>每個量測項目 × 每個 Lot 的 Count / Min / Max / Mean / Median / Std</td></tr>
+      </table>
+      <p>檔名格式：<code>wafer_analysis_YYYY-MM-DD.xlsx</code></p>
+    </div>
+
+    <!-- 9 -->
+    <div class="sec" id="m9">
+      <h2>9. 常見問題</h2>
+
+      <h3>❓ 開啟後出現紅色「找不到必要的 Library 檔案」</h3>
+      <p><code>libs/</code> 資料夾內缺少 <code>plotly.min.js</code> 或 <code>xlsx.full.min.js</code>。請在有網路的環境下開啟 <code>download_libs.html</code> 下載後放入 <code>libs/</code>，之後即可完全離線使用。</p>
+
+      <h3>❓ 上傳後 Lot 名稱顯示不正確</h3>
+      <p>Lot 名稱取第一個 <code>-</code> 之後的部分。若檔名不含 <code>-</code>，則以完整去除副檔名的檔名作為 Lot 名稱。</p>
+
+      <h3>❓ 資料列號設定錯誤</h3>
+      <p>修改「標題列號」與「資料起始列號」後，重新點擊「① 載入欄位」再執行「③ 套用命名並開始分析」即可。</p>
+
+      <h3>❓ Cpk 計算結果為空白</h3>
+      <p>Cpk 需要 LSL 和 USL 都有值才能計算。請在統計分頁或圖表分析的 SPEC 輸入欄中填入 LSL 與 USL。</p>
+
+      <h3>❓ 相關分析沒有出現迴歸線</h3>
+      <p>請確認已在「Y 軸項目」下拉選單選擇了一個<strong>與 X 軸不同</strong>的量測項目，且「迴歸線 + R²」勾選框已打勾。</p>
+
+      <h3>❓ SPC 圖的紅色點是什麼</h3>
+      <p>紅色點表示該量測值超出 UCL（上管制線）或低於 LCL（下管制線），屬於失控點。</p>
+    </div>
+
+    <p style="text-align:center;font-size:11px;color:#a0aec0;margin-top:20px">最後更新：2026-05-05</p>
+  </div>
   </div>
 
 </div><!-- /content -->
