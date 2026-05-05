@@ -906,17 +906,33 @@ function getLotName(fname) {
   return parts.length >= 2 ? parts[1] : base;
 }
 
-function handleFiles(files) {
-  S.files = Array.from(files);
+function renderFileList() {
   document.getElementById('fileList').innerHTML =
-    S.files.map(f => {
+    S.files.map((f, i) => {
       const lot = getLotName(f.name);
-      return `<div class="file-item">📄 ${f.name} <span class="lot-tag">${lot}</span></div>`;
+      return `<div class="file-item">
+        📄 ${escHtml(f.name)} <span class="lot-tag">${escHtml(lot)}</span>
+        <button onclick="removeFile(${i})" title="移除此檔案"
+                style="margin-left:auto;border:none;background:none;cursor:pointer;
+                       color:#a0aec0;font-size:16px;line-height:1;padding:0 4px">×</button>
+      </div>`;
     }).join('');
   document.getElementById('btnLoad').disabled = S.files.length === 0;
+  document.getElementById('upStatus').innerHTML = S.files.length
+    ? `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「步驟 1：載入欄位」</div>`
+    : '';
+}
+
+function handleFiles(files) {
+  S.files = Array.from(files);
   document.getElementById('renameSection').style.display = 'none';
-  document.getElementById('upStatus').innerHTML =
-    `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「步驟 1：載入欄位」</div>`;
+  renderFileList();
+}
+
+function removeFile(i) {
+  S.files.splice(i, 1);
+  document.getElementById('renameSection').style.display = 'none';
+  renderFileList();
 }
 
 // ══════════════════════════════════════════════════
