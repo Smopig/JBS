@@ -617,6 +617,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
   <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
   <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
+  <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
   <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
 </div>
 
@@ -992,6 +993,61 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <div id="caGrid" class="chart-grid"></div>
   </div>
 
+  <!-- ══ Split Association Analysis ══ -->
+  <div id="panel-split" class="tab-panel">
+
+    <!-- Row 1: Split file loader -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:10px;align-items:center">
+      <label style="font-size:12px;font-weight:700">Split 條件檔：</label>
+      <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
+        📂 載入 Split.xlsx
+        <input type="file" id="splitFileInput" accept=".xlsx,.xls" style="display:none" onchange="loadSplitFile(this.files[0])">
+      </label>
+      <span id="splitFileStatus" style="font-size:12px;color:var(--text-3)">尚未載入</span>
+    </div>
+
+    <!-- Row 2: Split preview table (hidden until file loaded) -->
+    <div id="splitPreviewWrap" style="display:none">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">Split 條件預覽
+        <span style="font-weight:400;color:var(--text-3);margin-left:8px">（列=製程步驟，欄=Lot批號，1/2代表Split群組）</span>
+      </div>
+      <div id="splitPreviewTable" class="tbl-wrap" style="max-height:220px;overflow:auto"></div>
+    </div>
+
+    <!-- Row 3: Lot matching status -->
+    <div id="splitMatchWrap" style="display:none">
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">Lot 名稱對應</div>
+      <div id="splitMatchTable" class="tbl-wrap" style="max-height:150px;overflow:auto"></div>
+    </div>
+
+    <!-- Row 4: Analysis controls -->
+    <div id="splitCtrlWrap" style="display:none;flex-wrap:wrap;gap:8px;align-items:flex-start" class="ctrl">
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12px;font-weight:700">製程步驟：</label>
+        <select id="splitStepSel" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:180px">
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12px;font-weight:700">量測項目：</label>
+        <div id="splitItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <select id="splitItemSel0" class="split-item-sel" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px">
+          </select>
+          <button class="btn btn-gray" style="font-size:12px" onclick="addSplitItem()">＋ 新增項目</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-end;padding-bottom:2px">
+        <button class="btn btn-blue" style="font-size:12px" onclick="renderSplitAnalysis()">執行分析</button>
+      </div>
+    </div>
+
+    <!-- Row 5: Analysis output -->
+    <div id="splitResultWrap" style="display:none">
+      <div id="splitStatsTable" class="tbl-wrap" style="margin-bottom:12px"></div>
+      <div id="splitChartGrid" class="chart-grid"></div>
+    </div>
+
+  </div>
+
   <!-- ══ Manual ══ -->
   <div id="panel-manual" class="tab-panel">
   <div class="manual">
@@ -1296,7 +1352,11 @@ const S = {
   // Chart Analysis
   chartItems:       [''],
   chartType:        'box',
-  chartSpecs:       {}                // { item: { lsl, typical, usl } }
+  chartSpecs:       {},               // { item: { lsl, typical, usl } }
+  // Split Association Analysis
+  splitData:        null,             // { steps:[], lots:[], matrix:{step:{lot:1|2}} }
+  splitLotMap:      {},               // { splitLotId: loadedLotName }
+  splitItems:       ['']              // selected measurement items for split analysis
 };
 
 // ══════════════════════════════════════════════════
@@ -1654,7 +1714,7 @@ async function applyAndAnalyze() {
 
   populateSels();
 
-  ['map','count','pct','stats','chart'].forEach(t =>
+  ['map','count','pct','stats','chart','split'].forEach(t =>
     document.getElementById('tb-' + t).disabled = false);
 
   const errHtml = errs.length ? `<div class="status err">⚠️ ${errs.join('<br>')}</div>` : '';
@@ -1691,6 +1751,7 @@ function populateSels() {
   document.getElementById('caCorrLot').innerHTML  = '<option value="all">全部 Lot</option>' + S.lots.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
   renderStatItemSelects();
   renderChartItemSelects();
+  renderSplitItemSelects();
 }
 
 // ══════════════════════════════════════════════════
@@ -3005,10 +3066,261 @@ window.addEventListener('load',()=>{
 if (typeof setLoadMode === 'function') setLoadMode('overwrite', document.querySelector('#loadModeSeg button.on'));
 </script>
 
+<!-- ═══ Split Association Analysis ═══ -->
+<script>
+// ──────────────────────────────────────────────────────────
+// SPLIT ANALYSIS — helpers
+// ──────────────────────────────────────────────────────────
+
+function loadSplitFile(file) {
+  if (!file) return;
+  const statusEl = document.getElementById('splitFileStatus');
+  statusEl.textContent = '讀取中…';
+  statusEl.style.color = 'var(--text-3)';
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const wb = XLSX.read(e.target.result, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      if (!rows || rows.length < 2) throw new Error('表格資料不足');
+
+      // Row 0: headers. Col 0 = step name label, cols 1..N = lot IDs
+      const headerRow = rows[0];
+      const lots = [];
+      for (let c = 1; c < headerRow.length; c++) {
+        if (headerRow[c] != null && String(headerRow[c]).trim() !== '')
+          lots.push(String(headerRow[c]).trim());
+      }
+
+      const steps = [];
+      const matrix = {};
+      for (let r = 1; r < rows.length; r++) {
+        const row = rows[r];
+        const stepName = row[0] != null ? String(row[0]).trim() : null;
+        if (!stepName) continue;
+        steps.push(stepName);
+        matrix[stepName] = {};
+        lots.forEach((lot, ci) => {
+          const val = row[ci + 1];
+          matrix[stepName][lot] = (val === 1 || val === 2) ? val : null;
+        });
+      }
+
+      S.splitData = { steps, lots, matrix };
+      S.splitLotMap = autoMatchLots(lots, S.lots);
+
+      statusEl.textContent = `✓ 已載入：${steps.length} 個製程步驟 × ${lots.length} 個 Lot`;
+      statusEl.style.color = 'var(--accent)';
+
+      renderSplitPreview();
+      renderSplitMatchTable();
+      populateSplitStepSel();
+      document.getElementById('splitPreviewWrap').style.display = '';
+      document.getElementById('splitMatchWrap').style.display = '';
+      document.getElementById('splitCtrlWrap').style.display = '';
+    } catch(err) {
+      statusEl.textContent = '載入失敗：' + err.message;
+      statusEl.style.color = '#e53e3e';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function autoMatchLots(splitLots, loadedLots) {
+  const map = {};
+  splitLots.forEach(sl => {
+    // exact match
+    if (loadedLots.includes(sl)) { map[sl] = sl; return; }
+    // substring: find a loaded lot that contains the split lot id or vice versa
+    const found = loadedLots.find(ll =>
+      ll.includes(sl) || sl.includes(ll) ||
+      ll.replace(/-/g,'').includes(sl.replace(/-/g,'')) ||
+      sl.replace(/-/g,'').includes(ll.replace(/-/g,''))
+    );
+    map[sl] = found || null;
+  });
+  return map;
+}
+
+function renderSplitPreview() {
+  if (!S.splitData) return;
+  const { steps, lots, matrix } = S.splitData;
+  const isDark = document.body.classList.contains('theme-dark') ||
+                 !document.body.classList.contains('theme-light');
+  const g1bg = 'rgba(74,214,199,0.18)';
+  const g2bg = 'rgba(245,158,11,0.18)';
+  const g1fg = 'var(--accent)';
+  const g2fg = '#f59e0b';
+
+  let html = '<table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
+  html += '<th style="position:sticky;left:0;background:var(--bg-2);z-index:2;min-width:120px">製程步驟</th>';
+  lots.forEach(l => {
+    const matched = S.splitLotMap[l] != null;
+    html += `<th style="min-width:90px;${matched ? '' : 'color:var(--text-3)'}">${escHtml(l)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  steps.forEach(step => {
+    html += `<tr><td style="position:sticky;left:0;background:var(--bg-2);font-weight:600">${escHtml(step)}</td>`;
+    lots.forEach(l => {
+      const v = matrix[step][l];
+      if (v === 1) html += `<td style="text-align:center;background:${g1bg};color:${g1fg};font-weight:700">1</td>`;
+      else if (v === 2) html += `<td style="text-align:center;background:${g2bg};color:${g2fg};font-weight:700">2</td>`;
+      else html += `<td style="text-align:center;color:var(--text-3)">—</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('splitPreviewTable').innerHTML = html;
+}
+
+function renderSplitMatchTable() {
+  if (!S.splitData) return;
+  const { lots } = S.splitData;
+  const matchedCount = lots.filter(l => S.splitLotMap[l] != null).length;
+  let html = `<div style="font-size:11px;color:var(--text-3);margin-bottom:6px">已匹配 ${matchedCount}/${lots.length} 個 Lot</div>`;
+  html += '<table class="stats" style="font-size:11px"><thead><tr><th>Split 批號</th><th>對應已載入 Lot</th><th>狀態</th></tr></thead><tbody>';
+  lots.forEach(l => {
+    const matched = S.splitLotMap[l];
+    const statusIcon = matched ? '✓' : '✗';
+    const statusColor = matched ? 'var(--accent)' : '#e53e3e';
+    html += `<tr><td>${escHtml(l)}</td><td>${matched ? escHtml(matched) : '<em style="color:var(--text-3)">未匹配</em>'}</td>`;
+    html += `<td style="text-align:center;color:${statusColor};font-weight:700">${statusIcon}</td></tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('splitMatchTable').innerHTML = html;
+}
+
+function populateSplitStepSel() {
+  if (!S.splitData) return;
+  const sel = document.getElementById('splitStepSel');
+  sel.innerHTML = S.splitData.steps.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+}
+
+function renderSplitItemSelects() {
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  document.querySelectorAll('.split-item-sel').forEach((sel, idx) => {
+    const prev = sel.value;
+    sel.innerHTML = opts;
+    if (S.splitItems[idx] && opts.includes(S.splitItems[idx])) sel.value = S.splitItems[idx];
+  });
+}
+
+function addSplitItem() {
+  S.splitItems.push('');
+  const idx = S.splitItems.length - 1;
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  const wrap = document.getElementById('splitItemList');
+  const addBtn = wrap.querySelector('button');
+  const sel = document.createElement('select');
+  sel.className = 'split-item-sel';
+  sel.style.cssText = 'padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px';
+  sel.innerHTML = opts;
+  sel.onchange = () => { S.splitItems[idx] = sel.value; };
+  wrap.insertBefore(sel, addBtn);
+}
+
+function renderSplitAnalysis() {
+  if (!S.splitData || !S.data.length) return;
+
+  const step = document.getElementById('splitStepSel').value;
+  // collect selected items from all split-item-sel dropdowns
+  const items = Array.from(document.querySelectorAll('.split-item-sel'))
+    .map(s => s.value).filter(Boolean);
+  if (!items.length) return;
+
+  const stepRow = S.splitData.matrix[step];
+  if (!stepRow) return;
+
+  // Build group membership: loadedLotName → 1|2
+  const lotGroup = {};
+  S.splitData.lots.forEach(sl => {
+    const loadedLot = S.splitLotMap[sl];
+    if (loadedLot && stepRow[sl] != null) lotGroup[loadedLot] = stepRow[sl];
+  });
+
+  // Check we have at least one lot in each group
+  const g1Lots = S.lots.filter(l => lotGroup[l] === 1);
+  const g2Lots = S.lots.filter(l => lotGroup[l] === 2);
+  if (!g1Lots.length && !g2Lots.length) {
+    document.getElementById('splitResultWrap').style.display = '';
+    document.getElementById('splitStatsTable').innerHTML =
+      '<div class="status err">⚠️ 此製程步驟無可匹配的 Lot 數據，請確認 Lot 對應設定。</div>';
+    document.getElementById('splitChartGrid').innerHTML = '';
+    return;
+  }
+
+  // Stats table
+  document.getElementById('splitStatsTable').innerHTML = buildSplitStatsHtml(items, g1Lots, g2Lots, step);
+
+  // Box plots — one chart-card per item
+  const grid = document.getElementById('splitChartGrid');
+  grid.innerHTML = '';
+  items.forEach(item => {
+    const g1vals = S.data.filter(r => g1Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+    const g2vals = S.data.filter(r => g2Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+    const traces = [];
+    if (g1vals.length) traces.push({
+      type:'box', y:g1vals, name:`Group 1 (n=${g1vals.length})`,
+      marker:{color:'rgba(74,214,199,0.8)'}, line:{color:'rgba(74,214,199,1)'},
+      boxpoints:'outliers', jitter:0.3, pointpos:0
+    });
+    if (g2vals.length) traces.push({
+      type:'box', y:g2vals, name:`Group 2 (n=${g2vals.length})`,
+      marker:{color:'rgba(245,158,11,0.8)'}, line:{color:'rgba(245,158,11,1)'},
+      boxpoints:'outliers', jitter:0.3, pointpos:0
+    });
+    const id = uid('sp', item + step);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div style="font-size:11px;font-weight:700;margin-bottom:4px;color:var(--text-2)">${escHtml(item)}</div><div id="${id}" style="height:320px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      yaxis: { title: escHtml(item) },
+      showlegend: true,
+      legend: { orientation:'h', x:0, y:1.12 },
+      margin: {t:40, r:16, b:48, l:60}
+    }, {responsive:true, displayModeBar:false});
+  });
+
+  document.getElementById('splitResultWrap').style.display = '';
+}
+
+function buildSplitStatsHtml(items, g1Lots, g2Lots, step) {
+  const headers = ['量測項目', 'Group 1 Count', 'Group 1 Mean', 'Group 1 Std', 'Group 1 Median',
+                   'Group 2 Count', 'Group 2 Mean', 'Group 2 Std', 'Group 2 Median', 'Δ Mean'];
+  let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 步驟：${escHtml(step)}</div>`;
+  html += '<table class="stats"><thead><tr>';
+  headers.forEach(h => html += `<th>${h}</th>`);
+  html += '</tr></thead><tbody>';
+  items.forEach(item => {
+    const g1v = S.data.filter(r => g1Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+    const g2v = S.data.filter(r => g2Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+    const fmt = v => v != null ? rd(v, 4) : '—';
+    const g1m = g1v.length ? mean(g1v) : null;
+    const g2m = g2v.length ? mean(g2v) : null;
+    const delta = (g1m != null && g2m != null) ? g2m - g1m : null;
+    const deltaColor = delta != null ? (Math.abs(delta) > 0.001 * Math.abs(g1m || g2m || 1) ? '#f59e0b' : 'var(--text-2)') : '';
+    html += `<tr>
+      <td style="font-weight:600">${escHtml(item)}</td>
+      <td>${g1v.length}</td>
+      <td>${fmt(g1m)}</td>
+      <td>${g1v.length>=2 ? fmt(std(g1v)) : '—'}</td>
+      <td>${g1v.length ? fmt(median(g1v)) : '—'}</td>
+      <td>${g2v.length}</td>
+      <td>${fmt(g2m)}</td>
+      <td>${g2v.length>=2 ? fmt(std(g2v)) : '—'}</td>
+      <td>${g2v.length ? fmt(median(g2v)) : '—'}</td>
+      <td style="font-weight:700;color:${deltaColor}">${fmt(delta)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+</script>
+
 <!-- ═══ Tweaks Panel (vanilla, always visible) ═══ -->
 <style>
   .twk {
-    position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+    position: fixed; right: 16px; top: 16px; z-index: 9999;
     width: 280px; max-height: calc(100vh - 32px);
     background: rgba(17, 22, 30, 0.92); backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
@@ -3016,10 +3328,10 @@ if (typeof setLoadMode === 'function') setLoadMode('overwrite', document.querySe
     color: var(--text); font-family: var(--ff-sans); font-size: 12px;
     box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(74,214,199,.1);
     display: flex; flex-direction: column; overflow: hidden;
-    transition: transform .25s ease, opacity .2s;
+    transition: max-height .25s ease, opacity .2s;
   }
   body.theme-light .twk { background: rgba(255,255,255,.92); }
-  .twk.collapsed { transform: translateY(calc(100% - 38px)); }
+  .twk.collapsed { max-height: 38px; }
   .twk-hd {
     display: flex; align-items: center; justify-content: space-between;
     padding: 9px 12px; cursor: pointer; user-select: none;
