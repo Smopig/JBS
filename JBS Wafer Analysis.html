@@ -1,0 +1,3208 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JBS Wafer Analysis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #333; font-size: 14px; }
+
+.header { background: #1a365d; color: white; padding: 14px 24px; }
+.header h1 { font-size: 18px; }
+.header p  { font-size: 11px; opacity: 0.65; margin-top: 2px; }
+
+/* Tabs */
+.tab-nav { background: white; border-bottom: 2px solid #e2e8f0; display: flex; padding: 0 20px; gap: 4px; }
+.tab-btn  { padding: 11px 18px; border: none; background: none; cursor: pointer; font-size: 13px;
+            color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+.tab-btn.active { color: #1a365d; border-bottom-color: #1a365d; font-weight: 700; }
+.tab-btn:hover  { color: #1a365d; }
+.tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.content   { padding: 18px 22px; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Upload */
+.upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 32px; text-align: center;
+               cursor: pointer; background: white; transition: all .2s; }
+.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: #ebf8ff; }
+.upload-icon { font-size: 40px; margin-bottom: 8px; }
+.upload-text { font-size: 15px; color: #4a5568; }
+.upload-hint { font-size: 11px; color: #a0aec0; margin-top: 4px; }
+
+/* Settings row */
+.settings-row { display: flex; align-items: flex-end; gap: 16px; margin: 14px 0; flex-wrap: wrap; }
+.sg label { display: block; font-size: 11px; color: #4a5568; font-weight: 700; margin-bottom: 4px; }
+.sg input  { padding: 6px 10px; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 13px; }
+
+/* Buttons */
+.btn { padding: 8px 16px; border-radius: 5px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+.btn-blue  { background: #3182ce; color: white; }
+.btn-blue:hover  { background: #2b6cb0; }
+.btn-green { background: #38a169; color: white; }
+.btn-green:hover { background: #276749; }
+.btn-gray  { background: #edf2f7; color: #4a5568; }
+.btn-gray:hover  { background: #e2e8f0; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Status */
+.status { border-radius: 6px; padding: 10px 14px; margin: 8px 0; font-size: 12px;
+          border-left: 4px solid #4299e1; background: white; }
+.status.ok  { border-color: #48bb78; }
+.status.err { border-color: #fc8181; background: #fff5f5; }
+
+/* File list */
+.file-list { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.file-item { display: flex; align-items: center; gap: 8px; padding: 5px 10px;
+             background: #f7fafc; border-radius: 4px; font-size: 12px; }
+.lot-tag   { background: #3182ce; color: white; padding: 1px 6px; border-radius: 3px;
+             font-size: 10px; font-weight: 700; }
+
+/* ── Rename section ── */
+.rename-section { margin-top: 18px; background: white; border-radius: 8px;
+                  box-shadow: 0 1px 4px rgba(0,0,0,.1); overflow: hidden; }
+.rename-header  { display: flex; align-items: center; justify-content: space-between;
+                  padding: 12px 16px; background: #2d3748; color: white; flex-wrap: wrap; gap: 8px; }
+.rename-header .title { font-size: 14px; font-weight: 700; }
+.rename-header .hint  { font-size: 11px; opacity: 0.75; margin-top: 2px; }
+.rename-header .btns  { display: flex; gap: 8px; }
+.rename-table-wrap    { max-height: 380px; overflow-y: auto; }
+.rename-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rename-table thead th { background: #4a5568; color: white; padding: 7px 12px;
+                         text-align: left; position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+.rename-table tbody tr { border-bottom: 1px solid #e2e8f0; }
+.rename-table tbody tr:hover { background: #f7fafc; }
+.rename-table td  { padding: 5px 10px; vertical-align: middle; }
+.orig-name { font-family: monospace; color: #718096; }
+.rename-input { width: 100%; padding: 4px 8px; border: 1px solid #cbd5e0; border-radius: 4px;
+                font-size: 12px; font-family: monospace; }
+.rename-input:focus { border-color: #4299e1; outline: none; }
+.sample-vals { font-size: 11px; color: #4a5568; font-family: monospace; line-height: 1.6;
+               white-space: nowrap; }
+
+/* Conversion badge */
+.cbadge      { padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.cbadge.none { background: #edf2f7; color: #718096; }
+.cbadge.ir   { background: #bee3f8; color: #2b6cb0; }
+.cbadge.vr   { background: #c6f6d5; color: #276749; }
+.cbadge.vf   { background: #fefcbf; color: #744210; }
+
+.rename-footer { padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+                 border-top: 1px solid #e2e8f0; }
+
+/* Step badge */
+.step-badge { display: inline-flex; align-items: center; justify-content: center;
+              width: 22px; height: 22px; border-radius: 50%; background: #3182ce;
+              color: white; font-size: 11px; font-weight: 700; margin-right: 4px; }
+
+/* Control panel */
+.ctrl { background: white; border-radius: 8px; padding: 12px 16px; margin-bottom: 14px;
+        display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+        box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.ctrl label  { font-size: 12px; color: #4a5568; font-weight: 700; white-space: nowrap; }
+.ctrl select { padding: 5px 9px; border: 1px solid #cbd5e0; border-radius: 4px; font-size: 12px; }
+
+/* Chart grid */
+.chart-grid { display: grid; gap: 14px; }
+.cols-1 { grid-template-columns: 1fr; }
+.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.chart-card { background: white; border-radius: 8px; padding: 6px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+
+/* Stats table */
+.tbl-wrap { overflow: auto; }
+.stats-block { background: white; border-radius: 8px; margin-bottom: 16px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.stats-block-hd { display:flex; align-items:center; justify-content:space-between;
+                  padding: 8px 14px; background: #2d3748; color: white; }
+.stats-block-hd .title { font-size: 13px; font-weight: 700; }
+.stats-block-scroll { overflow-x: auto; }
+table.stats  { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.stats thead th { background: #2d3748; color: white; padding: 7px 12px; text-align: center;
+                       white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+table.stats tbody td { padding: 5px 10px; text-align: center; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+table.stats tbody tr:nth-child(even) { background: #f7fafc; }
+table.stats tbody tr:hover           { background: #ebf8ff; }
+.row-label { text-align: left !important; font-weight: 700; color: #2d3748;
+             background: #edf2f7 !important; position: sticky; left: 0; z-index: 1; }
+
+/* % section header */
+.section-hd { font-size: 13px; font-weight: 700; color: #2d3748; padding: 6px 10px;
+              background: #edf2f7; border-radius: 6px 6px 0 0; }
+
+/* Library error */
+.lib-error { background: #fff5f5; border: 2px solid #fc8181; border-radius: 8px; padding: 20px 24px; margin: 12px 0; }
+.lib-error h3 { color: #c53030; margin-bottom: 8px; }
+.lib-error code { background: #fed7d7; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+.lib-error ol { margin: 8px 0 0 20px; line-height: 2; }
+
+@media (max-width:1100px) { .cols-4,.cols-6 { grid-template-columns: repeat(3,1fr); } }
+@media (max-width: 800px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: repeat(2,1fr); } }
+@media (max-width: 500px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: 1fr; } }
+
+/* Chart analysis */
+.ca-type-btn { padding:5px 13px; border-radius:20px; border:2px solid #e2e8f0; cursor:pointer;
+               font-size:12px; font-weight:600; background:white; color:#4a5568;
+               transition:all .15s; white-space:nowrap; }
+.ca-type-btn.active { background:#1a365d; color:white; border-color:#1a365d; }
+.ca-type-btn:hover:not(.active) { border-color:#a0aec0; color:#1a365d; }
+.spec-input-group { display:inline-flex; align-items:center; gap:5px; background:#f7fafc;
+                    border:1px solid #e2e8f0; border-radius:5px; padding:4px 8px; font-size:11px; }
+.spec-input-group b { color:#2d3748; }
+.spec-inp { width:78px; padding:3px 5px; border:1px solid #cbd5e0; border-radius:3px; font-size:11px; }
+
+/* Manual */
+.manual { max-width:860px; margin:0 auto; }
+.manual h2 { font-size:16px; font-weight:700; color:#1a365d; border-bottom:2px solid #e2e8f0;
+             padding-bottom:6px; margin:28px 0 12px; }
+.manual h3 { font-size:13px; font-weight:700; color:#2d3748; margin:18px 0 8px; }
+.manual h4 { font-size:12px; font-weight:700; color:#4a5568; margin:14px 0 6px; }
+.manual p  { font-size:13px; line-height:1.8; color:#4a5568; margin:6px 0; }
+.manual ul, .manual ol { font-size:13px; line-height:1.9; color:#4a5568; margin:6px 0 6px 22px; }
+.manual table { width:100%; border-collapse:collapse; font-size:12px; margin:10px 0; }
+.manual table th { background:#2d3748; color:white; padding:7px 12px; text-align:left; }
+.manual table td { padding:6px 12px; border-bottom:1px solid #e2e8f0; vertical-align:top; }
+.manual table tr:nth-child(even) td { background:#f7fafc; }
+.manual code { background:#edf2f7; padding:1px 5px; border-radius:3px; font-family:monospace; font-size:12px; color:#553c9a; }
+.manual pre  { background:#2d3748; color:#e2e8f0; padding:14px 16px; border-radius:6px;
+               font-size:12px; overflow-x:auto; line-height:1.7; margin:10px 0; }
+.manual pre code { background:none; color:inherit; padding:0; font-size:12px; }
+.manual .note { background:#ebf8ff; border-left:4px solid #4299e1; padding:10px 14px;
+                border-radius:0 6px 6px 0; margin:10px 0; font-size:12px; color:#2b6cb0; }
+.manual .warn { background:#fffbeb; border-left:4px solid #d69e2e; padding:10px 14px;
+                border-radius:0 6px 6px 0; margin:10px 0; font-size:12px; color:#744210; }
+.manual .toc  { background:white; border-radius:8px; padding:14px 20px;
+                box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:20px; }
+.manual .toc a { color:#3182ce; text-decoration:none; font-size:13px; }
+.manual .toc a:hover { text-decoration:underline; }
+.manual .toc li { margin:3px 0; }
+.manual .sec { background:white; border-radius:8px; padding:18px 22px; margin-bottom:16px;
+               box-shadow:0 1px 3px rgba(0,0,0,.08); }
+.manual .badge { display:inline-block; background:#3182ce; color:white; border-radius:3px;
+                 padding:1px 7px; font-size:11px; font-weight:700; margin-right:4px; }
+.manual .badge.green { background:#38a169; }
+.manual .badge.red   { background:#e53e3e; }
+.manual .badge.purple{ background:#805ad5; }
+
+/* ═══════════════════════════════════════════════════════════════
+   JBS DARK THEME OVERRIDE — v2 redesign
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg:        #0a0e14;
+  --bg-1:      #11161e;
+  --bg-2:      #161c26;
+  --bg-3:      #1d2530;
+  --bg-hover:  #232c3a;
+  --border:    #232c3a;
+  --border-2:  #2d3848;
+  --text:      #e6edf3;
+  --text-2:    #9aa6b6;
+  --text-3:    #6b7785;
+  --accent:    #4ad6c7;
+  --accent-2:  #38b2a3;
+  --accent-glow: rgba(74,214,199,.18);
+  --warn:      #f5a623;
+  --err:       #ef5d5d;
+  --ok:        #4ad6c7;
+  --lot-1: #4ad6c7;
+  --lot-2: #f5a623;
+  --lot-3: #c084fc;
+  --lot-4: #60a5fa;
+  --lot-5: #fb7185;
+  --lot-6: #a3e635;
+  --ff-sans: 'Noto Sans TC', -apple-system, system-ui, "Segoe UI", sans-serif;
+  --ff-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow: 0 1px 0 rgba(255,255,255,.02), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+body.theme-light {
+  --bg:        #f5f6f8;
+  --bg-1:      #ffffff;
+  --bg-2:      #ffffff;
+  --bg-3:      #f0f2f5;
+  --bg-hover:  #e8ebf0;
+  --border:    #e2e6ec;
+  --border-2:  #cdd3dc;
+  --text:      #14181f;
+  --text-2:    #4a5260;
+  --text-3:    #7c8696;
+  --accent:    #0d9488;
+  --accent-2:  #0a7670;
+  --accent-glow: rgba(13,148,136,.12);
+  --shadow: 0 1px 0 rgba(0,0,0,.02), 0 4px 16px -8px rgba(0,0,0,.12);
+}
+
+body { background: var(--bg); color: var(--text); font-family: var(--ff-sans); font-size: 14px; }
+
+/* density */
+body.density-compact .content { padding: 10px 14px; }
+body.density-compact .ctrl { padding: 8px 12px; gap: 10px; margin-bottom: 10px; }
+body.density-compact .chart-grid { gap: 8px; }
+body.density-cozy .content { padding: 28px 32px; }
+body.density-cozy .ctrl { padding: 16px 20px; gap: 18px; margin-bottom: 18px; }
+body.density-cozy .chart-grid { gap: 20px; }
+
+/* ── Header ── */
+.header {
+  background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  position: relative;
+}
+.header::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent) 50%, transparent);
+  opacity: 0.35;
+}
+.jbs-hdr {
+  display: flex; align-items: center; gap: 16px; padding: 14px 24px;
+}
+.jbs-mark { width: 32px; height: 32px; flex-shrink: 0; }
+.jbs-name { font-size: 16px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
+.jbs-name .sub { color: var(--text-2); font-weight: 400; margin-left: 8px; font-size: 13px; letter-spacing: 0; }
+.jbs-meta { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.jbs-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 11px; background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 100px; font-size: 11px; color: var(--text-2);
+  font-family: var(--ff-mono);
+}
+.jbs-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+.jbs-pill.live .dot { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+
+/* ── Tabs ── */
+.tab-nav {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 0 18px;
+  gap: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-nav::-webkit-scrollbar { display: none; }
+.tab-btn {
+  padding: 12px 16px; color: var(--text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px; font-size: 13px; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px;
+  white-space: nowrap;
+}
+.tab-btn:hover:not(:disabled) { color: var(--text); background: rgba(74,214,199,.04); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-btn:disabled { opacity: 0.3; }
+.tab-btn .badge {
+  background: var(--accent); color: var(--bg); padding: 1px 6px;
+  border-radius: 3px; font-size: 9px; font-weight: 700; margin-left: 2px;
+}
+
+/* ── Upload ── */
+.upload-area {
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--radius-lg);
+  padding: 40px 24px;
+  background: var(--bg-1);
+  position: relative;
+  overflow: hidden;
+}
+.upload-area::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at center top, var(--accent-glow), transparent 60%);
+  opacity: 0.6; pointer-events: none;
+}
+.upload-area:hover, .upload-area.drag-over {
+  border-color: var(--accent);
+  background: var(--bg-2);
+}
+.upload-area > * { position: relative; }
+.upload-icon { font-size: 36px; opacity: 0.7; }
+.upload-text { font-size: 15px; color: var(--text); font-weight: 500; }
+.upload-hint { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+
+/* Settings row */
+.settings-row { gap: 14px; margin: 16px 0; }
+.sg label { color: var(--text-2); font-weight: 600; font-size: 11px; letter-spacing: 0.02em; text-transform: uppercase; }
+.sg input, .sg select {
+  background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text);
+  padding: 7px 11px; border-radius: var(--radius); font-size: 13px;
+  font-family: var(--ff-mono);
+  transition: border-color .15s, box-shadow .15s;
+}
+.sg input:focus, .sg select:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ── 載入模式 (新功能) ── */
+.load-mode-bar {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  background: var(--bg-1); border: 1px solid var(--border);
+  padding: 12px 16px; border-radius: var(--radius-lg);
+  margin: 14px 0;
+}
+.load-mode-bar .lbl { font-size: 11px; color: var(--text-2); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.seg {
+  display: inline-flex; background: var(--bg); padding: 3px;
+  border-radius: var(--radius); border: 1px solid var(--border);
+}
+.seg button {
+  padding: 6px 14px; background: transparent; border: none; color: var(--text-2);
+  font-size: 12px; font-weight: 500; cursor: pointer; border-radius: 4px;
+  font-family: var(--ff-sans);
+  display: inline-flex; align-items: center; gap: 5px;
+  transition: all .15s;
+}
+.seg button.on {
+  background: var(--accent); color: var(--bg);
+  font-weight: 600;
+}
+.seg button:not(.on):hover { color: var(--text); }
+.load-mode-hint { font-size: 11px; color: var(--text-3); margin-left: auto; font-style: italic; }
+
+/* ── Buttons ── */
+.btn {
+  background: var(--bg-2); color: var(--text); border: 1px solid var(--border-2);
+  padding: 8px 16px; font-weight: 500; border-radius: var(--radius);
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: all .15s;
+  font-family: var(--ff-sans);
+}
+.btn:hover:not(:disabled) { background: var(--bg-3); border-color: var(--text-3); }
+.btn-blue {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+  font-weight: 600;
+}
+.btn-blue:hover:not(:disabled) {
+  background: var(--accent-2); border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.btn-green {
+  background: transparent; color: var(--accent); border: 1px solid var(--accent);
+}
+.btn-green:hover:not(:disabled) { background: var(--accent-glow); }
+.btn-gray { background: var(--bg-2); color: var(--text-2); border-color: var(--border-2); }
+.btn-gray:hover:not(:disabled) { background: var(--bg-3); color: var(--text); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.step-badge {
+  background: var(--accent); color: var(--bg);
+  width: 20px; height: 20px; font-size: 11px; font-weight: 700;
+}
+
+/* ── Status ── */
+.status {
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-left: 3px solid var(--accent); color: var(--text-2);
+  padding: 10px 14px; border-radius: var(--radius);
+  font-size: 12px;
+}
+.status.ok { border-left-color: var(--ok); color: var(--text); }
+.status.err { border-left-color: var(--err); background: rgba(239,93,93,.08); color: var(--err); }
+
+/* ── File list with multi-lot tags ── */
+.file-list { gap: 6px; margin-top: 12px; }
+.file-item {
+  background: var(--bg-1); border: 1px solid var(--border);
+  padding: 8px 12px; border-radius: var(--radius);
+  font-size: 12px; color: var(--text);
+  font-family: var(--ff-mono);
+  transition: border-color .15s;
+}
+.file-item:hover { border-color: var(--border-2); background: var(--bg-2); }
+.file-item .fi-name { flex: 1; }
+.lot-tag {
+  background: var(--lot-color, var(--lot-1));
+  color: var(--bg); padding: 2px 8px; border-radius: 100px;
+  font-size: 10px; font-weight: 700;
+  font-family: var(--ff-mono); letter-spacing: 0.02em;
+}
+.lot-tag.l-0 { --lot-color: var(--lot-1); }
+.lot-tag.l-1 { --lot-color: var(--lot-2); }
+.lot-tag.l-2 { --lot-color: var(--lot-3); }
+.lot-tag.l-3 { --lot-color: var(--lot-4); }
+.lot-tag.l-4 { --lot-color: var(--lot-5); }
+.lot-tag.l-5 { --lot-color: var(--lot-6); }
+.batch-divider {
+  font-size: 10px; color: var(--text-3); padding: 8px 4px 4px;
+  text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  font-family: var(--ff-mono);
+  display: flex; align-items: center; gap: 8px;
+}
+.batch-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+/* ── Rename section ── */
+.rename-section {
+  background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); margin-top: 18px;
+  box-shadow: var(--shadow);
+}
+.rename-header {
+  background: var(--bg-2); border-bottom: 1px solid var(--border);
+  color: var(--text); padding: 14px 18px;
+}
+.rename-header .title { font-size: 14px; font-weight: 600; }
+.rename-header .hint { color: var(--text-2); font-size: 11px; margin-top: 4px; }
+.rename-table thead th {
+  background: var(--bg-3); color: var(--text-2);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+.rename-table tbody tr { border-bottom: 1px solid var(--border); }
+.rename-table tbody tr:hover { background: var(--bg-2); }
+.orig-name { color: var(--text-3); font-family: var(--ff-mono); }
+.rename-input {
+  background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text);
+  font-family: var(--ff-mono); padding: 6px 10px;
+}
+.rename-input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-glow); }
+.sample-vals { color: var(--text-3); font-family: var(--ff-mono); font-size: 11px; }
+.cbadge { font-family: var(--ff-mono); font-size: 10px; padding: 3px 8px; border-radius: 3px; }
+.cbadge.none { background: var(--bg-3); color: var(--text-3); }
+.cbadge.ir   { background: rgba(96,165,250,.15); color: #60a5fa; }
+.cbadge.vr   { background: rgba(74,214,199,.15); color: var(--accent); }
+.cbadge.vf   { background: rgba(245,166,35,.15); color: var(--warn); }
+.rename-footer { border-top: 1px solid var(--border); padding: 14px 18px; }
+.rename-table-wrap { background: var(--bg-1); }
+
+/* ── Control panel (.ctrl) ── */
+.ctrl {
+  background: var(--bg-1); border: 1px solid var(--border);
+  box-shadow: none; padding: 12px 16px; gap: 14px;
+  border-radius: var(--radius-lg);
+}
+.ctrl label { color: var(--text-2); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.ctrl select, .ctrl input[type=number], .ctrl input[type=text] {
+  background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text);
+  padding: 6px 10px; border-radius: var(--radius); font-size: 12px;
+  font-family: var(--ff-mono);
+}
+.ctrl select:focus, .ctrl input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+/* ── Chart cards ── */
+.chart-card {
+  background: var(--bg-1); border: 1px solid var(--border);
+  box-shadow: var(--shadow); border-radius: var(--radius-lg);
+  padding: 4px;
+}
+
+/* ── Stats blocks ── */
+.stats-block {
+  background: var(--bg-1); border: 1px solid var(--border);
+  box-shadow: var(--shadow); border-radius: var(--radius-lg);
+}
+.stats-block-hd {
+  background: var(--bg-2); border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+table.stats thead th {
+  background: var(--bg-2); color: var(--text-2);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+table.stats tbody td {
+  border-bottom: 1px solid var(--border);
+  color: var(--text); font-family: var(--ff-mono); font-size: 12px;
+}
+table.stats tbody tr:nth-child(even) { background: rgba(255,255,255,.015); }
+table.stats tbody tr:hover { background: var(--bg-2); }
+.row-label { background: var(--bg-2) !important; color: var(--text) !important; font-family: var(--ff-sans) !important; }
+
+/* ── Section header ── */
+.section-hd { background: var(--bg-2); color: var(--text); border: 1px solid var(--border); border-bottom: none; }
+
+/* Library error */
+.lib-error { background: rgba(239,93,93,.08); border: 1px solid var(--err); color: var(--text); }
+.lib-error h3 { color: var(--err); }
+.lib-error code { background: rgba(239,93,93,.15); color: var(--err); }
+
+/* ── Chart analysis ── */
+.ca-type-btn {
+  background: var(--bg-1); color: var(--text-2); border: 1px solid var(--border);
+  font-weight: 500; padding: 6px 14px;
+}
+.ca-type-btn:hover:not(.active) { border-color: var(--accent); color: var(--text); }
+.ca-type-btn.active {
+  background: var(--accent); color: var(--bg); border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.spec-input-group {
+  background: var(--bg-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: var(--radius);
+}
+.spec-input-group b { color: var(--text); font-family: var(--ff-mono); font-size: 10px; }
+.spec-inp {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border-2);
+  font-family: var(--ff-mono);
+}
+
+/* ── Manual ── */
+.manual h2 { color: var(--accent); border-bottom-color: var(--border); }
+.manual h3 { color: var(--text); }
+.manual h4 { color: var(--text-2); }
+.manual p { color: var(--text-2); }
+.manual ul, .manual ol { color: var(--text-2); }
+.manual table th { background: var(--bg-2); color: var(--text); border: 1px solid var(--border); }
+.manual table td { background: var(--bg-1); color: var(--text-2); border-bottom-color: var(--border); }
+.manual table tr:nth-child(even) td { background: var(--bg-2); }
+.manual code { background: var(--bg-3); color: var(--accent); }
+.manual pre { background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+.manual .note { background: var(--accent-glow); border-left-color: var(--accent); color: var(--text); }
+.manual .warn { background: rgba(245,166,35,.1); border-left-color: var(--warn); color: var(--text); }
+.manual .toc { background: var(--bg-1); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.manual .toc a { color: var(--accent); }
+.manual .sec { background: var(--bg-1); border: 1px solid var(--border); box-shadow: var(--shadow); }
+.manual .badge { background: var(--accent); color: var(--bg); }
+.manual .badge.green { background: var(--ok); color: var(--bg); }
+.manual .badge.red { background: var(--err); }
+.manual .badge.purple { background: var(--lot-3); color: var(--bg); }
+
+/* ── Plotly tweaks ── */
+.js-plotly-plot .plotly .modebar { background: transparent !important; }
+.js-plotly-plot text { fill: var(--text) !important; }
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ── Tweaks panel: minimal local override (we'll keep tweaks-panel.jsx defaults) ── */
+.tweaks-panel-root { font-family: var(--ff-sans); }
+
+/* density compact tweaks */
+body.density-compact .tab-btn { padding: 9px 12px; font-size: 12px; }
+body.density-compact .upload-area { padding: 24px 16px; }
+body.density-compact .stats-block-hd, body.density-compact .rename-header { padding: 8px 12px; }
+
+/* Light mode plotly text fix */
+body.theme-light .js-plotly-plot text { fill: #14181f !important; }
+
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="jbs-hdr">
+    <svg class="jbs-mark" viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="13" stroke="#4ad6c7" stroke-width="1" stroke-dasharray="2 3" opacity="0.45"/>
+      <circle cx="16" cy="16" r="9" stroke="#4ad6c7" stroke-width="1.4" fill="none"/>
+      <circle cx="16" cy="16" r="3" fill="#4ad6c7"/>
+      <line x1="16" y1="2" x2="16" y2="30" stroke="#4ad6c7" stroke-width="0.5" opacity="0.35"/>
+      <line x1="2" y1="16" x2="30" y2="16" stroke="#4ad6c7" stroke-width="0.5" opacity="0.35"/>
+    </svg>
+    <div class="jbs-name">JBS<span class="sub">Wafer Analysis</span></div>
+    <div class="jbs-meta">
+      <span class="jbs-pill" id="hdrLots">— Lot</span>
+      <span class="jbs-pill" id="hdrCount"><span class="dot"></span>尚未載入</span>
+    </div>
+  </div>
+</div>
+
+<div class="tab-nav">
+  <button class="tab-btn active"  onclick="switchTab('upload',this)">📂 資料載入</button>
+  <button class="tab-btn" id="tb-map"   onclick="switchTab('map',this)"   disabled>🗺 Wafer MAP</button>
+  <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
+  <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
+  <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
+  <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
+  <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
+</div>
+
+<div class="content">
+
+  <!-- ══ Upload ══ -->
+  <div id="panel-upload" class="tab-panel active">
+    <div id="libError"></div>
+
+    <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
+      <div class="upload-icon">📁</div>
+      <div class="upload-text">點擊或拖曳上傳 Excel 檔案</div>
+      <div class="upload-hint">支援 .xls / .xlsx，可同時選取多個 wafer 檔案</div>
+    </div>
+    <input type="file" id="fi" multiple accept=".xls,.xlsx" style="display:none"
+           onchange="handleFiles(this.files)">
+
+    <!-- 載入模式 (覆蓋/附加) -->
+    <div class="load-mode-bar">
+      <span class="lbl">載入模式</span>
+      <div class="seg" id="loadModeSeg">
+        <button class="on" type="button" onclick="setLoadMode('overwrite',this)">↺ 覆蓋上次</button>
+        <button type="button" onclick="setLoadMode('append',this)">＋ 附加（保留既有）</button>
+      </div>
+      <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
+    </div>
+
+    <div class="settings-row">
+      <div class="sg">
+        <label>標題列號（第幾列是欄位名稱）</label>
+        <input type="number" id="headerRow" value="13" min="1" max="100" style="width:80px">
+      </div>
+      <div class="sg">
+        <label>資料起始列號</label>
+        <input type="number" id="dataStart" value="30" min="1" max="200" style="width:80px">
+      </div>
+      <div class="sg">
+        <label>&nbsp;</label>
+        <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
+          <span class="step-badge">1</span> 載入欄位
+        </button>
+      </div>
+      <div class="sg">
+        <label>&nbsp;</label>
+        <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
+      </div>
+    </div>
+
+    <div id="fileList" class="file-list"></div>
+    <div id="upStatus"></div>
+
+    <!-- ── Rename section (shown after step 1) ── -->
+    <div id="renameSection" class="rename-section" style="display:none">
+      <div class="rename-header">
+        <div>
+          <div class="title"><span class="step-badge">2</span> 欄位命名</div>
+          <div class="hint">
+            修改欄位名稱 ｜ <span style="color:#90cdf4">IR_ 開頭 → 自動 ×1,000,000（A→uA）</span>
+            ｜ <span style="color:#9ae6b4">VR_ → 小數 0.1</span>
+            ｜ <span style="color:#fefcbf">VF_ → 小數 0.001</span>
+          </div>
+        </div>
+        <div class="btns">
+          <button class="btn btn-gray" style="font-size:12px" onclick="autoFillRename()">🔄 自動命名（VFBC/BVCBO/ICBO）</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="resetRename()">↩ 還原原始名稱</button>
+        </div>
+      </div>
+
+      <div class="rename-table-wrap">
+        <table class="rename-table">
+          <thead>
+            <tr>
+              <th style="width:24%">原始欄位名稱</th>
+              <th style="width:30%">新名稱（可直接修改）</th>
+              <th style="width:18%">數值換算方式</th>
+              <th style="width:28%">參考數值（第14~19列）</th>
+            </tr>
+          </thead>
+          <tbody id="renameBody"></tbody>
+        </table>
+      </div>
+
+      <div class="rename-footer">
+        <button class="btn btn-blue" onclick="applyAndAnalyze()" id="btnApply">
+          <span class="step-badge" style="background:#fff;color:#3182ce">3</span> 套用命名並開始分析
+        </button>
+        <span style="font-size:11px; color:#718096">名稱不改也可以直接分析</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Wafer MAP ══ -->
+  <div id="panel-map" class="tab-panel">
+    <div class="ctrl">
+      <label>量測項目：</label>
+      <select id="mapItem" onchange="renderMap()"></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="mapColsSel" onchange="syncCols('map',renderMap)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
+      </select>
+      <input id="mapColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderMap()">
+      <label style="margin-left:12px">X 軸：</label>
+      <select id="mapXDir" onchange="renderMap()">
+        <option value="desc" selected>大 → 小</option>
+        <option value="asc">小 → 大</option>
+      </select>
+      <label style="margin-left:8px">Y 軸：</label>
+      <select id="mapYDir" onchange="renderMap()">
+        <option value="desc" selected>大 → 小</option>
+        <option value="asc">小 → 大</option>
+      </select>
+    </div>
+    <div class="ctrl">
+      <label>色階樣式：</label>
+      <select id="mapColorscale" onchange="renderMap()">
+        <option value="WhRd">白 → 紅</option>
+        <option value="RdBu">藍 ↔ 紅（對稱）</option>
+        <option value="Viridis">Viridis</option>
+        <option value="Rainbow">彩虹</option>
+        <option value="YlOrRd">黃 → 橙 → 紅</option>
+        <option value="Greys">灰階</option>
+      </select>
+      <label style="margin-left:16px">色階範圍：</label>
+      <input id="mapZmin" type="number" placeholder="min（auto）" step="any"
+             style="width:110px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderMap()">
+      <span style="font-size:13px;color:#718096;margin:0 6px">～</span>
+      <input id="mapZmax" type="number" placeholder="max（auto）" step="any"
+             style="width:110px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderMap()">
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="autoZRange()">自動填入</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:4px" onclick="clearZRange()">清除</button>
+    </div>
+    <div id="mapGrid" class="chart-grid cols-4"></div>
+  </div>
+
+  <!-- ══ Count Dist ══ -->
+  <div id="panel-count" class="tab-panel">
+    <div class="ctrl">
+      <label>Lot 篩選：</label>
+      <select id="cntLot" onchange="renderCount()"><option value="all">全部</option></select>
+      <label style="margin-left:12px">量測項目：</label>
+      <select id="cntItem" onchange="renderCount()"></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="cntColsSel" onchange="syncCols('cnt',renderCount)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
+      </select>
+      <input id="cntColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderCount()">
+    </div>
+    <div class="ctrl">
+      <label>X 軸範圍：</label>
+      <input id="cntXmin" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="cntXmax" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <label style="margin-left:16px">Y 軸範圍：</label>
+      <input id="cntYmin" type="number" step="any" placeholder="auto"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="cntYmax" type="number" step="any" placeholder="auto"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetCntAxes()">還原預設</button>
+    </div>
+    <div id="cntGrid" class="chart-grid"></div>
+  </div>
+
+  <!-- ══ % Dist ══ -->
+  <div id="panel-pct" class="tab-panel">
+    <div class="ctrl">
+      <label>Lot 篩選：</label>
+      <select id="pctLot" onchange="renderPct()"><option value="all">全部</option></select>
+      <label style="margin-left:12px">量測項目：</label>
+      <select id="pctItem" onchange="renderPct()"><option value="all">全部項目</option></select>
+      <label style="margin-left:12px">每列欄數：</label>
+      <select id="pctColsSel" onchange="syncCols('pct',renderPct)">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
+      </select>
+      <input id="pctColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderPct()">
+    </div>
+    <div class="ctrl">
+      <label>X 軸範圍：</label>
+      <input id="pctXmin" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="pctXmax" type="number" step="any" placeholder="auto"
+             style="width:90px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <label style="margin-left:16px">Y 軸範圍：</label>
+      <input id="pctYmin" type="number" step="any" placeholder="0"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <span style="margin:0 5px;color:#718096">～</span>
+      <input id="pctYmax" type="number" step="any" placeholder="100"
+             style="width:72px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderPct()">
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetPctAxes()">還原預設</button>
+    </div>
+    <div id="pctArea"></div>
+  </div>
+
+  <!-- ══ Statistics ══ -->
+  <div id="panel-stats" class="tab-panel">
+    <!-- Row 1: item + export -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">量測項目：</label>
+      <div id="stItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <button class="btn btn-gray" style="font-size:12px" onclick="addStatItem()">＋ 新增項目</button>
+      <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
+    </div>
+    <!-- Row 2: stat chips + reset -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">顯示統計列：</label>
+      <div id="stChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetStats()">↩ 一鍵還原預設</button>
+    </div>
+    <!-- Row 3: custom formula -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
+      <label style="white-space:nowrap;font-weight:700;font-size:12px">自訂計算：</label>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input id="stFnLabel" type="text" placeholder="名稱（如 Cpk）"
+               style="width:110px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <span style="font-size:11px;color:#718096">=</span>
+        <input id="stFnFormula" type="text" placeholder="可用：Count Min Max Mean Median Std LSL USL Typical"
+               style="width:360px;padding:4px 7px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <button class="btn btn-blue" style="font-size:12px" onclick="addCustomStat()">新增</button>
+      </div>
+      <div id="stFnList" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px;width:100%"></div>
+    </div>
+    <div id="stTable" class="tbl-wrap"></div>
+  </div>
+
+  <!-- ══ Chart Analysis ══ -->
+  <div id="panel-chart" class="tab-panel">
+
+    <!-- Row 1: Items + Lot mode + Cols -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+      <label style="white-space:nowrap;font-size:12px;font-weight:700">量測項目：</label>
+      <div id="caItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+      <button class="btn btn-gray" style="font-size:12px" onclick="addChartItem()">＋ 新增項目</button>
+      <span id="caLotModeWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px">
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">Lot 顯示：</label>
+        <select id="caLotMode" onchange="renderChart()"
+                style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+          <option value="overlay">全部疊加</option>
+          <option value="split" selected>每 Lot 獨立</option>
+        </select>
+      </span>
+      <label style="margin-left:12px;white-space:nowrap;font-size:12px;font-weight:700">每列欄數：</label>
+      <select id="caColsSel" onchange="syncCols('ca',renderChart)"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1">1</option><option value="2">2</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="6">6</option><option value="0">自訂…</option>
+      </select>
+      <input id="caColsNum" type="number" min="1" max="20" value="4"
+             style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
+             oninput="renderChart()">
+    </div>
+
+    <!-- Row 2: Chart type buttons -->
+    <div class="ctrl" style="gap:6px;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap;margin-right:4px">圖表類型：</label>
+      <div id="caTypeButtons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+
+    <!-- Row 3a: Scatter contextual -->
+    <div id="caCtxScatter" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">X 軸：</label>
+      <select id="caScatterX" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="xpos">Xpos</option>
+        <option value="ypos">Ypos</option>
+        <option value="index">Index</option>
+      </select>
+      <label style="margin-left:10px;font-size:12px;font-weight:700">點大小：</label>
+      <input type="range" id="caScatterSize" min="2" max="14" value="5" style="width:80px;vertical-align:middle"
+             oninput="renderChart()">
+    </div>
+
+    <!-- Row 3b: Trend contextual -->
+    <div id="caCtxTrend" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">誤差棒：</label>
+      <select id="caTrendErr" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1sigma">±1σ</option>
+        <option value="2sigma" selected>±2σ</option>
+        <option value="3sigma">±3σ</option>
+        <option value="range">Min～Max</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Cpk 標示：</label>
+      <input type="checkbox" id="caTrendCpk" onchange="renderChart()" checked style="width:15px;height:15px">
+    </div>
+
+    <!-- Row 3c: Bar+Error contextual -->
+    <div id="caCtxBar" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">誤差棒：</label>
+      <select id="caBarErr" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1sigma">±1σ</option>
+        <option value="2sigma" selected>±2σ</option>
+        <option value="3sigma">±3σ</option>
+        <option value="range">Min～Max</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Cpk 標示：</label>
+      <input type="checkbox" id="caBarCpk" onchange="renderChart()" checked style="width:15px;height:15px">
+    </div>
+
+    <!-- Row 3d: SPC contextual -->
+    <div id="caCtxSPC" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">X 軸：</label>
+      <select id="caSPCxAxis" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="index">Index</option>
+        <option value="lot">Lot 分組</option>
+        <option value="xpos">Xpos</option>
+        <option value="ypos">Ypos</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">管制線 σ：</label>
+      <select id="caSPCsigma" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="1">±1σ</option>
+        <option value="2">±2σ</option>
+        <option value="3" selected>±3σ</option>
+      </select>
+    </div>
+
+    <!-- Row 3e: Correlation contextual -->
+    <div id="caCtxCorr" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">Y 軸項目：</label>
+      <select id="caCorrY" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="">-- 選擇 Y 項目 --</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">Lot 篩選：</label>
+      <select id="caCorrLot" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="all">全部 Lot</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">迴歸線 + R²：</label>
+      <input type="checkbox" id="caCorrReg" onchange="renderChart()" checked style="width:15px;height:15px">
+      <label style="margin-left:12px;font-size:12px;font-weight:700">依 SPEC 篩選資料：</label>
+      <input type="checkbox" id="caCorrFilterSpec" onchange="renderChart()" style="width:15px;height:15px">
+      <span style="font-size:11px;color:#718096">（打勾後僅顯示並計算 SPEC 範圍內的點）</span>
+    </div>
+
+    <!-- Row 4: SPEC lines -->
+    <div class="ctrl" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap">SPEC 線：</label>
+      <input type="checkbox" id="caShowSpec" onchange="renderChart()" checked style="width:15px;height:15px">
+      <span style="font-size:11px;color:#718096">顯示 LSL / Typical / USL 水平線（紅虛線 / 綠點線）</span>
+      <div id="caSpecInputs" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;width:100%"></div>
+    </div>
+
+    <!-- Chart output grid -->
+    <div id="caGrid" class="chart-grid"></div>
+  </div>
+
+  <!-- ══ Manual ══ -->
+  <div id="panel-manual" class="tab-panel">
+  <div class="manual">
+
+    <div class="toc">
+      <strong style="font-size:13px;color:#2d3748">目錄</strong>
+      <ol style="margin:8px 0 0 20px">
+        <li><a href="#m1">環境準備</a></li>
+        <li><a href="#m2">資料載入</a></li>
+        <li><a href="#m3">Wafer MAP</a></li>
+        <li><a href="#m4">Count 分布</a></li>
+        <li><a href="#m5">% 分布</a></li>
+        <li><a href="#m6">統計</a></li>
+        <li><a href="#m7">圖表分析</a></li>
+        <li><a href="#m8">匯出 Excel</a></li>
+        <li><a href="#m9">常見問題</a></li>
+      </ol>
+    </div>
+
+    <!-- 1 -->
+    <div class="sec" id="m1">
+      <h2>1. 環境準備</h2>
+      <h3>需要的檔案</h3>
+      <pre><code>wafer_tool/
+├── index.html            ← 主程式（本頁）
+├── 操作手冊.md
+└── libs/
+    ├── plotly.min.js     ← 圖表庫
+    └── xlsx.full.min.js  ← Excel 讀寫庫</code></pre>
+      <div class="warn">若 <code>libs/</code> 內缺少檔案，開啟工具時會出現紅色錯誤。請先在有網路的環境下開啟 <code>download_libs.html</code>（只需執行一次）下載後即可完全離線使用。</div>
+      <h3>開啟方式</h3>
+      <p>用任意瀏覽器（Chrome / Edge / Firefox）直接開啟 <code>index.html</code>，無需伺服器。所有資料均在本機處理，不上傳任何伺服器。</p>
+    </div>
+
+    <!-- 2 -->
+    <div class="sec" id="m2">
+      <h2>2. 📂 資料載入</h2>
+
+      <h3>上傳檔案</h3>
+      <ul>
+        <li>點擊上傳區，或將 Excel 檔案<strong>拖曳</strong>進去。</li>
+        <li>支援 <code>.xls</code> / <code>.xlsx</code>，可<strong>一次選取多個檔案</strong>（每個檔案 = 一個 Lot）。</li>
+        <li>Lot 名稱自動從檔名解析：取第一個 <code>-</code> 之後的部分。<br>
+            例：<code>CP-L24A001.xlsx</code> → Lot = <strong>L24A001</strong></li>
+      </ul>
+
+      <h3>設定列號</h3>
+      <table>
+        <tr><th>欄位</th><th>說明</th><th>預設值</th></tr>
+        <tr><td>標題列號</td><td>Excel 中欄位名稱所在的列（從 1 開始）</td><td>13</td></tr>
+        <tr><td>資料起始列號</td><td>實際量測資料從哪一列開始</td><td>30</td></tr>
+      </table>
+      <p>設定好後點擊 <strong>「① 載入欄位」</strong>。</p>
+
+      <h3>欄位命名</h3>
+      <p>載入欄位後，下方出現欄位命名表格。「參考數值」欄顯示該欄位第 14～19 列的樣本值，輔助判斷量測條件。</p>
+      <table>
+        <tr><th>名稱前綴</th><th>自動換算</th><th>用途</th></tr>
+        <tr><td><code>IR_</code></td><td>原始值 × 1,000,000（A → μA）</td><td>漏電流</td></tr>
+        <tr><td><code>VR_</code></td><td>四捨五入至小數 1 位</td><td>逆向崩潰電壓</td></tr>
+        <tr><td><code>VF_</code></td><td>四捨五入至小數 3 位</td><td>順向電壓</td></tr>
+        <tr><td>其他</td><td>不換算</td><td>—</td></tr>
+      </table>
+      <p><strong>🔄 自動命名</strong>：根據原始欄位名稱中的關鍵字（VFBC / BVCBO / ICBO）及樣本值解析條件，自動填入標準名稱（如 <code>VF_5mA</code>、<code>VR_10uA</code>、<code>IR_1V</code>）。</p>
+      <p>確認命名後點擊 <strong>「③ 套用命名並開始分析」</strong>，工具自動讀取所有檔案、套用換算、啟用所有分析分頁。</p>
+    </div>
+
+    <!-- 3 -->
+    <div class="sec" id="m3">
+      <h2>3. 🗺 Wafer MAP</h2>
+      <p>每個 Lot 各一張熱圖，以 (Xpos, Ypos) 坐標顯示量測值。</p>
+      <h3>控制列一</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>量測項目</td><td>選擇要顯示的量測參數</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或「自訂…」</td></tr>
+        <tr><td>X 軸方向</td><td>大→小（預設，大值在左）/ 小→大</td></tr>
+        <tr><td>Y 軸方向</td><td>大→小（預設，大值在上）/ 小→大</td></tr>
+      </table>
+      <h3>控制列二（色階）</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>色階樣式</td><td>白→紅 / 藍↔紅（對稱）/ Viridis / 彩虹 / 黃→橙→紅 / 灰階</td></tr>
+        <tr><td>色階範圍</td><td>手動輸入 min / max；留白則自動計算</td></tr>
+        <tr><td>自動填入</td><td>根據目前項目的全域最小／最大值填入</td></tr>
+        <tr><td>清除</td><td>清空手動輸入，恢復自動</td></tr>
+      </table>
+    </div>
+
+    <!-- 4 -->
+    <div class="sec" id="m4">
+      <h2>4. 📊 Count 分布</h2>
+      <p>顯示每個 Lot 的量測值次數分布直方圖，疊加常態分布曲線。圖表標題顯示 n（樣本數）、mean、std。</p>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>Lot 篩選</td><td>全部 / 指定單一 Lot</td></tr>
+        <tr><td>量測項目</td><td>選擇量測參數</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>X 軸範圍</td><td>手動輸入 min～max；留白自動</td></tr>
+        <tr><td>Y 軸範圍</td><td>手動輸入 min～max；留白自動</td></tr>
+        <tr><td>還原預設</td><td>清除所有手動輸入</td></tr>
+      </table>
+    </div>
+
+    <!-- 5 -->
+    <div class="sec" id="m5">
+      <h2>5. 📈 % 分布</h2>
+      <p>Y 軸以百分比（%）顯示。所有 Lot 使用<strong>相同的 X 軸 bin 邊界</strong>（全域統一），方便 Lot 間比較。</p>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>Lot 篩選</td><td>全部 / 指定單一 Lot</td></tr>
+        <tr><td>量測項目</td><td>全部項目 / 指定單一項目</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>X 軸範圍</td><td>手動輸入；留白則使用全域 bin 範圍</td></tr>
+        <tr><td>Y 軸範圍</td><td>預設 0～100%；可手動縮放</td></tr>
+      </table>
+    </div>
+
+    <!-- 6 -->
+    <div class="sec" id="m6">
+      <h2>6. 📋 統計</h2>
+
+      <h3>量測項目選擇</h3>
+      <p>頂部可新增多個下拉選單，每個選單對應一個量測項目，各自產生獨立統計區塊。</p>
+
+      <h3>統計列開關（Chip）</h3>
+      <p>預設顯示：<code>Count</code> <code>Min</code> <code>Max</code> <code>Mean</code> <code>Median</code> <code>Std</code></p>
+      <ul>
+        <li>點擊 Chip 的 <strong>×</strong> 從所有項目隱藏；點擊 <strong>+</strong> 重新加入。</li>
+        <li>每列右側的 <strong>−</strong> 按鈕：只對該項目隱藏這一列（不影響其他項目）。</li>
+        <li>區塊標題列的「↩ 還原隱藏列」可復原該項目所有隱藏列。</li>
+      </ul>
+
+      <h3>SPEC 設定</h3>
+      <table>
+        <tr><th>欄位</th><th>說明</th></tr>
+        <tr><td>LSL</td><td>下規格限；數值低於此值時格子標紅</td></tr>
+        <tr><td>Typical</td><td>目標典型值（僅供參考，不影響顏色）</td></tr>
+        <tr><td>USL</td><td>上規格限；數值高於此值時格子標紅</td></tr>
+      </table>
+
+      <h3>數值格式</h3>
+      <table>
+        <tr><th>選項</th><th>說明</th></tr>
+        <tr><td>0.0（固定小數）</td><td>預設；Count 為 0 位，其餘 2 位</td></tr>
+        <tr><td>1e（科學符號）</td><td>適合極小或極大數值</td></tr>
+        <tr><td>位數</td><td>小數位數（0～10）</td></tr>
+      </table>
+
+      <h3>自訂計算</h3>
+      <p>輸入名稱和公式，可用的變數：</p>
+      <p><code>Count</code> <code>Min</code> <code>Max</code> <code>Mean</code> <code>Median</code> <code>Std</code> <code>LSL</code> <code>USL</code> <code>Typical</code></p>
+      <table>
+        <tr><th>公式範例</th><th>說明</th></tr>
+        <tr><td><code>Math.min((USL-Mean)/(3*Std),(Mean-LSL)/(3*Std))</code></td><td>Cpk</td></tr>
+        <tr><td><code>(USL-LSL)/(6*Std)</code></td><td>Cp</td></tr>
+        <tr><td><code>Max-Min</code></td><td>Range</td></tr>
+        <tr><td><code>(Mean-LSL)/(3*Std)</code></td><td>Cpl</td></tr>
+        <tr><td><code>(USL-Mean)/(3*Std)</code></td><td>Cpu</td></tr>
+      </table>
+    </div>
+
+    <!-- 7 -->
+    <div class="sec" id="m7">
+      <h2>7. 📉 圖表分析</h2>
+
+      <h3>通用控制</h3>
+      <table>
+        <tr><th>控制</th><th>說明</th></tr>
+        <tr><td>量測項目</td><td>可新增多個，同時分析多個參數</td></tr>
+        <tr><td>Lot 顯示</td><td><strong>全部疊加</strong>：所有 Lot 在同一張圖（不同色）<br><strong>每 Lot 獨立</strong>：每 Lot 各自一張圖</td></tr>
+        <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
+        <tr><td>SPEC 線</td><td>勾選後顯示 LSL（<span class="badge red">紅虛線</span>）/ Typical（<span class="badge green">綠點線</span>）/ USL（<span class="badge red">紅虛線</span>）水平線</td></tr>
+      </table>
+
+      <h3>圖表類型</h3>
+
+      <h4>📦 箱型圖（Box Plot）</h4>
+      <p>X 軸 = 各 Lot，Y 軸 = 量測值。顯示中位數、四分位距、最大最小值、離群值。每個量測項目一張圖。</p>
+
+      <h4>🎻 小提琴圖（Violin Plot）</h4>
+      <p>同箱型圖佈局，額外顯示資料的機率密度形狀，內含 Box 及均值線。</p>
+
+      <h4>🔵 散佈圖（Scatter Plot）</h4>
+      <ul>
+        <li><strong>X 軸</strong>：Xpos / Ypos / Index</li>
+        <li><strong>疊加模式</strong>：所有 Lot 同圖（不同色）；<strong>獨立模式</strong>：每 Lot 一張</li>
+        <li>點大小滑桿可調整</li>
+      </ul>
+
+      <h4>📉 趨勢圖（Trend）</h4>
+      <ul>
+        <li>以 Lot 為 X 軸，Y 軸為每個 Lot 的均值 ± 誤差棒</li>
+        <li><strong>誤差棒</strong>：±1σ / ±2σ / ±3σ / Min～Max</li>
+        <li><strong>Cpk 標示</strong>：需設定 LSL 與 USL，勾選後在各點旁標示 Cpk 值</li>
+        <li>獨立模式下顯示逐點數值折線（含均值參考線）</li>
+      </ul>
+
+      <h4>📊 長條圖 + 誤差棒（Bar）</h4>
+      <p>X 軸 = Lot，長條高度 = 均值，誤差棒選項與 Cpk 標示同趨勢圖。每個量測項目一張圖。</p>
+
+      <h4>🎯 SPC</h4>
+      <ul>
+        <li>顯示每個量測點，並繪製 CL（中心線）/ UCL / LCL</li>
+        <li><strong>X 軸</strong>：Index / Lot 分組 / Xpos / Ypos</li>
+        <li><strong>管制線 σ</strong>：±1σ / ±2σ / ±3σ（預設 ±3σ）</li>
+        <li>超出管制線的點以<span class="badge red">紅色</span>標示，圖表標題顯示 CL / UCL / LCL 數值</li>
+      </ul>
+
+      <h4>📈 CDF（累積分布）</h4>
+      <ul>
+        <li>X 軸 = 量測值，Y 軸 = 累積百分比（0～100%）</li>
+        <li>疊加模式 = 所有 Lot 同圖；獨立模式 = 每 Lot 一張（含填色）</li>
+      </ul>
+
+      <h4>🔗 相關分析（Correlation）</h4>
+      <ul>
+        <li>X 軸 = 量測項目選單的項目；Y 軸 = 獨立下拉選單的第二個項目</li>
+        <li>各 Lot 以不同顏色區分；可用 <strong>Lot 篩選</strong>選擇全部或個別 Lot</li>
+        <li><strong>迴歸線 + R²</strong>：勾選後疊加最小平方迴歸線，圖角顯示方程式與 R²</li>
+        <li><strong>依 SPEC 篩選資料</strong>：勾選後，只顯示並計算 X、Y 皆在各自 SPEC 範圍內的點；迴歸標示加上「[SPEC 內]」備註</li>
+        <li>Y 軸的 SPEC 在 SPEC 列以<span class="badge purple">紫色 Y:</span>標示獨立輸入</li>
+      </ul>
+    </div>
+
+    <!-- 8 -->
+    <div class="sec" id="m8">
+      <h2>8. 💾 匯出 Excel</h2>
+      <p>點擊任一分頁右上角的「💾 匯出 Excel」，產生含兩個工作表的 Excel 檔：</p>
+      <table>
+        <tr><th>工作表</th><th>內容</th></tr>
+        <tr><td>合併資料</td><td>所有 Lot 的原始量測資料（已套用換算）合併為單一表格</td></tr>
+        <tr><td>統計</td><td>每個量測項目 × 每個 Lot 的 Count / Min / Max / Mean / Median / Std</td></tr>
+      </table>
+      <p>檔名格式：<code>wafer_analysis_YYYY-MM-DD.xlsx</code></p>
+    </div>
+
+    <!-- 9 -->
+    <div class="sec" id="m9">
+      <h2>9. 常見問題</h2>
+
+      <h3>❓ 開啟後出現紅色「找不到必要的 Library 檔案」</h3>
+      <p><code>libs/</code> 資料夾內缺少 <code>plotly.min.js</code> 或 <code>xlsx.full.min.js</code>。請在有網路的環境下開啟 <code>download_libs.html</code> 下載後放入 <code>libs/</code>，之後即可完全離線使用。</p>
+
+      <h3>❓ 上傳後 Lot 名稱顯示不正確</h3>
+      <p>Lot 名稱取第一個 <code>-</code> 之後的部分。若檔名不含 <code>-</code>，則以完整去除副檔名的檔名作為 Lot 名稱。</p>
+
+      <h3>❓ 資料列號設定錯誤</h3>
+      <p>修改「標題列號」與「資料起始列號」後，重新點擊「① 載入欄位」再執行「③ 套用命名並開始分析」即可。</p>
+
+      <h3>❓ Cpk 計算結果為空白</h3>
+      <p>Cpk 需要 LSL 和 USL 都有值才能計算。請在統計分頁或圖表分析的 SPEC 輸入欄中填入 LSL 與 USL。</p>
+
+      <h3>❓ 相關分析沒有出現迴歸線</h3>
+      <p>請確認已在「Y 軸項目」下拉選單選擇了一個<strong>與 X 軸不同</strong>的量測項目，且「迴歸線 + R²」勾選框已打勾。</p>
+
+      <h3>❓ SPC 圖的紅色點是什麼</h3>
+      <p>紅色點表示該量測值超出 UCL（上管制線）或低於 LCL（下管制線），屬於失控點。</p>
+    </div>
+
+    <p style="text-align:center;font-size:11px;color:#a0aec0;margin-top:20px">最後更新：2026-05-05</p>
+  </div>
+  </div>
+
+</div><!-- /content -->
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<script>
+'use strict';
+// ══════════════════════════════════════════════════
+// 標準命名對照（僅供「套用標準命名」按鈕使用）
+// ══════════════════════════════════════════════════
+const STD_RENAME = {
+  '2 VFBC':'VF_5mA(V)',    '3 ICBO':'IR_1V(uA)',     '4 ICBO2':'IR_10V(uA)',
+  '5 ICBO3':'IR_30V(uA)',  '6 ICBO4':'IR_50V(uA)',   '7 ICBO5':'IR_60V(uA)',
+  '8 ICBO6':'IR_68V(uA)',  '9 ICBO7':'IR_71V(uA)',   '10 ICBO8':'IR_74V(uA)',
+  '11 BVCBO':'VR_10uA(V)', '12 BVCBO2':'VR_100uA(V)','13 BVCBO3':'VR_1mA(V)',
+  '14 BVCBO4':'VR_10mA(V)','16 VFBC2':'VF_10mA(V)',  '17 VFBC3':'VF_260mA(V)',
+  '18 VFBC4':'VF_1A(V)',   '19 VFBCH':'VF_10A(V)'
+};
+
+const META_COLS     = new Set(['Lot','Serial','Bin','Xpos','Ypos','YY,XX']);
+const N_BINS        = 25;
+const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
+
+// ══════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════
+const S = {
+  files: [], data: [], lots: [], items: [], globalBins: {},
+  loadMode: 'overwrite',     // 'overwrite' | 'append'
+  batchCounter: 0,           // increments each successful append
+  lotColors: {},             // Lot → color index 0..5
+  _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
+  activeStats:      [...DEFAULT_STATS],
+  customStats:      [],
+  statSpecs:        {},
+  statFormats:      {},
+  statItems:        [''],              // list of selected measurement items
+  itemRemovedStats: {},               // { item: Set<statKey> }  per-item hidden rows
+  // Chart Analysis
+  chartItems:       [''],
+  chartType:        'box',
+  chartSpecs:       {}                // { item: { lsl, typical, usl } }
+};
+
+// ══════════════════════════════════════════════════
+// PLOTLY THEME — auto-inject dark/light layout defaults
+// ══════════════════════════════════════════════════
+(function() {
+  const _newPlot = Plotly.newPlot;
+  function getThemeColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const isLight = document.body.classList.contains('theme-light');
+    return {
+      paper: isLight ? '#ffffff' : 'rgba(0,0,0,0)',
+      plot:  isLight ? '#ffffff' : 'rgba(0,0,0,0)',
+      text:  cs.getPropertyValue('--text').trim() || (isLight ? '#14181f' : '#e6edf3'),
+      grid:  isLight ? '#e2e6ec' : '#232c3a',
+      line:  isLight ? '#cdd3dc' : '#2d3848',
+      font:  cs.getPropertyValue('--ff-sans').trim() || 'Noto Sans TC, sans-serif',
+    };
+  }
+  Plotly.newPlot = function(div, data, layout, config) {
+    const c = getThemeColors();
+    const lay = Object.assign({
+      paper_bgcolor: c.paper,
+      plot_bgcolor:  c.plot,
+      font: { color: c.text, family: c.font, size: 11 },
+    }, layout || {});
+    // Patch axes
+    Object.keys(lay).forEach(k => {
+      if (/^[xy]axis/.test(k) && lay[k] && typeof lay[k] === 'object') {
+        lay[k] = Object.assign({
+          gridcolor: c.grid, zerolinecolor: c.line, linecolor: c.line, tickcolor: c.line,
+          tickfont: { color: c.text, size: 10 },
+        }, lay[k]);
+      }
+    });
+    if (lay.legend) lay.legend = Object.assign({ font:{ color: c.text, size: 10 } }, lay.legend);
+    const cfg = Object.assign({ displaylogo:false, responsive:true }, config || {});
+    return _newPlot.call(this, div, data, lay, cfg);
+  };
+})();
+
+// ══════════════════════════════════════════════════
+// TAB NAVIGATION
+// ══════════════════════════════════════════════════
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+  setTimeout(() => {
+    document.querySelectorAll('#panel-' + name + ' [id^="ch-"]').forEach(el => {
+      if (el._fullLayout) Plotly.Plots.resize(el);
+    });
+  }, 60);
+}
+
+// ══════════════════════════════════════════════════
+// DRAG & DROP
+// ══════════════════════════════════════════════════
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('drag-over'); handleFiles(e.dataTransfer.files);
+});
+
+// ══════════════════════════════════════════════════
+// FILE HANDLING
+// ══════════════════════════════════════════════════
+function getLotName(fname) {
+  const base  = fname.replace(/\.(xls|xlsx)$/i, '');
+  const parts = base.split('-');
+  return parts.length >= 2 ? parts[1] : base;
+}
+
+function getLotColorIdx(lot) {
+  if (S.lotColors[lot] === undefined) {
+    S.lotColors[lot] = Object.keys(S.lotColors).length % 6;
+  }
+  return S.lotColors[lot];
+}
+
+function setLoadMode(mode, btn) {
+  S.loadMode = mode;
+  document.querySelectorAll('#loadModeSeg button').forEach(b => b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  const hint = document.getElementById('loadModeHint');
+  if (hint) hint.textContent = mode === 'append'
+    ? '新檔案會加在既有資料後面（保留既有 Lot · 不同 Lot 自動分色）'
+    : '新檔案會取代既有資料';
+}
+
+function updateHeaderMeta() {
+  const hc = document.getElementById('hdrCount');
+  const hl = document.getElementById('hdrLots');
+  if (!hc || !hl) return;
+  if (S.data.length) {
+    hc.innerHTML = `<span class="dot"></span>${S.data.length.toLocaleString()} 筆資料`;
+    hc.parentElement.querySelector('#hdrCount').classList.add('live');
+    hc.classList.add('live');
+    hl.textContent = `${S.lots.length} Lot · ${S.files.length || '—'} 檔`;
+  } else {
+    hc.innerHTML = `<span class="dot"></span>尚未載入`;
+    hc.classList.remove('live');
+    hl.textContent = '— Lot';
+  }
+}
+
+function renderFileList() {
+  const lotIdxFor = name => getLotColorIdx(getLotName(name));
+  document.getElementById('fileList').innerHTML =
+    S.files.map((f, i) => {
+      const lot = getLotName(f.name);
+      const idx = lotIdxFor(f.name);
+      return `<div class="file-item" style="display:flex;align-items:center;gap:10px">
+        <span style="opacity:.6">📄</span>
+        <span class="fi-name">${escHtml(f.name)}</span>
+        <span class="lot-tag l-${idx}">${escHtml(lot)}</span>
+        <button onclick="removeFile(${i})" title="移除此檔案"
+                style="margin-left:4px;border:none;background:none;cursor:pointer;
+                       color:var(--text-3);font-size:16px;line-height:1;padding:0 4px">×</button>
+      </div>`;
+    }).join('');
+  document.getElementById('btnLoad').disabled = S.files.length === 0;
+  document.getElementById('upStatus').innerHTML = S.files.length
+    ? `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「步驟 1：載入欄位」</div>`
+    : '';
+}
+
+function handleFiles(files) {
+  S.files = Array.from(files);
+  document.getElementById('renameSection').style.display = 'none';
+  renderFileList();
+}
+
+function removeFile(i) {
+  S.files.splice(i, 1);
+  document.getElementById('renameSection').style.display = 'none';
+  renderFileList();
+}
+
+// ══════════════════════════════════════════════════
+// STEP 1：LOAD COLUMNS → SHOW RENAME TABLE
+// ══════════════════════════════════════════════════
+async function loadColumns() {
+  S._headerIdx   = parseInt(document.getElementById('headerRow').value) - 1;
+  S._dataStartIdx = parseInt(document.getElementById('dataStart').value) - 1;
+
+  document.getElementById('upStatus').innerHTML =
+    '<div class="status">⏳ 讀取欄位中...</div>';
+  await tick();
+
+  const allCols    = new Set();
+  const colSamples = {};  // colName → string[]
+  const errs = [];
+
+  for (const file of S.files) {
+    try {
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type:'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+      if (rows.length <= S._headerIdx) { errs.push(file.name); continue; }
+      const headerRow  = rows[S._headerIdx];
+      const sampleRows = rows.slice(S._headerIdx + 1, S._headerIdx + 7); // 6 rows below header
+      headerRow.forEach((h, ci) => {
+        if (h != null) {
+          const s = String(h).trim();
+          if (s && !META_COLS.has(s) && !s.includes('SOT_SOT')) {
+            allCols.add(s);
+            if (!colSamples[s]) {
+              colSamples[s] = sampleRows
+                .map(r => (r && r[ci] != null) ? String(r[ci]).trim() : '')
+                .filter(v => v !== '');
+            }
+          }
+        }
+      });
+    } catch(e) { errs.push(file.name); }
+  }
+
+  S._rawCols     = [...allCols];
+  S._colSamples  = colSamples;
+  buildRenameTable(S._rawCols);
+  document.getElementById('renameSection').style.display = 'block';
+
+  const errMsg = errs.length ? `（${errs.length} 個檔案讀取失敗）` : '';
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status ok">✅ 偵測到 ${S._rawCols.length} 個量測欄位${errMsg}，請確認或修改命名後執行步驟 3</div>`;
+}
+
+// ══════════════════════════════════════════════════
+// RENAME TABLE UI
+// ══════════════════════════════════════════════════
+function buildRenameTable(cols) {
+  const tbody = document.getElementById('renameBody');
+  tbody.innerHTML = '';
+  cols.forEach((col, idx) => {
+    const tr = document.createElement('tr');
+    const inputId = `ri_${idx}`;
+    const badgeId = `rb_${idx}`;
+    const samples  = (S._colSamples[col] || []).slice(0, 6);
+    const sampHtml = samples.length
+      ? samples.map(v => escHtml(v)).join('<br>')
+      : '<span style="color:#a0aec0">—</span>';
+    tr.innerHTML = `
+      <td><span class="orig-name">${escHtml(col)}</span></td>
+      <td>
+        <input id="${inputId}" class="rename-input" type="text" value="${escHtml(col)}"
+               oninput="updateBadge(this,'${badgeId}')">
+      </td>
+      <td style="text-align:center">
+        <span id="${badgeId}" class="cbadge none">不換算</span>
+      </td>
+      <td class="sample-vals">${sampHtml}</td>`;
+    tbody.appendChild(tr);
+    updateBadge(document.getElementById(inputId), badgeId);
+  });
+}
+
+function updateBadge(inputEl, badgeId) {
+  const name = inputEl.value.trim();
+  const el   = document.getElementById(badgeId);
+  if (name.startsWith('IR_')) {
+    el.className = 'cbadge ir'; el.textContent = '× 1,000,000 → uA';
+  } else if (name.startsWith('VR_')) {
+    el.className = 'cbadge vr'; el.textContent = 'round 0.1';
+  } else if (name.startsWith('VF_')) {
+    el.className = 'cbadge vf'; el.textContent = 'round 0.001';
+  } else {
+    el.className = 'cbadge none'; el.textContent = '不換算';
+  }
+}
+
+function autoFillRename() {
+  S._rawCols.forEach((col, idx) => {
+    const inp     = document.getElementById(`ri_${idx}`);
+    const samples = S._colSamples[col] || [];
+    const cond    = parseConditionLabel(samples[0]);
+    let newName   = null;
+
+    if      (col.includes('VFBC')  && cond) newName = `VF_${cond}`;
+    else if (col.includes('BVCBO') && cond) newName = `VR_${cond}`;
+    else if (col.includes('ICBO')  && cond) newName = `IR_${cond}`;
+
+    if (newName) {
+      inp.value = newName;
+      updateBadge(inp, `rb_${idx}`);
+    }
+  });
+}
+
+// 解析條件字串：去掉 "IC=" / "VCB=" 等前綴，正規化數字（21.0→21）
+function parseConditionLabel(raw) {
+  if (raw == null || raw === '') return null;
+  // 去掉 "IC=" / "VCB=" / "IF=" 等前綴
+  let s = String(raw).replace(/^[A-Za-z_]+=\s*/, '').trim();
+  // 比對數字 + 單位，例如 "21.0V"、"100uA"、"260mA"、"1A"
+  const m = s.match(/^([\d.]+)\s*([a-zA-Z]+)$/);
+  if (!m) return null;
+  const num  = parseFloat(m[1]);
+  const unit = m[2];
+  // 整數值去掉小數點（21.0 → 21，1.5 保留）
+  const numStr = (num === Math.floor(num)) ? String(Math.floor(num)) : String(num);
+  return numStr + unit;
+}
+
+function resetRename() {
+  S._rawCols.forEach((col, idx) => {
+    const inp = document.getElementById(`ri_${idx}`);
+    inp.value = col;
+    updateBadge(inp, `rb_${idx}`);
+  });
+}
+
+// ══════════════════════════════════════════════════
+// STEP 3：APPLY RENAME + ANALYZE
+// ══════════════════════════════════════════════════
+async function applyAndAnalyze() {
+  // Build rename map from table
+  const renameMap = {};
+  S._rawCols.forEach((col, idx) => {
+    const newName = document.getElementById(`ri_${idx}`).value.trim() || col;
+    if (newName !== col) renameMap[col] = newName;
+  });
+
+  document.getElementById('upStatus').innerHTML =
+    '<div class="status">⏳ 分析中，請稍候...</div>';
+  await tick();
+
+  // 載入模式：覆蓋 or 附加
+  const isAppend = S.loadMode === 'append' && S.data.length > 0;
+  if (!isAppend) {
+    S.data = [];
+    S.batchCounter = 0;
+    S.lotColors = {};
+  }
+  S.batchCounter++;
+  const batchId = S.batchCounter;
+  const errs = [];
+
+  for (const file of S.files) {
+    try {
+      const lot  = getLotName(file.name);
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type:'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+      if (rows.length <= S._headerIdx) { errs.push(`${file.name}：列數不足`); continue; }
+
+      const rawH  = rows[S._headerIdx].map(h => h != null ? String(h).trim() : '');
+      const heads = rawH.map(h => renameMap[h] ?? h);  // apply rename
+
+      const dataRows = rows.slice(S._dataStartIdx)
+        .filter(r => r && r.some(v => v !== null && v !== undefined && v !== ''));
+      if (!dataRows.length) { errs.push(`${file.name}：無資料`); continue; }
+
+      dataRows.forEach(row => {
+        const obj = { Lot: lot, _batch: batchId };
+        heads.forEach((h, i) => {
+          if (!h || h.includes('SOT_SOT')) return;
+          obj[h] = row[i] ?? null;
+        });
+        S.data.push(obj);
+      });
+    } catch(e) { errs.push(`${file.name}：${e.message}`); }
+  }
+
+  // Unit conversion — only on rows from THIS batch (avoid double-converting in append mode)
+  S.data.forEach(row => {
+    if (row._batch !== batchId) return;
+    Object.keys(row).forEach(k => {
+      const v = parseFloat(row[k]);
+      if (isNaN(v)) return;
+      if      (k.startsWith('IR_')) row[k] = rd(v * 1e6, 2);
+      else if (k.startsWith('VR_')) row[k] = rd(v, 1);
+      else if (k.startsWith('VF_')) row[k] = rd(v, 3);
+    });
+  });
+
+  // Lots & items
+  S.lots  = [...new Set(S.data.map(r => r.Lot))].sort();
+  const allCols = new Set(S.data.flatMap(r => Object.keys(r)));
+  S.items = [...allCols].filter(c => !META_COLS.has(c));
+
+  // Global bin edges for ALL items (for % distribution)
+  S.globalBins = {};
+  S.items.forEach(item => {
+    const vals = validData(null, item);
+    if (vals.length >= 3) {
+      const lo = Math.min(...vals), hi = Math.max(...vals);
+      if (hi > lo) S.globalBins[item] = linspace(lo, hi, N_BINS + 1);
+    }
+  });
+
+  populateSels();
+
+  ['map','count','pct','stats','chart'].forEach(t =>
+    document.getElementById('tb-' + t).disabled = false);
+
+  const errHtml = errs.length ? `<div class="status err">⚠️ ${errs.join('<br>')}</div>` : '';
+  // Lot 顏色徽章
+  const lotChips = S.lots.map(l => {
+    const idx = getLotColorIdx(l);
+    return `<span class="lot-tag l-${idx}" style="margin:0 4px 0 0">${escHtml(l)}</span>`;
+  }).join('');
+  const modeLabel = isAppend ? `附加（批次 #${batchId}）` : '覆蓋載入';
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status ok">✅ ${modeLabel}完成：${S.lots.length} 個 Lot，${S.data.length} 筆資料，${S.items.length} 個量測項目<br>
+       <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+         <span style="color:var(--text-3);font-size:11px;margin-right:6px">Lot：</span>${lotChips}
+       </div>
+     </div>${errHtml}`;
+  document.getElementById('btnExp').disabled = false;
+  updateHeaderMeta();
+
+  renderStatChips(); renderCustomStatTags();
+  renderMap(); renderCount(); renderPct(); renderStats();
+  initChartTab();
+}
+
+function populateSels() {
+  const opts    = S.items.map(i => `<option value="${i}">${i}</option>`).join('');
+  const lotOpts = '<option value="all">全部</option>' +
+                  S.lots.map(l => `<option value="${l}">${l}</option>`).join('');
+  ['mapItem','cntItem'].forEach(id =>
+    document.getElementById(id).innerHTML = opts);
+  document.getElementById('pctItem').innerHTML  = '<option value="all">全部項目</option>' + opts;
+  document.getElementById('pctLot').innerHTML   = lotOpts;
+  document.getElementById('cntLot').innerHTML   = lotOpts;
+  document.getElementById('caCorrY').innerHTML    = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
+  document.getElementById('caCorrLot').innerHTML  = '<option value="all">全部 Lot</option>' + S.lots.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
+  renderStatItemSelects();
+  renderChartItemSelects();
+}
+
+// ══════════════════════════════════════════════════
+// MATH UTILS
+// ══════════════════════════════════════════════════
+const rd = (v, d) => Math.round(v * 10**d) / 10**d;
+function mean(a)   { return a.reduce((s,v)=>s+v,0)/a.length; }
+function std(a)    {
+  if (a.length<2) return 0;
+  const m=mean(a);
+  return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1));
+}
+function median(a) {
+  const s=[...a].sort((x,y)=>x-y), m=Math.floor(s.length/2);
+  return s.length%2 ? s[m] : (s[m-1]+s[m])/2;
+}
+function normPDF(x,mu,sg) {
+  if (sg<=0) return 0;
+  return Math.exp(-0.5*((x-mu)/sg)**2)/(sg*Math.sqrt(2*Math.PI));
+}
+function linspace(a,b,n) {
+  return Array.from({length:n},(_,i)=>a+(b-a)*i/(n-1));
+}
+function makeHist(data,edges) {
+  const n=edges.length-1, bw=edges[1]-edges[0];
+  const counts=new Array(n).fill(0);
+  data.forEach(v=>{
+    let i=Math.floor((v-edges[0])/bw);
+    if(i<0)i=0; if(i>=n)i=n-1;
+    counts[i]++;
+  });
+  return counts;
+}
+function binCenters(edges) { return edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2); }
+function validData(lot,item) {
+  return (lot ? S.data.filter(r=>r.Lot===lot) : S.data)
+    .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
+}
+function tick() { return new Promise(r=>setTimeout(r,10)); }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+let _uid=0;
+function uid(p,k) { return `ch-${p}-${String(k).replace(/[^a-zA-Z0-9]/g,'_')}_${++_uid}`; }
+
+// ══════════════════════════════════════════════════
+// COLORSCALE PRESETS
+// ══════════════════════════════════════════════════
+const COLORSCALES = {
+  WhRd:    [[0,'#ffffff'],[0.15,'#c6dbef'],[0.3,'#6baed6'],[0.5,'#00e5ff'],
+            [0.65,'#69f0ae'],[0.78,'#ffee58'],[0.9,'#ff9800'],[1,'#b71c1c']],
+  RdBu:    [[0,'#053061'],[0.2,'#2166ac'],[0.4,'#92c5de'],[0.5,'#f7f7f7'],
+            [0.6,'#f4a582'],[0.8,'#d6604d'],[1,'#67001f']],
+  Viridis: [[0,'#440154'],[0.2,'#3b528b'],[0.4,'#21908c'],[0.6,'#5dc963'],
+            [0.8,'#aad156'],[1,'#fde725']],
+  Rainbow: [[0,'#6e40aa'],[0.15,'#4c6edb'],[0.3,'#1fa8a0'],[0.45,'#40d54a'],
+            [0.6,'#c8df27'],[0.75,'#fb8c25'],[0.9,'#f03b20'],[1,'#b10026']],
+  YlOrRd:  [[0,'#ffffcc'],[0.25,'#fed976'],[0.5,'#fd8d3c'],[0.75,'#e31a1c'],[1,'#800026']],
+  Greys:   [[0,'#ffffff'],[1,'#000000']]
+};
+
+// 自動填入目前 item 的全局 min/max 到色階範圍輸入框
+function autoZRange() {
+  const item = document.getElementById('mapItem').value;
+  if (!item) return;
+  const vals = validData(null, item);
+  if (!vals.length) return;
+  document.getElementById('mapZmin').value = rd(Math.min(...vals), 6);
+  document.getElementById('mapZmax').value = rd(Math.max(...vals), 6);
+  renderMap();
+}
+function clearZRange() {
+  document.getElementById('mapZmin').value = '';
+  document.getElementById('mapZmax').value = '';
+  renderMap();
+}
+
+// ══════════════════════════════════════════════════
+// COLS HELPERS (每列欄數 select + custom input)
+// ══════════════════════════════════════════════════
+function getCols(prefix) {
+  const sel = document.getElementById(prefix + 'ColsSel');
+  if (!sel) return 4;
+  if (sel.value === '0') {
+    return Math.max(1, parseInt(document.getElementById(prefix + 'ColsNum').value) || 4);
+  }
+  return parseInt(sel.value) || 4;
+}
+function syncCols(prefix, renderFn) {
+  const sel = document.getElementById(prefix + 'ColsSel');
+  const inp = document.getElementById(prefix + 'ColsNum');
+  inp.style.display = sel.value === '0' ? 'inline-block' : 'none';
+  renderFn();
+}
+function setGridCols(el, n) {
+  el.className = 'chart-grid';
+  el.style.gridTemplateColumns = `repeat(${n}, 1fr)`;
+}
+
+// ══════════════════════════════════════════════════
+// % DIST AXIS HELPERS
+// ══════════════════════════════════════════════════
+function resetPctAxes() {
+  ['pctXmin','pctXmax','pctYmin','pctYmax'].forEach(id =>
+    document.getElementById(id).value = '');
+  renderPct();
+}
+
+// ══════════════════════════════════════════════════
+// SPEC / CUSTOM STATS
+// ══════════════════════════════════════════════════
+function sk(key) { return key.replace(/[^a-zA-Z0-9]/g, '_'); } // safe ID fragment
+
+function getAllStatFns() {
+  const fns = {};
+  Object.entries(STAT_FNS).forEach(([k, fn]) => fns[k] = fn);
+  S.customStats.forEach(cs => { fns[cs.label] = makeCustomFn(cs.formula); });
+  return fns;
+}
+
+// ── Multiple item selects ──
+function addStatItem() {
+  S.statItems.push('');
+  renderStatItemSelects();
+}
+function removeStatItem(i) {
+  S.statItems.splice(i, 1);
+  if (S.statItems.length === 0) S.statItems.push('');
+  renderStatItemSelects();
+  renderStats();
+}
+function setStatItem(i, val) {
+  S.statItems[i] = val;
+  renderStats();
+}
+function renderStatItemSelects() {
+  const el = document.getElementById('stItemList');
+  if (!el) return;
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  el.innerHTML = S.statItems.map((item, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px">
+       <select onchange="setStatItem(${i},this.value)"
+               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+         <option value="">-- 選擇項目 --</option>${opts}
+       </select>
+       ${S.statItems.length > 1
+         ? `<button onclick="removeStatItem(${i})"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;font-size:17px;line-height:1;padding:0 2px"
+                    title="移除此項目">×</button>` : ''}
+     </span>`).join('');
+  // restore selected values
+  S.statItems.forEach((item, i) => {
+    const sel = el.querySelectorAll('select')[i];
+    if (sel && item) sel.value = item;
+  });
+}
+
+// ── Per-item row hide ──
+function hideStatForItem(item, key) {
+  if (!S.itemRemovedStats[item]) S.itemRemovedStats[item] = new Set();
+  S.itemRemovedStats[item].add(key);
+  renderStats();
+}
+function resetItemStats(item) {
+  delete S.itemRemovedStats[item];
+  renderStats();
+}
+
+// ── Active stats management (global) ──
+function addStat(key) {
+  if (!S.activeStats.includes(key)) { S.activeStats.push(key); renderStatChips(); renderStats(); }
+}
+function removeStat(key) {
+  S.activeStats = S.activeStats.filter(k => k !== key);
+  renderStatChips(); renderStats();
+}
+function resetStats() {
+  S.activeStats = [...DEFAULT_STATS];
+  renderStatChips(); renderStats();
+}
+function renderStatChips() {
+  const el = document.getElementById('stChips');
+  if (!el) return;
+  const allKeys   = [...DEFAULT_STATS, ...S.customStats.map(cs => cs.label)];
+  const activeSet = new Set(S.activeStats);
+  el.innerHTML = allKeys.map(key => {
+    const on = activeSet.has(key);
+    return `<span onclick="${on ? `removeStat('${escHtml(key)}')` : `addStat('${escHtml(key)}')`}"
+                  title="${on ? '點擊從所有項目移除' : '點擊加入所有項目'}"
+                  style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;
+                         font-size:12px;cursor:pointer;user-select:none;transition:all .15s;
+                         ${on ? 'background:#3182ce;color:white' : 'background:#e2e8f0;color:#4a5568'}">
+              ${escHtml(key)}&nbsp;${on ? '×' : '+'}
+            </span>`;
+  }).join('');
+}
+
+// ── Custom formulas ──
+function makeCustomFn(formula) {
+  return (d, spec) => {
+    try {
+      const r = new Function('Count','Min','Max','Mean','Median','Std','LSL','USL','Typical',
+        `"use strict"; return (${formula})`)(
+        d.length, Math.min(...d), Math.max(...d), mean(d), median(d), std(d),
+        spec?.lsl ?? null, spec?.usl ?? null, spec?.typical ?? null);
+      return r;
+    } catch(e) { return 'ERR'; }
+  };
+}
+function addCustomStat() {
+  const label   = document.getElementById('stFnLabel').value.trim();
+  const formula = document.getElementById('stFnFormula').value.trim();
+  if (!label || !formula) return;
+  if (S.customStats.some(cs => cs.label === label)) return;
+  S.customStats.push({ label, formula });
+  S.activeStats.push(label);
+  document.getElementById('stFnLabel').value = '';
+  document.getElementById('stFnFormula').value = '';
+  renderCustomStatTags(); renderStatChips(); renderStats();
+}
+function removeCustomFormula(i) {
+  const label = S.customStats[i].label;
+  S.customStats.splice(i, 1);
+  S.activeStats = S.activeStats.filter(k => k !== label);
+  renderCustomStatTags(); renderStatChips(); renderStats();
+}
+function renderCustomStatTags() {
+  const el = document.getElementById('stFnList');
+  if (!el) return;
+  el.innerHTML = S.customStats.map((cs, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:#edf2f7;
+                  border-radius:4px;padding:2px 8px;font-size:11px;white-space:nowrap">
+       <b>${escHtml(cs.label)}</b>: <code style="color:#553c9a">${escHtml(cs.formula)}</code>
+       <button onclick="removeCustomFormula(${i})" title="永久刪除此公式"
+               style="border:none;background:none;cursor:pointer;color:#fc8181;font-size:14px;line-height:1;padding:0 2px">×</button>
+     </span>`).join('');
+}
+
+// ── Spec per cell ──
+function saveSpecCell(item, key, field, val) {
+  if (!S.statSpecs[item])      S.statSpecs[item] = {};
+  if (!S.statSpecs[item][key]) S.statSpecs[item][key] = {};
+  S.statSpecs[item][key][field] = val !== '' ? parseFloat(val) : null;
+  recolorStatRow(item, key);
+}
+function recolorStatRow(item, key) {
+  const spec = (S.statSpecs[item] || {})[key] || {};
+  const fn   = getAllStatFns()[key];
+  if (!fn) return;
+  S.lots.forEach(lot => {
+    const cell = document.getElementById(`stc_${sk(item)}_${sk(key)}_${sk(lot)}`);
+    if (!cell) return;
+    const d      = validData(lot, item);
+    if (!d.length) return;
+    const rawVal = fn(d, spec);
+    cell.setAttribute('style', specColor(key, rawVal, spec) || '');
+    cell.textContent = formatStatVal(key, rawVal);
+  });
+}
+function specColor(statName, value, spec) {
+  if (!spec || statName === 'Count') return '';
+  const v = parseFloat(value);
+  if (isNaN(v)) return '';
+  if (spec.lsl != null && v < spec.lsl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  if (spec.usl != null && v > spec.usl) return 'background:#fed7d7;color:#c53030;font-weight:700';
+  return '';
+}
+
+// ── Number format ──
+function getStatFmt(key) {
+  return S.statFormats[key] || { type: 'fixed', decimals: key === 'Count' ? 0 : 2 };
+}
+function formatStatVal(key, val) {
+  if (typeof val !== 'number' || isNaN(val)) return String(val ?? '—');
+  const fmt = getStatFmt(key);
+  const d   = Math.max(0, Math.min(10, parseInt(fmt.decimals) || 0));
+  try { return fmt.type === 'sci' ? val.toExponential(d) : val.toFixed(d); }
+  catch(e) { return String(val); }
+}
+function saveStatFormat(key, field, val) {
+  if (!S.statFormats[key]) S.statFormats[key] = { ...getStatFmt(key) };
+  S.statFormats[key][field] = field === 'decimals' ? (parseInt(val) || 0) : val;
+  renderStats();
+}
+
+
+// ══════════════════════════════════════════════════
+// WAFER MAP
+// ══════════════════════════════════════════════════
+function renderMap() {
+  const item       = document.getElementById('mapItem').value;
+  const xDesc      = document.getElementById('mapXDir').value === 'desc';
+  const yDesc      = document.getElementById('mapYDir').value === 'desc';
+  const csKey      = document.getElementById('mapColorscale').value;
+  const colorscale = COLORSCALES[csKey] || COLORSCALES.WhRd;
+  const zminRaw    = document.getElementById('mapZmin').value;
+  const zmaxRaw    = document.getElementById('mapZmax').value;
+  const zmin       = zminRaw !== '' ? parseFloat(zminRaw) : undefined;
+  const zmax       = zmaxRaw !== '' ? parseFloat(zmaxRaw) : undefined;
+  const grid = document.getElementById('mapGrid');
+  if(!item) return;
+  setGridCols(grid, getCols('map'));
+  grid.innerHTML = '';
+
+  S.lots.forEach(lot => {
+    const rows = S.data.filter(r => r.Lot === lot);
+    const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
+    const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
+    const z = ySet.map(y => xSet.map(x => {
+      const m = rows.find(r => parseFloat(r.Xpos)===x && parseFloat(r.Ypos)===y);
+      return m ? (parseFloat(m[item]) ?? null) : null;
+    }));
+    const xMin = xSet[0], xMax = xSet[xSet.length-1];
+    const yMin = ySet[0], yMax = ySet[ySet.length-1];
+    const xPad = (xMax-xMin)*0.03 || 0.5;
+    const yPad = (yMax-yMin)*0.03 || 0.5;
+
+    // X: desc → reversed (大在左)；asc → 正常 (小在左)
+    const xAxis = { title:{text:'Xpos',font:{size:10}},
+                    autorange: xDesc ? 'reversed' : true };
+    // Y: desc → 大在上 range[yMax,yMin]；asc → 小在上 range[yMin,yMax]
+    const yAxis = { title:{text:'Ypos',font:{size:10}},
+                    range: yDesc ? [yMax+yPad, yMin-yPad] : [yMin-yPad, yMax+yPad] };
+
+    const id = uid('map', lot);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:290px"></div></div>`);
+    Plotly.newPlot(id, [{
+      type:'heatmap', z, x:xSet, y:ySet,
+      colorscale,
+      zmin: zmin !== undefined ? zmin : undefined,
+      zmax: zmax !== undefined ? zmax : undefined,
+      hoverongaps:false,
+      hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
+    }], {
+      title:{text:`${lot} — ${item}`,font:{size:11}},
+      margin:{t:36,b:36,l:44,r:10},
+      xaxis: xAxis,
+      yaxis: yAxis,
+      height:290
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ══════════════════════════════════════════════════
+// COUNT DISTRIBUTION
+// ══════════════════════════════════════════════════
+function resetCntAxes() {
+  ['cntXmin','cntXmax','cntYmin','cntYmax'].forEach(id =>
+    document.getElementById(id).value = '');
+  renderCount();
+}
+function renderCount() {
+  const selLot = document.getElementById('cntLot').value;
+  const item   = document.getElementById('cntItem').value;
+  const n      = getCols('cnt');
+  const grid   = document.getElementById('cntGrid');
+  if (!item) return;
+
+  const xMinV = document.getElementById('cntXmin').value;
+  const xMaxV = document.getElementById('cntXmax').value;
+  const yMinV = document.getElementById('cntYmin').value;
+  const yMaxV = document.getElementById('cntYmax').value;
+  const hasXOvr = xMinV !== '' && xMaxV !== '';
+  const hasYOvr = yMinV !== '' && yMaxV !== '';
+
+  setGridCols(grid, n);
+  grid.innerHTML = '';
+
+  const lots = selLot === 'all' ? S.lots : [selLot];
+  lots.forEach(lot => {
+    const data = validData(lot, item);
+    if (data.length < 3) return;
+    const mu = mean(data), sg = std(data);
+    const edges = hasXOvr
+      ? linspace(parseFloat(xMinV), parseFloat(xMaxV), N_BINS + 1)
+      : linspace(Math.min(...data), Math.max(...data), N_BINS + 1);
+    const bw    = edges[1] - edges[0];
+    const bc    = binCenters(edges);
+    const cnts  = makeHist(data, edges);
+    const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
+
+    const id = uid('cnt', lot + item);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:250px"></div></div>`);
+    Plotly.newPlot(id, [
+      { type:'bar', x:bc, y:cnts, name:'Count', width:bw*0.98,
+        marker:{color:'rgba(66,153,225,0.65)',line:{color:'rgba(66,153,225,1)',width:0.5}},
+        hovertemplate:'%{x:.4g}: %{y}<extra></extra>' },
+      { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+        line:{color:'#e53e3e',width:2,shape:'spline'},
+        hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' }
+    ], {
+      title:{text:`${lot} — ${item}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
+      margin:{t:54,b:34,l:44,r:10}, showlegend:false, bargap:0,
+      xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
+      yaxis:{ title:{text:'Count',font:{size:10}},
+              range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
+      height:250
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ══════════════════════════════════════════════════
+// PERCENTAGE DISTRIBUTION
+// ══════════════════════════════════════════════════
+function renderPct() {
+  const selItem = document.getElementById('pctItem').value;
+  const selLot  = document.getElementById('pctLot').value;
+  const n       = getCols('pct');
+  const area    = document.getElementById('pctArea');
+  area.innerHTML = '';
+
+  const xMinV = document.getElementById('pctXmin').value;
+  const xMaxV = document.getElementById('pctXmax').value;
+  const yMinV = document.getElementById('pctYmin').value;
+  const yMaxV = document.getElementById('pctYmax').value;
+  const hasXOvr = xMinV !== '' && xMaxV !== '';
+  const yMin = yMinV !== '' ? parseFloat(yMinV) : 0;
+  const yMax = yMaxV !== '' ? parseFloat(yMaxV) : 100;
+
+  const lots  = (selLot === 'all') ? S.lots : [selLot];
+  const items = (selItem === 'all')
+    ? S.items.filter(i => S.globalBins[i])
+    : (S.globalBins[selItem] ? [selItem] : []);
+
+  items.forEach(item => {
+    const edges = S.globalBins[item];
+    const bw    = edges[1] - edges[0];
+    const bc    = binCenters(edges);
+    const xRange = hasXOvr
+      ? [parseFloat(xMinV), parseFloat(xMaxV)]
+      : [edges[0], edges[edges.length - 1]];
+
+    const sec = document.createElement('div');
+    sec.style.cssText = 'margin-bottom:18px;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)';
+    sec.innerHTML = `<div class="section-hd">${item}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
+    const grid = document.createElement('div');
+    grid.style.cssText = `display:grid;gap:14px;grid-template-columns:repeat(${n},1fr);padding:10px`;
+    sec.appendChild(grid);
+    area.appendChild(sec);
+
+    lots.forEach(lot => {
+      const data = validData(lot, item);
+      if (data.length < 3) return;
+      const mu   = mean(data), sg = std(data);
+      const cnts = makeHist(data, edges);
+      const pct  = cnts.map(c => c / data.length * 100);
+      const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+
+      const id = uid('pct', lot + item);
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
+      Plotly.newPlot(id, [
+        { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
+          marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
+          hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
+        { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+          line:{color:'#e53e3e',width:2,shape:'spline'},
+          hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
+      ], {
+        title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
+        margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
+        yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
+        xaxis:{range: xRange},
+        height:230
+      }, {responsive:true, displayModeBar:false});
+    });
+  });
+}
+
+// ══════════════════════════════════════════════════
+// STATISTICS
+// ══════════════════════════════════════════════════
+const STAT_FNS={
+  'Count': d=>d.length,
+  'Min':   d=>Math.min(...d),
+  'Max':   d=>Math.max(...d),
+  'Mean':  d=>mean(d),
+  'Median':d=>median(d),
+  'Std':   d=>std(d)
+};
+function renderStats() {
+  const el = document.getElementById('stTable');
+  el.innerHTML = '';
+  S.statItems.forEach(item => {
+    if (!item) return;
+    el.appendChild(buildItemStatsBlock(item));
+  });
+}
+
+function buildItemStatsBlock(item) {
+  const allFns  = getAllStatFns();
+  const removed = S.itemRemovedStats[item] || new Set();
+  const visKeys = S.activeStats.filter(k => !removed.has(k));
+  const esc_item = escHtml(item);
+  const SINP = `style="width:68px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
+  const FINP = `style="width:40px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:3px;font-size:11px;text-align:center"`;
+  const FSEL = `style="font-size:11px;padding:2px 3px;border:1px solid #e2e8f0;border-radius:3px;max-width:52px"`;
+
+  let h = `<div class="stats-block">
+    <div class="stats-block-hd">
+      <span class="title">${esc_item}</span>
+      <span style="display:flex;gap:6px;align-items:center">
+        ${removed.size > 0
+          ? `<button onclick="resetItemStats('${esc_item}')"
+                     style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+                            color:white;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">
+               ↩ 還原隱藏列（${removed.size}）</button>` : ''}
+      </span>
+    </div>
+    <div class="stats-block-scroll">
+    <table class="stats"><thead><tr>
+      <th class="row-label" style="min-width:90px">統計項目</th>`;
+  S.lots.forEach(l => { h += `<th>${escHtml(l)}</th>`; });
+  h += `<th style="background:#744210;min-width:72px">LSL</th>
+        <th style="background:#744210;min-width:72px">Typical</th>
+        <th style="background:#744210;min-width:72px">USL</th>
+        <th style="background:#276749;min-width:60px">格式</th>
+        <th style="background:#276749;min-width:50px">位數</th>
+        <th style="background:#4a5568;width:28px" title="隱藏此列（僅此項目）"></th>
+      </tr></thead><tbody>`;
+
+  visKeys.forEach(key => {
+    const fn   = allFns[key];
+    if (!fn) return;
+    const spec  = (S.statSpecs[item] || {})[key] || {};
+    const fmt   = getStatFmt(key);
+    const esc_key = escHtml(key);
+
+    h += `<tr><td class="row-label">${esc_key}</td>`;
+    S.lots.forEach(lot => {
+      const d = validData(lot, item);
+      if (!d.length) { h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}">—</td>`; return; }
+      const rawVal  = fn(d, spec);
+      const dispVal = formatStatVal(key, rawVal);
+      const sty     = specColor(key, rawVal, spec);
+      h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}" style="${sty}">${dispVal}</td>`;
+    });
+    h += `<td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${SINP}
+                   value="${spec.lsl ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','lsl',this.value)">
+          </td>
+          <td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${SINP}
+                   value="${spec.typical ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','typical',this.value)">
+          </td>
+          <td style="padding:3px 5px">
+            <input type="number" step="any" placeholder="—" ${SINP}
+                   value="${spec.usl ?? ''}"
+                   onchange="saveSpecCell('${esc_item}','${esc_key}','usl',this.value)">
+          </td>
+          <td style="padding:3px 5px;text-align:center">
+            <select ${FSEL} onchange="saveStatFormat('${esc_key}','type',this.value)">
+              <option value="fixed" ${fmt.type==='fixed'?'selected':''}>0.0</option>
+              <option value="sci"   ${fmt.type==='sci'  ?'selected':''}>1e</option>
+            </select>
+          </td>
+          <td style="padding:3px 5px;text-align:center">
+            <input type="number" min="0" max="10" ${FINP}
+                   value="${fmt.decimals}"
+                   onchange="saveStatFormat('${esc_key}','decimals',this.value)">
+          </td>
+          <td style="text-align:center">
+            <button onclick="hideStatForItem('${esc_item}','${esc_key}')"
+                    title="隱藏此列（僅此項目，不影響其他）"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;
+                           font-size:17px;line-height:1;padding:0 4px">−</button>
+          </td></tr>`;
+  });
+
+  h += `</tbody></table></div></div>`;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = h;
+  return wrap.firstChild;
+}
+
+// ══════════════════════════════════════════════════
+// CHART ANALYSIS
+// ══════════════════════════════════════════════════
+
+const CHART_TYPES = [
+  {key:'box',    label:'📦 箱型圖'},
+  {key:'violin', label:'🎻 小提琴'},
+  {key:'scatter',label:'🔵 散佈圖'},
+  {key:'trend',  label:'📉 趨勢圖'},
+  {key:'bar',    label:'📊 長條圖'},
+  {key:'spc',    label:'🎯 SPC'},
+  {key:'cdf',    label:'📈 CDF'},
+  {key:'corr',   label:'🔗 相關分析'},
+];
+
+const LOT_COLORS = [
+  '#3182ce','#38a169','#d69e2e','#e53e3e',
+  '#805ad5','#dd6b20','#319795','#d53f8c',
+  '#2b6cb0','#276749','#b7791f','#c53030'
+];
+function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
+
+// Chart types where lot mode is not meaningful (always one chart per item)
+const CA_NO_LOTMODE = new Set(['box','violin','bar','corr']);
+
+function initChartTab() {
+  renderChartTypeButtons();
+  renderChartItemSelects();
+  updateChartCtxPanels();
+}
+
+function renderChartTypeButtons() {
+  const el = document.getElementById('caTypeButtons');
+  if (!el) return;
+  el.innerHTML = CHART_TYPES.map(t =>
+    `<button class="ca-type-btn ${S.chartType===t.key?'active':''}"
+             onclick="switchChartType('${t.key}')">${t.label}</button>`
+  ).join('');
+}
+
+function switchChartType(type) {
+  S.chartType = type;
+  renderChartTypeButtons();
+  updateChartCtxPanels();
+  renderChart();
+}
+
+function updateChartCtxPanels() {
+  const ctxIds = ['caCtxScatter','caCtxTrend','caCtxBar','caCtxSPC','caCtxCorr'];
+  const show = {
+    scatter:'caCtxScatter', trend:'caCtxTrend',
+    bar:'caCtxBar', spc:'caCtxSPC', corr:'caCtxCorr'
+  };
+  ctxIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  const showId = show[S.chartType];
+  if (showId) { const el = document.getElementById(showId); if (el) el.style.display = ''; }
+  // Lot mode not meaningful for box/violin/bar/corr
+  const lmw = document.getElementById('caLotModeWrap');
+  if (lmw) lmw.style.display = CA_NO_LOTMODE.has(S.chartType) ? 'none' : 'inline-flex';
+}
+
+// ── Item selects ──
+function addChartItem() {
+  S.chartItems.push('');
+  renderChartItemSelects();
+}
+function removeChartItem(i) {
+  S.chartItems.splice(i, 1);
+  if (!S.chartItems.length) S.chartItems.push('');
+  renderChartItemSelects();
+  renderChartSpecInputs();
+  renderChart();
+}
+function setChartItem(i, val) {
+  S.chartItems[i] = val;
+  renderChartSpecInputs();
+  renderChart();
+}
+function renderChartItemSelects() {
+  const el = document.getElementById('caItemList');
+  if (!el) return;
+  const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
+  el.innerHTML = S.chartItems.map((item, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:3px">
+       <select onchange="setChartItem(${i},this.value)"
+               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+         <option value="">-- 選擇項目 --</option>${opts}
+       </select>
+       ${S.chartItems.length > 1
+         ? `<button onclick="removeChartItem(${i})"
+                    style="border:none;background:none;cursor:pointer;color:#a0aec0;
+                           font-size:17px;line-height:1;padding:0 2px">×</button>` : ''}
+     </span>`).join('');
+  S.chartItems.forEach((item, i) => {
+    const sel = el.querySelectorAll('select')[i];
+    if (sel && item) sel.value = item;
+  });
+}
+
+// ── Spec inputs per item ──
+function saveChartSpec(item, field, val) {
+  if (!S.chartSpecs[item]) S.chartSpecs[item] = {};
+  S.chartSpecs[item][field] = val !== '' ? parseFloat(val) : null;
+  renderChart();
+}
+function renderChartSpecInputs() {
+  const el = document.getElementById('caSpecInputs');
+  if (!el) return;
+  const xItems = S.chartItems.filter(Boolean);
+  // In corr mode, also show Y item spec (with distinct label)
+  const yItem  = S.chartType === 'corr'
+    ? (document.getElementById('caCorrY')?.value || '') : '';
+  const yOnly  = yItem && !xItems.includes(yItem);  // Y item is different from X items
+
+  const renderGroup = (item, label) => {
+    const spec = S.chartSpecs[item] || {};
+    return `<div class="spec-input-group">
+      ${label}&nbsp;
+      <label style="color:#718096">LSL</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.lsl ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','lsl',this.value)">
+      <label style="color:#718096">Typical</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.typical ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','typical',this.value)">
+      <label style="color:#718096">USL</label>
+      <input class="spec-inp" type="number" step="any" placeholder="—"
+             value="${spec.usl ?? ''}"
+             onchange="saveChartSpec('${escHtml(item)}','usl',this.value)">
+    </div>`;
+  };
+
+  const parts = xItems.map(item =>
+    renderGroup(item, `<b>${escHtml(item)}</b>`)
+  );
+  if (yOnly) parts.push(
+    renderGroup(yItem, `<b style="color:#805ad5">Y: ${escHtml(yItem)}</b>`)
+  );
+
+  el.innerHTML = parts.join('');
+}
+
+// ── Spec shapes/annotations helpers ──
+function buildSpecShapes(spec, show) {
+  if (!show) return [];
+  const out = [];
+  const base = {type:'line', xref:'paper', x0:0, x1:1};
+  if (spec.lsl != null) out.push({...base, yref:'y', y0:spec.lsl, y1:spec.lsl,
+    line:{color:'#e53e3e', width:2, dash:'dash'}});
+  if (spec.usl != null) out.push({...base, yref:'y', y0:spec.usl, y1:spec.usl,
+    line:{color:'#e53e3e', width:2, dash:'dash'}});
+  if (spec.typical != null) out.push({...base, yref:'y', y0:spec.typical, y1:spec.typical,
+    line:{color:'#38a169', width:1.5, dash:'dot'}});
+  return out;
+}
+function buildSpecAnnotations(spec, show) {
+  if (!show) return [];
+  const out = [];
+  const base = {xref:'paper', x:0.01, showarrow:false,
+    font:{size:10}, bgcolor:'rgba(255,255,255,0.75)', xanchor:'left'};
+  if (spec.lsl != null) out.push({...base, yref:'y', y:spec.lsl,
+    text:'LSL', font:{...base.font, color:'#e53e3e'}});
+  if (spec.usl != null) out.push({...base, yref:'y', y:spec.usl,
+    text:'USL', font:{...base.font, color:'#e53e3e'}});
+  if (spec.typical != null) out.push({...base, yref:'y', y:spec.typical,
+    text:'Typ', font:{...base.font, color:'#38a169'}});
+  return out;
+}
+
+// ── Cpk / error bar helpers ──
+function calcCpk(d, spec) {
+  if (!spec || (spec.lsl == null && spec.usl == null)) return null;
+  const mu = mean(d), sg = std(d);
+  if (sg === 0) return null;
+  const cpu = spec.usl != null ? (spec.usl - mu) / (3 * sg) : Infinity;
+  const cpl = spec.lsl != null ? (mu - spec.lsl) / (3 * sg) : Infinity;
+  return Math.min(cpu, cpl);
+}
+function errBarVals(d, mode) {
+  const mu = mean(d), sg = std(d);
+  if (mode === 'range') return [mu - Math.min(...d), Math.max(...d) - mu];
+  const k = mode === '1sigma' ? 1 : mode === '2sigma' ? 2 : 3;
+  return [k * sg, k * sg];
+}
+function linRegress(xs, ys) {
+  const n = xs.length;
+  const mx = mean(xs), my = mean(ys);
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) { num += (xs[i]-mx)*(ys[i]-my); den += (xs[i]-mx)**2; }
+  const slope = den ? num/den : 0;
+  const intercept = my - slope*mx;
+  const ssTot = ys.reduce((s,y)=>s+(y-my)**2, 0);
+  const ssRes = ys.reduce((s,y,i)=>s+(y-(slope*xs[i]+intercept))**2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes/ssTot : 0;
+  return {slope, intercept, r2};
+}
+
+// ── Main dispatcher ──
+function renderChart() {
+  const items = S.chartItems.filter(Boolean);
+  const grid  = document.getElementById('caGrid');
+  if (!items.length || !grid) return;
+  setGridCols(grid, getCols('ca'));
+  grid.innerHTML = '';
+  renderChartSpecInputs();
+  switch (S.chartType) {
+    case 'box':    caBox(items, grid);    break;
+    case 'violin': caViolin(items, grid); break;
+    case 'scatter':caScatter(items, grid);break;
+    case 'trend':  caTrend(items, grid);  break;
+    case 'bar':    caBar(items, grid);    break;
+    case 'spc':    caSPC(items, grid);    break;
+    case 'cdf':    caCDF(items, grid);    break;
+    case 'corr':   caCorr(items, grid);   break;
+  }
+}
+
+// ── Box ──
+function caBox(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const traces = S.lots.map((lot, li) => ({
+      type:'box', y:validData(lot, item), name:lot,
+      boxpoints:'outliers', marker:{color:getColor(li)}, line:{color:getColor(li)}
+    }));
+    const id = uid('ca', item+'box');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+      shapes, annotations:annots, height:340,
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── Violin ──
+function caViolin(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const traces = S.lots.map((lot, li) => ({
+      type:'violin', y:validData(lot, item), name:lot,
+      box:{visible:true}, meanline:{visible:true},
+      fillcolor:getColor(li), line:{color:getColor(li)}, opacity:0.7
+    }));
+    const id = uid('ca', item+'violin');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:36,l:44,r:10}, showlegend:true, violinmode:'group',
+      shapes, annotations:annots, height:340,
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── Scatter ──
+function caScatter(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const xAxisKey = document.getElementById('caScatterX').value;
+  const ptSize   = parseInt(document.getElementById('caScatterSize').value) || 5;
+  const xLabel   = xAxisKey === 'xpos' ? 'Xpos' : xAxisKey === 'ypos' ? 'Ypos' : 'Index';
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+
+    if (lotMode === 'overlay') {
+      const traces = S.lots.map((lot, li) => {
+        const rows = S.data.filter(r => r.Lot === lot);
+        const pts  = rows.map((r, idx) => {
+          const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
+                  : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
+          const y = parseFloat(r[item]);
+          return [x, y];
+        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+        return {
+          type:'scatter', mode:'markers', name:lot,
+          x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
+          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+        };
+      });
+      const id = uid('ca', item+'sc');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, traces, {
+        title:{text:escHtml(item), font:{size:12}},
+        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+        shapes, annotations:annots, height:320,
+        xaxis:{title:{text:xLabel,font:{size:10}}},
+        yaxis:{title:{text:escHtml(item),font:{size:10}}}
+      }, {responsive:true, displayModeBar:false});
+    } else {
+      S.lots.forEach((lot, li) => {
+        const rows = S.data.filter(r => r.Lot === lot);
+        const pts  = rows.map((r, idx) => {
+          const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
+                  : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
+          return [x, parseFloat(r[item])];
+        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+        if (!pts.length) return;
+        const id = uid('ca', item+lot+'sc');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'markers', name:lot,
+          x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
+          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+        }], {
+          title:{text:`${lot} — ${escHtml(item)}`, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:false,
+          shapes:buildSpecShapes(spec, showSpec),
+          annotations:buildSpecAnnotations(spec, showSpec),
+          height:320,
+          xaxis:{title:{text:xLabel,font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Trend (Mean per Lot with error bars) ──
+function caTrend(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const errMode  = document.getElementById('caTrendErr').value;
+  const showCpk  = document.getElementById('caTrendCpk').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+
+    if (lotMode === 'overlay') {
+      // All lots on one chart: X=Lots, Y=Mean, error bars
+      const mus = [], ep = [], em = [], xs = [];
+      S.lots.forEach(lot => {
+        const d = validData(lot, item);
+        if (!d.length) return;
+        const mu = mean(d);
+        const [emv, epv] = errBarVals(d, errMode);
+        xs.push(lot); mus.push(mu); em.push(emv); ep.push(epv);
+      });
+      const annots = buildSpecAnnotations(spec, showSpec);
+      if (showCpk) {
+        xs.forEach((lot, xi) => {
+          const d = validData(lot, item);
+          const cpk = calcCpk(d, spec);
+          if (cpk !== null) annots.push({
+            x:lot, yref:'y', y:mus[xi],
+            text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
+            font:{size:10, color:'#333'}, ax:0, ay:-28
+          });
+        });
+      }
+      const id = uid('ca', item+'trend');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, [{
+        type:'scatter', mode:'lines+markers', name:item,
+        x:xs, y:mus,
+        error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
+                 color:'rgba(50,50,50,.4)',thickness:1.5,width:4},
+        marker:{color:'#3182ce',size:8}, line:{color:'#3182ce',width:2}
+      }], {
+        title:{text:escHtml(item), font:{size:12}},
+        margin:{t:40,b:50,l:44,r:10}, showlegend:false,
+        shapes, annotations:annots, height:320,
+        xaxis:{title:{text:'Lot',font:{size:10}}},
+        yaxis:{title:{text:escHtml(item),font:{size:10}}}
+      }, {responsive:true, displayModeBar:false});
+
+    } else {
+      // Split: one chart per lot — scatter points + mean line
+      S.lots.forEach((lot, li) => {
+        const d = validData(lot, item);
+        if (!d.length) return;
+        const mu = mean(d), sg = std(d);
+        const sh = [...buildSpecShapes(spec, showSpec)];
+        sh.push({type:'line', xref:'paper', x0:0, x1:1,
+                 yref:'y', y0:mu, y1:mu,
+                 line:{color:'#3182ce', width:1.5, dash:'dot'}});
+        const annots = buildSpecAnnotations(spec, showSpec);
+        if (showCpk) {
+          const cpk = calcCpk(d, spec);
+          if (cpk !== null) annots.push({
+            xref:'paper', x:0.99, yref:'paper', y:0.99,
+            text:`Cpk = ${rd(cpk,2)}`, showarrow:false,
+            xanchor:'right', yanchor:'top',
+            font:{size:11, color:'#3182ce'},
+            bgcolor:'rgba(255,255,255,.85)', bordercolor:'#3182ce', borderwidth:1
+          });
+        }
+        const id = uid('ca', item+lot+'trend');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'lines+markers', name:lot,
+          x:Array.from({length:d.length},(_,i)=>i+1), y:d,
+          marker:{color:getColor(li),size:4}, line:{color:getColor(li),width:1.5}
+        }], {
+          title:{text:`${lot} — ${escHtml(item)}<br><sup>n=${d.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,
+                 font:{size:10}},
+          margin:{t:50,b:36,l:44,r:10}, showlegend:false,
+          shapes:sh, annotations:annots, height:320,
+          xaxis:{title:{text:'Index',font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Bar + Error Bar ──
+function caBar(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const errMode  = document.getElementById('caBarErr').value;
+  const showCpk  = document.getElementById('caBarCpk').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = buildSpecShapes(spec, showSpec);
+    const annots = buildSpecAnnotations(spec, showSpec);
+    const mus = [], ep = [], em = [];
+    S.lots.forEach(lot => {
+      const d = validData(lot, item);
+      if (!d.length) { mus.push(null); ep.push(null); em.push(null); return; }
+      const mu = mean(d);
+      const [emv, epv] = errBarVals(d, errMode);
+      mus.push(mu); ep.push(epv); em.push(emv);
+    });
+    if (showCpk) {
+      S.lots.forEach((lot, li) => {
+        const d = validData(lot, item);
+        const cpk = calcCpk(d, spec);
+        if (cpk !== null && mus[li] !== null) annots.push({
+          x:lot, yref:'y', y:mus[li],
+          text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
+          font:{size:10,color:'#555'}, ax:0, ay:-26
+        });
+      });
+    }
+    const id = uid('ca', item+'bar');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+    Plotly.newPlot(id, [{
+      type:'bar', name:item,
+      x:S.lots, y:mus,
+      error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
+               color:'rgba(0,0,0,.45)',thickness:1.5,width:4},
+      marker:{color:S.lots.map((_,li)=>getColor(li)),opacity:0.8}
+    }], {
+      title:{text:escHtml(item), font:{size:12}},
+      margin:{t:40,b:50,l:44,r:10}, showlegend:false,
+      shapes, annotations:annots, height:320,
+      xaxis:{title:{text:'Lot',font:{size:10}}},
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── SPC ──
+function caSPC(items, grid) {
+  const showSpec = document.getElementById('caShowSpec').checked;
+  const xAxisKey = document.getElementById('caSPCxAxis').value;
+  const sigma    = parseInt(document.getElementById('caSPCsigma').value) || 3;
+
+  items.forEach(item => {
+    const spec = S.chartSpecs[item] || {};
+    const allRows = xAxisKey === 'lot'
+      ? S.lots.flatMap(lot => S.data.filter(r => r.Lot === lot))
+      : S.data;
+    const pairs = allRows.map((r, idx) => {
+      const y = parseFloat(r[item]);
+      if (isNaN(y)) return null;
+      let x;
+      if      (xAxisKey === 'xpos') x = parseFloat(r.Xpos);
+      else if (xAxisKey === 'ypos') x = parseFloat(r.Ypos);
+      else if (xAxisKey === 'lot')  x = r.Lot + '_' + idx;
+      else x = idx + 1;
+      return {x, y, lot:r.Lot};
+    }).filter(Boolean);
+    if (!pairs.length) return;
+
+    const yVals = pairs.map(p => p.y);
+    const mu = mean(yVals), sg = std(yVals);
+    const ucl = mu + sigma * sg;
+    const lcl = mu - sigma * sg;
+
+    const outOfCtrl = pairs.map(p => p.y > ucl || p.y < lcl);
+    const shapes = [...buildSpecShapes(spec, showSpec)];
+    const shapeBase = {type:'line', xref:'paper', x0:0, x1:1};
+    shapes.push({...shapeBase, yref:'y', y0:mu,  y1:mu,  line:{color:'#3182ce',width:1.5,dash:'dot'}});
+    shapes.push({...shapeBase, yref:'y', y0:ucl, y1:ucl, line:{color:'#e53e3e',width:1.5,dash:'dashdot'}});
+    shapes.push({...shapeBase, yref:'y', y0:lcl, y1:lcl, line:{color:'#e53e3e',width:1.5,dash:'dashdot'}});
+
+    const annots = [
+      ...buildSpecAnnotations(spec, showSpec),
+      {xref:'paper',x:0.99,yref:'y',y:mu,  text:'CL',  showarrow:false,xanchor:'right',font:{size:9,color:'#3182ce'}},
+      {xref:'paper',x:0.99,yref:'y',y:ucl, text:`UCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
+      {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
+    ];
+
+    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getColor(S.lots.indexOf(p.lot)));
+    const id = uid('ca', item+'spc');
+    const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+    Plotly.newPlot(id, [{
+      type:'scatter', mode:'markers', name:item,
+      x:pairs.map(p=>p.x), y:pairs.map(p=>p.y),
+      marker:{color:colorArr, size:5}
+    }], {
+      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}</sup>`,
+             font:{size:10}},
+      margin:{t:52,b:36,l:44,r:10}, showlegend:false,
+      shapes, annotations:annots, height:340,
+      xaxis:{title:{text:xLabel,font:{size:10}}},
+      yaxis:{title:{text:escHtml(item),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ── CDF ──
+function caCDF(items, grid) {
+  const lotMode  = document.getElementById('caLotMode').value;
+  const showSpec = document.getElementById('caShowSpec').checked;
+
+  items.forEach(item => {
+    const spec   = S.chartSpecs[item] || {};
+    const shapes = [];
+    if (showSpec) {
+      if (spec.lsl != null) shapes.push({
+        type:'line', xref:'x', x0:spec.lsl, x1:spec.lsl, yref:'paper', y0:0, y1:1,
+        line:{color:'#e53e3e',width:2,dash:'dash'}});
+      if (spec.usl != null) shapes.push({
+        type:'line', xref:'x', x0:spec.usl, x1:spec.usl, yref:'paper', y0:0, y1:1,
+        line:{color:'#e53e3e',width:2,dash:'dash'}});
+      if (spec.typical != null) shapes.push({
+        type:'line', xref:'x', x0:spec.typical, x1:spec.typical, yref:'paper', y0:0, y1:1,
+        line:{color:'#38a169',width:1.5,dash:'dot'}});
+    }
+
+    if (lotMode === 'overlay') {
+      const traces = S.lots.map((lot, li) => {
+        const d = [...validData(lot, item)].sort((a,b)=>a-b);
+        if (!d.length) return null;
+        const cdf = d.map((_,i)=>(i+1)/d.length*100);
+        return {
+          type:'scatter', mode:'lines', name:lot,
+          x:d, y:cdf,
+          line:{color:getColor(li), width:2, shape:'hv'}
+        };
+      }).filter(Boolean);
+      const id = uid('ca', item+'cdf');
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      Plotly.newPlot(id, traces, {
+        title:{text:`${escHtml(item)} CDF`, font:{size:12}},
+        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+        shapes, height:320,
+        xaxis:{title:{text:escHtml(item),font:{size:10}}},
+        yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
+      }, {responsive:true, displayModeBar:false});
+    } else {
+      S.lots.forEach((lot, li) => {
+        const d = [...validData(lot, item)].sort((a,b)=>a-b);
+        if (!d.length) return;
+        const cdf = d.map((_,i)=>(i+1)/d.length*100);
+        const id = uid('ca', item+lot+'cdf');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'lines', name:lot,
+          x:d, y:cdf,
+          line:{color:getColor(li), width:2, shape:'hv'},
+          fill:'tozeroy', fillcolor:getColor(li)+'28'
+        }], {
+          title:{text:`${lot} — ${escHtml(item)} CDF`, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:false,
+          shapes, height:320,
+          xaxis:{title:{text:escHtml(item),font:{size:10}}},
+          yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
+  });
+}
+
+// ── Correlation ──
+function caCorr(items, grid) {
+  const showSpec      = document.getElementById('caShowSpec').checked;
+  const showReg       = document.getElementById('caCorrReg').checked;
+  const filterSpec    = document.getElementById('caCorrFilterSpec').checked;
+  const yItem         = document.getElementById('caCorrY').value;
+  const selLot        = document.getElementById('caCorrLot').value;
+  if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請選擇 Y 軸項目</div>'; return; }
+
+  const activeLots = selLot === 'all' ? S.lots : [selLot];
+
+  items.forEach(item => {
+    if (item === yItem) return;
+    const specX = S.chartSpecs[item]  || {};
+    const specY = S.chartSpecs[yItem] || {};
+
+    const rawPairs = activeLots.flatMap(lot => {
+      const li = S.lots.indexOf(lot);
+      return S.data.filter(r => r.Lot === lot).map(r => {
+        const x = parseFloat(r[item]);
+        const y = parseFloat(r[yItem]);
+        return isNaN(x)||isNaN(y) ? null : {x, y, lot, li};
+      }).filter(Boolean);
+    });
+    if (!rawPairs.length) return;
+
+    // Apply SPEC filter if requested
+    const inSpec = p => {
+      if (specX.lsl != null && p.x < specX.lsl) return false;
+      if (specX.usl != null && p.x > specX.usl) return false;
+      if (specY.lsl != null && p.y < specY.lsl) return false;
+      if (specY.usl != null && p.y > specY.usl) return false;
+      return true;
+    };
+    const displayPairs = filterSpec ? rawPairs.filter(inSpec) : rawPairs;
+    const regrPairs    = filterSpec ? rawPairs.filter(inSpec) : rawPairs;  // same set
+    if (!displayPairs.length) return;
+
+    const traces = activeLots.map(lot => {
+      const li  = S.lots.indexOf(lot);
+      const pts = displayPairs.filter(p => p.lot === lot);
+      if (!pts.length) return null;
+      return {
+        type:'scatter', mode:'markers', name:lot,
+        x:pts.map(p=>p.x), y:pts.map(p=>p.y),
+        marker:{color:getColor(li), size:5, opacity:0.75}
+      };
+    }).filter(Boolean);
+
+    const annots = [];
+    if (showReg && regrPairs.length >= 2) {
+      const xs = regrPairs.map(p=>p.x), ys = regrPairs.map(p=>p.y);
+      const {slope, intercept, r2} = linRegress(xs, ys);
+      const xMin = Math.min(...xs), xMax = Math.max(...xs);
+      traces.push({
+        type:'scatter', mode:'lines',
+        name:`迴歸 (R²=${rd(r2,3)})${filterSpec?' [SPEC內]':''}`,
+        x:[xMin, xMax], y:[slope*xMin+intercept, slope*xMax+intercept],
+        line:{color:'#333',width:1.5,dash:'dash'}
+      });
+      annots.push({
+        xref:'paper', x:0.99, yref:'paper', y:0.01,
+        text:`y = ${rd(slope,4)}x + ${rd(intercept,4)}<br>R² = ${rd(r2,4)}` +
+             (filterSpec ? '<br><i style="font-size:9px">※ 僅 SPEC 範圍內資料</i>' : ''),
+        showarrow:false, xanchor:'right', yanchor:'bottom',
+        font:{size:11,color:'#333'},
+        bgcolor:'rgba(255,255,255,.85)', bordercolor:'#ccc', borderwidth:1
+      });
+    }
+
+    const shapes = [];
+    if (showSpec) {
+      if (specX.lsl    != null) shapes.push({type:'line',xref:'x',x0:specX.lsl,    x1:specX.lsl,    yref:'paper',y0:0,y1:1,line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specX.usl    != null) shapes.push({type:'line',xref:'x',x0:specX.usl,    x1:specX.usl,    yref:'paper',y0:0,y1:1,line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specX.typical!= null) shapes.push({type:'line',xref:'x',x0:specX.typical,x1:specX.typical,yref:'paper',y0:0,y1:1,line:{color:'#38a169',width:1,dash:'dot'}});
+      if (specY.lsl    != null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.lsl,    y1:specY.lsl,    line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specY.usl    != null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.usl,    y1:specY.usl,    line:{color:'#e53e3e',width:1.5,dash:'dash'}});
+      if (specY.typical!= null) shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:specY.typical,y1:specY.typical,line:{color:'#38a169',width:1,dash:'dot'}});
+    }
+
+    const id = uid('ca', item+yItem+'corr');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:360px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:`${escHtml(item)} vs ${escHtml(yItem)}`, font:{size:12}},
+      margin:{t:40,b:44,l:52,r:10}, showlegend:true,
+      shapes, annotations:annots, height:360,
+      xaxis:{title:{text:escHtml(item),font:{size:10}}},
+      yaxis:{title:{text:escHtml(yItem),font:{size:10}}}
+    }, {responsive:true, displayModeBar:false});
+  });
+}
+
+// ══════════════════════════════════════════════════
+// EXPORT EXCEL
+// ══════════════════════════════════════════════════
+function exportExcel() {
+  if(!S.data.length) return;
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(S.data),'合併資料');
+  const statRows=[];
+  S.items.forEach(item=>{
+    Object.entries(STAT_FNS).forEach(([stat,fn])=>{
+      const row={'統計_項目':`${stat}_${item}`};
+      S.lots.forEach(lot=>{ const d=validData(lot,item); row[lot]=d.length?fn(d):null; });
+      statRows.push(row);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(statRows),'統計');
+  XLSX.writeFile(wb,`wafer_analysis_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+// ══════════════════════════════════════════════════
+// LIBRARY CHECK
+// ══════════════════════════════════════════════════
+window.addEventListener('load',()=>{
+  if(typeof XLSX==='undefined'||typeof Plotly==='undefined'){
+    document.getElementById('libError').innerHTML=`
+    <div class="lib-error">
+      <h3>⚠️ 找不到必要的 Library 檔案</h3>
+      <p>請開啟 <strong>download_libs.html</strong>（需要網路，只需一次）下載後放入 <code>libs/</code> 資料夾，再重新開啟此頁面。</p>
+      <p style="margin-top:8px">或手動下載：</p>
+      <ol>
+        <li><code>https://cdn.plot.ly/plotly-2.26.0.min.js</code> → 儲存為 <code>libs/plotly.min.js</code></li>
+        <li><code>https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js</code> → 儲存為 <code>libs/xlsx.full.min.js</code></li>
+      </ol>
+    </div>`;
+  }
+});
+
+// Init load mode hint
+if (typeof setLoadMode === 'function') setLoadMode('overwrite', document.querySelector('#loadModeSeg button.on'));
+</script>
+
+<!-- ═══ Tweaks Panel (vanilla, always visible) ═══ -->
+<style>
+  .twk {
+    position: fixed; right: 16px; bottom: 16px; z-index: 9999;
+    width: 280px; max-height: calc(100vh - 32px);
+    background: rgba(17, 22, 30, 0.92); backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border: 1px solid var(--border-2); border-radius: 12px;
+    color: var(--text); font-family: var(--ff-sans); font-size: 12px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(74,214,199,.1);
+    display: flex; flex-direction: column; overflow: hidden;
+    transition: transform .25s ease, opacity .2s;
+  }
+  body.theme-light .twk { background: rgba(255,255,255,.92); }
+  .twk.collapsed { transform: translateY(calc(100% - 38px)); }
+  .twk-hd {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; cursor: pointer; user-select: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .twk-hd b { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
+  .twk-hd .ic { color: var(--text-3); transition: transform .25s; font-size: 10px; }
+  .twk.collapsed .twk-hd .ic { transform: rotate(180deg); }
+  .twk-body {
+    padding: 10px 14px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+  }
+  .twk-sec { display: flex; flex-direction: column; gap: 8px; }
+  .twk-sec-t {
+    font-size: 10px; font-weight: 700; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  }
+  .twk-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .twk-row label { font-size: 11px; color: var(--text-2); flex-shrink: 0; }
+  .twk-seg {
+    display: inline-flex; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 5px; padding: 2px;
+  }
+  .twk-seg button {
+    padding: 4px 10px; font-size: 11px; background: transparent; border: none;
+    color: var(--text-2); cursor: pointer; border-radius: 3px; font-family: var(--ff-sans);
+  }
+  .twk-seg button.on { background: var(--accent); color: var(--bg); font-weight: 600; }
+  .twk-input {
+    background: var(--bg); border: 1px solid var(--border-2); color: var(--text);
+    border-radius: 4px; padding: 4px 8px; font-size: 11px;
+    font-family: var(--ff-mono); width: 130px;
+  }
+  .twk-color {
+    width: 28px; height: 22px; border: 1px solid var(--border-2); border-radius: 4px;
+    padding: 0; background: none; cursor: pointer;
+  }
+  .twk-color::-webkit-color-swatch-wrapper { padding: 0; }
+  .twk-color::-webkit-color-swatch { border: none; border-radius: 3px; }
+  .twk-slider { flex: 1; max-width: 130px; accent-color: var(--accent); }
+  .twk-val { font-family: var(--ff-mono); font-size: 10px; color: var(--text-3); min-width: 32px; text-align: right; }
+</style>
+
+<div class="twk" id="twkPanel">
+  <div class="twk-hd" onclick="toggleTweaks(event)">
+    <b>⚙ TWEAKS</b>
+    <span class="ic">▾</span>
+  </div>
+  <div class="twk-body">
+    <div class="twk-sec">
+      <div class="twk-sec-t">主題</div>
+      <div class="twk-row">
+        <label>模式</label>
+        <div class="twk-seg" id="twkTheme">
+          <button data-v="dark" class="on">深色</button>
+          <button data-v="light">淺色</button>
+        </div>
+      </div>
+      <div class="twk-row">
+        <label>強調色</label>
+        <input type="color" class="twk-color" id="twkAccent" value="#4ad6c7">
+      </div>
+    </div>
+
+    <div class="twk-sec">
+      <div class="twk-sec-t">排版</div>
+      <div class="twk-row">
+        <label>密度</label>
+        <div class="twk-seg" id="twkDensity">
+          <button data-v="compact">緊湊</button>
+          <button data-v="default" class="on">預設</button>
+          <button data-v="cozy">寬鬆</button>
+        </div>
+      </div>
+      <div class="twk-row">
+        <label>字型大小</label>
+        <input type="range" class="twk-slider" id="twkFontScale" min="0.85" max="1.2" step="0.05" value="1">
+        <span class="twk-val" id="twkFontScaleVal">100%</span>
+      </div>
+    </div>
+
+    <div class="twk-sec">
+      <div class="twk-sec-t">字體</div>
+      <div class="twk-row">
+        <label>無襯線</label>
+        <select class="twk-input" id="twkSans">
+          <option value="Noto Sans TC">Noto Sans TC</option>
+          <option value="Inter">Inter</option>
+          <option value="system-ui">system-ui</option>
+        </select>
+      </div>
+      <div class="twk-row">
+        <label>等寬</label>
+        <select class="twk-input" id="twkMono">
+          <option value="JetBrains Mono">JetBrains Mono</option>
+          <option value="SF Mono">SF Mono</option>
+          <option value="monospace">monospace</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const TWK = /*EDITMODE-BEGIN*/{
+  "theme": "dark",
+  "density": "default",
+  "accentColor": "#4ad6c7",
+  "fontScale": 1.0,
+  "sansFont": "Noto Sans TC",
+  "monoFont": "JetBrains Mono"
+}/*EDITMODE-END*/;
+
+function toggleTweaks(e) {
+  e.stopPropagation();
+  document.getElementById('twkPanel').classList.toggle('collapsed');
+}
+
+function persistTweaks() {
+  try { window.parent.postMessage({type:'__edit_mode_set_keys', edits: TWK}, '*'); } catch(e) {}
+}
+
+function applyTweaks() {
+  const b = document.body;
+  b.classList.remove('theme-dark','theme-light','density-default','density-compact','density-cozy');
+  b.classList.add('theme-' + TWK.theme, 'density-' + TWK.density);
+  const r = document.documentElement;
+  r.style.setProperty('--accent', TWK.accentColor);
+  r.style.setProperty('--lot-1', TWK.accentColor);
+  r.style.setProperty('--ff-sans', `'${TWK.sansFont}', -apple-system, system-ui, sans-serif`);
+  r.style.setProperty('--ff-mono', `'${TWK.monoFont}', 'SF Mono', Menlo, monospace`);
+  r.style.fontSize = (16 * TWK.fontScale) + 'px';
+  // Re-render Plotly charts
+  document.querySelectorAll('.js-plotly-plot').forEach(el => {
+    if (el._fullLayout) try { Plotly.Plots.resize(el); } catch(e) {}
+  });
+}
+
+function bindSeg(id, key) {
+  const wrap = document.getElementById(id);
+  wrap.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-v]');
+    if (!btn) return;
+    wrap.querySelectorAll('button').forEach(b => b.classList.remove('on'));
+    btn.classList.add('on');
+    TWK[key] = btn.dataset.v;
+    applyTweaks(); persistTweaks();
+  });
+  wrap.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('on', b.dataset.v === TWK[key]);
+  });
+}
+
+// init
+document.body.classList.add('theme-dark', 'density-default');
+applyTweaks();
+bindSeg('twkTheme', 'theme');
+bindSeg('twkDensity', 'density');
+
+document.getElementById('twkAccent').addEventListener('input', e => {
+  TWK.accentColor = e.target.value; applyTweaks(); persistTweaks();
+});
+document.getElementById('twkAccent').value = TWK.accentColor;
+
+const fs = document.getElementById('twkFontScale');
+const fsv = document.getElementById('twkFontScaleVal');
+fs.value = TWK.fontScale;
+fsv.textContent = (TWK.fontScale*100).toFixed(0) + '%';
+fs.addEventListener('input', e => {
+  TWK.fontScale = parseFloat(e.target.value);
+  fsv.textContent = (TWK.fontScale*100).toFixed(0) + '%';
+  applyTweaks(); persistTweaks();
+});
+
+document.getElementById('twkSans').value = TWK.sansFont;
+document.getElementById('twkSans').addEventListener('change', e => {
+  TWK.sansFont = e.target.value; applyTweaks(); persistTweaks();
+});
+document.getElementById('twkMono').value = TWK.monoFont;
+document.getElementById('twkMono').addEventListener('change', e => {
+  TWK.monoFont = e.target.value; applyTweaks(); persistTweaks();
+});
+</script>
+
+</body>
+</html>
