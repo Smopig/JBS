@@ -3069,8 +3069,23 @@ if (typeof setLoadMode === 'function') setLoadMode('overwrite', document.querySe
 <!-- ═══ Split Association Analysis ═══ -->
 <script>
 // ──────────────────────────────────────────────────────────
-// SPLIT ANALYSIS — helpers
+// SPLIT ANALYSIS
+// Structure of Split.xlsx:
+//   Row 0 (header): A=Step no. label, B=Process name label, C=Process condition label,
+//                   D..O = Lot names (N62S08A_01 … N62S08A_12)
+//   Rows 1+:        A=step seq, B=process name, C=condition detail,
+//                   D..O = 'V' (done) or null (not done)
 // ──────────────────────────────────────────────────────────
+
+// Group colours (up to 6 condition groups per process step)
+const SPLIT_COLORS = [
+  {bg:'rgba(74,214,199,0.2)',  fg:'#4ad6c7',  mk:'rgba(74,214,199,0.85)'},
+  {bg:'rgba(245,158,11,0.2)', fg:'#f59e0b',  mk:'rgba(245,158,11,0.85)'},
+  {bg:'rgba(239,68,68,0.2)',  fg:'#ef4444',  mk:'rgba(239,68,68,0.85)'},
+  {bg:'rgba(139,92,246,0.2)', fg:'#8b5cf6',  mk:'rgba(139,92,246,0.85)'},
+  {bg:'rgba(34,197,94,0.2)',  fg:'#22c55e',  mk:'rgba(34,197,94,0.85)'},
+  {bg:'rgba(99,179,237,0.2)', fg:'#63b3ed',  mk:'rgba(99,179,237,0.85)'},
+];
 
 function loadSplitFile(file) {
   if (!file) return;
@@ -3082,35 +3097,53 @@ function loadSplitFile(file) {
     try {
       const wb = XLSX.read(e.target.result, {type:'array'});
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
-      if (!rows || rows.length < 2) throw new Error('表格資料不足');
+      const raw = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      if (!raw || raw.length < 2) throw new Error('表格資料不足');
 
-      // Row 0: headers. Col 0 = step name label, cols 1..N = lot IDs
-      const headerRow = rows[0];
+      // ── Header row: cols D..O (index 3..14) are Lot names
+      const hdr = raw[0];
       const lots = [];
-      for (let c = 1; c < headerRow.length; c++) {
-        if (headerRow[c] != null && String(headerRow[c]).trim() !== '')
-          lots.push(String(headerRow[c]).trim());
+      for (let c = 3; c < hdr.length; c++) {
+        const v = hdr[c];
+        if (v != null && String(v).trim() !== '') lots.push(String(v).trim());
       }
+      if (!lots.length) throw new Error('找不到 Lot 批號（需在 D1 欄開始）');
 
-      const steps = [];
-      const matrix = {};
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r];
-        const stepName = row[0] != null ? String(row[0]).trim() : null;
-        if (!stepName) continue;
-        steps.push(stepName);
-        matrix[stepName] = {};
+      // ── Data rows: each row = one process condition
+      const rows = [];
+      for (let r = 1; r < raw.length; r++) {
+        const row = raw[r];
+        const stepNo    = row[0] != null ? String(row[0]).trim() : '';
+        const procName  = row[1] != null ? String(row[1]).trim() : '';
+        const condition = row[2] != null ? String(row[2]).trim() : '';
+        if (!procName) continue;           // skip blank rows
+
+        // 'V' mark detection: 'V','v','✓','√','1',true all count as "done"
+        const lotDone = {};
         lots.forEach((lot, ci) => {
-          const val = row[ci + 1];
-          matrix[stepName][lot] = (val === 1 || val === 2) ? val : null;
+          const val = row[3 + ci];
+          lotDone[lot] = val != null && String(val).trim() !== '' &&
+                         String(val).trim() !== '0' && val !== false;
         });
+        rows.push({ stepNo, procName, condition, lotDone });
       }
 
-      S.splitData = { steps, lots, matrix };
+      // ── Group rows by process name to detect multi-condition splits
+      const groups = {};    // procName → [rows]
+      rows.forEach(r => {
+        if (!groups[r.procName]) groups[r.procName] = [];
+        groups[r.procName].push(r);
+      });
+
+      // Unique ordered process names for the step selector
+      const procNames = [...new Set(rows.map(r => r.procName))];
+
+      S.splitData = { lots, rows, groups, procNames };
       S.splitLotMap = autoMatchLots(lots, S.lots);
 
-      statusEl.textContent = `✓ 已載入：${steps.length} 個製程步驟 × ${lots.length} 個 Lot`;
+      const splitCount = procNames.filter(n => groups[n].length > 1).length;
+      statusEl.textContent =
+        `✓ 已載入：${rows.length} 條製程條件 × ${lots.length} 個 Lot（其中 ${splitCount} 個製程有 Split）`;
       statusEl.style.color = 'var(--accent)';
 
       renderSplitPreview();
@@ -3130,13 +3163,10 @@ function loadSplitFile(file) {
 function autoMatchLots(splitLots, loadedLots) {
   const map = {};
   splitLots.forEach(sl => {
-    // exact match
     if (loadedLots.includes(sl)) { map[sl] = sl; return; }
-    // substring: find a loaded lot that contains the split lot id or vice versa
+    const norm = s => s.replace(/[-_]/g,'').toLowerCase();
     const found = loadedLots.find(ll =>
-      ll.includes(sl) || sl.includes(ll) ||
-      ll.replace(/-/g,'').includes(sl.replace(/-/g,'')) ||
-      sl.replace(/-/g,'').includes(ll.replace(/-/g,''))
+      norm(ll).includes(norm(sl)) || norm(sl).includes(norm(ll))
     );
     map[sl] = found || null;
   });
@@ -3145,28 +3175,37 @@ function autoMatchLots(splitLots, loadedLots) {
 
 function renderSplitPreview() {
   if (!S.splitData) return;
-  const { steps, lots, matrix } = S.splitData;
-  const isDark = document.body.classList.contains('theme-dark') ||
-                 !document.body.classList.contains('theme-light');
-  const g1bg = 'rgba(74,214,199,0.18)';
-  const g2bg = 'rgba(245,158,11,0.18)';
-  const g1fg = 'var(--accent)';
-  const g2fg = '#f59e0b';
+  const { rows, lots } = S.splitData;
 
   let html = '<table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
-  html += '<th style="position:sticky;left:0;background:var(--bg-2);z-index:2;min-width:120px">製程步驟</th>';
+  html += '<th style="position:sticky;left:0;background:var(--bg-2);z-index:2">順序</th>';
+  html += '<th style="position:sticky;left:36px;background:var(--bg-2);z-index:2;min-width:100px">製程名稱</th>';
+  html += '<th style="min-width:160px">製程條件</th>';
   lots.forEach(l => {
     const matched = S.splitLotMap[l] != null;
-    html += `<th style="min-width:90px;${matched ? '' : 'color:var(--text-3)'}">${escHtml(l)}</th>`;
+    html += `<th style="min-width:72px;text-align:center;${matched ? '' : 'color:var(--text-3)'}">${escHtml(l)}</th>`;
   });
   html += '</tr></thead><tbody>';
-  steps.forEach(step => {
-    html += `<tr><td style="position:sticky;left:0;background:var(--bg-2);font-weight:600">${escHtml(step)}</td>`;
+
+  let prevName = null;
+  rows.forEach((row, ri) => {
+    const isNewGroup = row.procName !== prevName;
+    const groupRows  = S.splitData.groups[row.procName];
+    const condIdx    = groupRows.indexOf(row);         // 0-based index within group
+    const col        = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
+    const rowBg      = groupRows.length > 1 ? `background:${col.bg}` : '';
+    prevName = row.procName;
+
+    html += `<tr style="${rowBg}">`;
+    html += `<td style="text-align:center;color:var(--text-3)">${escHtml(row.stepNo)}</td>`;
+    html += `<td style="font-weight:${isNewGroup ? '700' : '400'};color:${isNewGroup ? 'var(--text)' : 'var(--text-2)'}">${isNewGroup ? escHtml(row.procName) : ''}</td>`;
+    html += `<td style="color:var(--text-2)">${escHtml(row.condition)}</td>`;
     lots.forEach(l => {
-      const v = matrix[step][l];
-      if (v === 1) html += `<td style="text-align:center;background:${g1bg};color:${g1fg};font-weight:700">1</td>`;
-      else if (v === 2) html += `<td style="text-align:center;background:${g2bg};color:${g2fg};font-weight:700">2</td>`;
-      else html += `<td style="text-align:center;color:var(--text-3)">—</td>`;
+      const done = row.lotDone[l];
+      if (done)
+        html += `<td style="text-align:center;font-weight:700;color:${groupRows.length > 1 ? col.fg : 'var(--accent)'}">✓</td>`;
+      else
+        html += `<td style="text-align:center;color:var(--border-2)">·</td>`;
     });
     html += '</tr>';
   });
@@ -3178,14 +3217,15 @@ function renderSplitMatchTable() {
   if (!S.splitData) return;
   const { lots } = S.splitData;
   const matchedCount = lots.filter(l => S.splitLotMap[l] != null).length;
-  let html = `<div style="font-size:11px;color:var(--text-3);margin-bottom:6px">已匹配 ${matchedCount}/${lots.length} 個 Lot</div>`;
+  let html = `<div style="font-size:11px;color:var(--text-3);margin-bottom:6px">已匹配 ${matchedCount} / ${lots.length} 個 Lot（Split 檔 → 已載入資料）</div>`;
   html += '<table class="stats" style="font-size:11px"><thead><tr><th>Split 批號</th><th>對應已載入 Lot</th><th>狀態</th></tr></thead><tbody>';
   lots.forEach(l => {
     const matched = S.splitLotMap[l];
-    const statusIcon = matched ? '✓' : '✗';
-    const statusColor = matched ? 'var(--accent)' : '#e53e3e';
-    html += `<tr><td>${escHtml(l)}</td><td>${matched ? escHtml(matched) : '<em style="color:var(--text-3)">未匹配</em>'}</td>`;
-    html += `<td style="text-align:center;color:${statusColor};font-weight:700">${statusIcon}</td></tr>`;
+    html += `<tr>
+      <td>${escHtml(l)}</td>
+      <td>${matched ? escHtml(matched) : '<em style="color:var(--text-3)">未匹配</em>'}</td>
+      <td style="text-align:center;font-weight:700;color:${matched ? 'var(--accent)' : '#e53e3e'}">${matched ? '✓' : '✗'}</td>
+    </tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('splitMatchTable').innerHTML = html;
@@ -3194,7 +3234,11 @@ function renderSplitMatchTable() {
 function populateSplitStepSel() {
   if (!S.splitData) return;
   const sel = document.getElementById('splitStepSel');
-  sel.innerHTML = S.splitData.steps.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  sel.innerHTML = S.splitData.procNames.map(n => {
+    const grpLen = S.splitData.groups[n].length;
+    const tag = grpLen > 1 ? ` ★ (${grpLen} 條件)` : '';
+    return `<option value="${escHtml(n)}">${escHtml(n)}${tag}</option>`;
+  }).join('');
 }
 
 function renderSplitItemSelects() {
@@ -3202,11 +3246,13 @@ function renderSplitItemSelects() {
   document.querySelectorAll('.split-item-sel').forEach((sel, idx) => {
     const prev = sel.value;
     sel.innerHTML = opts;
-    if (S.splitItems[idx] && opts.includes(S.splitItems[idx])) sel.value = S.splitItems[idx];
+    if (S.splitItems && S.splitItems[idx]) sel.value = S.splitItems[idx];
+    else if (prev) sel.value = prev;
   });
 }
 
 function addSplitItem() {
+  if (!S.splitItems) S.splitItems = [''];
   S.splitItems.push('');
   const idx = S.splitItems.length - 1;
   const opts = S.items.map(i => `<option value="${escHtml(i)}">${escHtml(i)}</option>`).join('');
@@ -3220,99 +3266,116 @@ function addSplitItem() {
   wrap.insertBefore(sel, addBtn);
 }
 
+// ── Main analysis render ──
 function renderSplitAnalysis() {
   if (!S.splitData || !S.data.length) return;
 
-  const step = document.getElementById('splitStepSel').value;
-  // collect selected items from all split-item-sel dropdowns
+  const procName = document.getElementById('splitStepSel').value;
   const items = Array.from(document.querySelectorAll('.split-item-sel'))
     .map(s => s.value).filter(Boolean);
   if (!items.length) return;
 
-  const stepRow = S.splitData.matrix[step];
-  if (!stepRow) return;
+  const condRows = S.splitData.groups[procName];
+  if (!condRows || !condRows.length) return;
 
-  // Build group membership: loadedLotName → 1|2
-  const lotGroup = {};
-  S.splitData.lots.forEach(sl => {
-    const loadedLot = S.splitLotMap[sl];
-    if (loadedLot && stepRow[sl] != null) lotGroup[loadedLot] = stepRow[sl];
+  // Build groups: each condition row = one group
+  // lots without any 'V' for this process are "unclassified" (skipped in analysis)
+  const groups = condRows.map((row, gi) => {
+    const color = SPLIT_COLORS[gi % SPLIT_COLORS.length];
+    const label = condRows.length === 1
+      ? (row.condition || procName)
+      : (row.condition || `條件 ${gi + 1}`);
+    // Map split lot → loaded lot name, keep only matched ones that have 'V'
+    const lots = S.splitData.lots
+      .filter(sl => row.lotDone[sl] && S.splitLotMap[sl] != null)
+      .map(sl => S.splitLotMap[sl]);
+    return { label, lots, color, condition: row.condition, stepNo: row.stepNo };
   });
 
-  // Check we have at least one lot in each group
-  const g1Lots = S.lots.filter(l => lotGroup[l] === 1);
-  const g2Lots = S.lots.filter(l => lotGroup[l] === 2);
-  if (!g1Lots.length && !g2Lots.length) {
-    document.getElementById('splitResultWrap').style.display = '';
-    document.getElementById('splitStatsTable').innerHTML =
-      '<div class="status err">⚠️ 此製程步驟無可匹配的 Lot 數據，請確認 Lot 對應設定。</div>';
-    document.getElementById('splitChartGrid').innerHTML = '';
+  const allEmpty = groups.every(g => g.lots.length === 0);
+  const resultWrap  = document.getElementById('splitResultWrap');
+  const statsDiv    = document.getElementById('splitStatsTable');
+  const chartGrid   = document.getElementById('splitChartGrid');
+
+  if (allEmpty) {
+    resultWrap.style.display = '';
+    statsDiv.innerHTML = '<div class="status err">⚠️ 此製程步驟無可匹配的 Lot 數據，請確認 Lot 對應設定。</div>';
+    chartGrid.innerHTML = '';
     return;
   }
 
-  // Stats table
-  document.getElementById('splitStatsTable').innerHTML = buildSplitStatsHtml(items, g1Lots, g2Lots, step);
+  statsDiv.innerHTML  = buildSplitStatsHtml(items, groups, procName);
+  chartGrid.innerHTML = '';
 
-  // Box plots — one chart-card per item
-  const grid = document.getElementById('splitChartGrid');
-  grid.innerHTML = '';
   items.forEach(item => {
-    const g1vals = S.data.filter(r => g1Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
-    const g2vals = S.data.filter(r => g2Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
-    const traces = [];
-    if (g1vals.length) traces.push({
-      type:'box', y:g1vals, name:`Group 1 (n=${g1vals.length})`,
-      marker:{color:'rgba(74,214,199,0.8)'}, line:{color:'rgba(74,214,199,1)'},
-      boxpoints:'outliers', jitter:0.3, pointpos:0
-    });
-    if (g2vals.length) traces.push({
-      type:'box', y:g2vals, name:`Group 2 (n=${g2vals.length})`,
-      marker:{color:'rgba(245,158,11,0.8)'}, line:{color:'rgba(245,158,11,1)'},
-      boxpoints:'outliers', jitter:0.3, pointpos:0
-    });
-    const id = uid('sp', item + step);
-    grid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div style="font-size:11px;font-weight:700;margin-bottom:4px;color:var(--text-2)">${escHtml(item)}</div><div id="${id}" style="height:320px"></div></div>`);
+    const traces = groups
+      .filter(g => g.lots.length > 0)
+      .map(g => {
+        const vals = S.data
+          .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
+          .map(r => +r[item]);
+        return {
+          type: 'box', y: vals,
+          name: `${g.label} (n=${vals.length})`,
+          marker: { color: g.color.mk },
+          line:   { color: g.color.mk },
+          boxpoints: 'outliers', jitter: 0.3, pointpos: 0
+        };
+      });
+
+    const id = uid('sp', item + procName);
+    chartGrid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
     Plotly.newPlot(id, traces, {
-      yaxis: { title: escHtml(item) },
+      title: { text: escHtml(item), font:{size:13}, x:0.04 },
+      yaxis: { title: '' },
       showlegend: true,
-      legend: { orientation:'h', x:0, y:1.12 },
-      margin: {t:40, r:16, b:48, l:60}
+      legend: { orientation:'h', x:0, y:1.18 },
+      margin: {t:60, r:16, b:48, l:60}
     }, {responsive:true, displayModeBar:false});
   });
 
-  document.getElementById('splitResultWrap').style.display = '';
+  resultWrap.style.display = '';
 }
 
-function buildSplitStatsHtml(items, g1Lots, g2Lots, step) {
-  const headers = ['量測項目', 'Group 1 Count', 'Group 1 Mean', 'Group 1 Std', 'Group 1 Median',
-                   'Group 2 Count', 'Group 2 Mean', 'Group 2 Std', 'Group 2 Median', 'Δ Mean'];
-  let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 步驟：${escHtml(step)}</div>`;
-  html += '<table class="stats"><thead><tr>';
-  headers.forEach(h => html += `<th>${h}</th>`);
-  html += '</tr></thead><tbody>';
-  items.forEach(item => {
-    const g1v = S.data.filter(r => g1Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
-    const g2v = S.data.filter(r => g2Lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]);
-    const fmt = v => v != null ? rd(v, 4) : '—';
-    const g1m = g1v.length ? mean(g1v) : null;
-    const g2m = g2v.length ? mean(g2v) : null;
-    const delta = (g1m != null && g2m != null) ? g2m - g1m : null;
-    const deltaColor = delta != null ? (Math.abs(delta) > 0.001 * Math.abs(g1m || g2m || 1) ? '#f59e0b' : 'var(--text-2)') : '';
-    html += `<tr>
-      <td style="font-weight:600">${escHtml(item)}</td>
-      <td>${g1v.length}</td>
-      <td>${fmt(g1m)}</td>
-      <td>${g1v.length>=2 ? fmt(std(g1v)) : '—'}</td>
-      <td>${g1v.length ? fmt(median(g1v)) : '—'}</td>
-      <td>${g2v.length}</td>
-      <td>${fmt(g2m)}</td>
-      <td>${g2v.length>=2 ? fmt(std(g2v)) : '—'}</td>
-      <td>${g2v.length ? fmt(median(g2v)) : '—'}</td>
-      <td style="font-weight:700;color:${deltaColor}">${fmt(delta)}</td>
-    </tr>`;
+function buildSplitStatsHtml(items, groups, procName) {
+  const liveGroups = groups.filter(g => g.lots.length > 0);
+  let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}</div>`;
+  html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr><th>量測項目</th>';
+  liveGroups.forEach(g => {
+    html += `<th style="color:${g.color.fg}">Count<br><small>${escHtml(g.label)}</small></th>`;
+    html += `<th style="color:${g.color.fg}">Mean</th>`;
+    html += `<th style="color:${g.color.fg}">Std</th>`;
+    html += `<th style="color:${g.color.fg}">Median</th>`;
   });
-  html += '</tbody></table>';
+  if (liveGroups.length === 2) html += '<th>Δ Mean<br><small>(G2−G1)</small></th>';
+  html += '</tr></thead><tbody>';
+
+  items.forEach(item => {
+    html += `<tr><td style="font-weight:600">${escHtml(item)}</td>`;
+    const gMeans = [];
+    liveGroups.forEach(g => {
+      const vals = S.data
+        .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
+        .map(r => +r[item]);
+      const m = vals.length ? mean(vals) : null;
+      gMeans.push(m);
+      const fmt = v => v != null ? rd(v, 4) : '—';
+      html += `<td>${vals.length}</td><td>${fmt(m)}</td>`;
+      html += `<td>${vals.length >= 2 ? fmt(std(vals)) : '—'}</td>`;
+      html += `<td>${vals.length ? fmt(median(vals)) : '—'}</td>`;
+    });
+    if (liveGroups.length === 2 && gMeans[0] != null && gMeans[1] != null) {
+      const delta = gMeans[1] - gMeans[0];
+      const pct   = gMeans[0] !== 0 ? (delta / Math.abs(gMeans[0]) * 100) : null;
+      const dc    = Math.abs(delta) > 1e-10 ? '#f59e0b' : 'var(--text-2)';
+      html += `<td style="font-weight:700;color:${dc}">${rd(delta,4)}${pct != null ? ` (${rd(pct,1)}%)` : ''}</td>`;
+    } else if (liveGroups.length === 2) {
+      html += '<td>—</td>';
+    }
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
   return html;
 }
 </script>
@@ -3514,6 +3577,17 @@ document.getElementById('twkMono').value = TWK.monoFont;
 document.getElementById('twkMono').addEventListener('change', e => {
   TWK.monoFont = e.target.value; applyTweaks(); persistTweaks();
 });
+
+// Position TWEAK below header + tab-nav so it doesn't cover the lot info pills
+(function positionTwk() {
+  const nav = document.querySelector('.tab-nav');
+  const panel = document.getElementById('twkPanel');
+  if (nav && panel) {
+    const bottom = nav.getBoundingClientRect().bottom;
+    panel.style.top = (bottom + 8) + 'px';
+    panel.style.maxHeight = 'calc(100vh - ' + (bottom + 16) + 'px)';
+  }
+})();
 </script>
 
 </body>
