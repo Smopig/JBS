@@ -606,6 +606,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <div class="jbs-meta">
       <span class="jbs-pill" id="hdrLots">— Lot</span>
       <span class="jbs-pill" id="hdrCount"><span class="dot"></span>尚未載入</span>
+      <button class="twk-btn" id="twkTrigger" onclick="toggleTweaks(event)" title="外觀設定">⚙</button>
     </div>
   </div>
 </div>
@@ -3110,13 +3111,22 @@ function loadSplitFile(file) {
       if (!lots.length) throw new Error('找不到 Lot 批號（需在 D1 欄開始）');
 
       // ── Data rows: each row = one process condition
+      // Forward-fill stepNo and procName to handle Excel merged cells
+      // (merged cells only have a value in the top-left cell; others read as null)
       const rows = [];
+      let ffStepNo = '', ffProcName = '';
       for (let r = 1; r < raw.length; r++) {
         const row = raw[r];
-        const stepNo    = row[0] != null ? String(row[0]).trim() : '';
-        const procName  = row[1] != null ? String(row[1]).trim() : '';
+        const rawStep = row[0] != null ? String(row[0]).trim() : '';
+        const rawName = row[1] != null ? String(row[1]).trim() : '';
         const condition = row[2] != null ? String(row[2]).trim() : '';
-        if (!procName) continue;           // skip blank rows
+
+        // Update forward-fill values when a real name appears
+        if (rawName !== '') { ffStepNo = rawStep; ffProcName = rawName; }
+
+        const stepNo   = ffStepNo;
+        const procName = ffProcName;
+        if (!procName) continue;  // truly blank rows before any process
 
         // 'V' mark detection: 'V','v','✓','√','1',true all count as "done"
         const lotDone = {};
@@ -3380,29 +3390,47 @@ function buildSplitStatsHtml(items, groups, procName) {
 }
 </script>
 
-<!-- ═══ Tweaks Panel (vanilla, always visible) ═══ -->
+<!-- ═══ Tweaks Panel ═══ -->
 <style>
+  /* Trigger button in header */
+  .twk-btn {
+    background: transparent; border: 1px solid var(--border-2); border-radius: 6px;
+    color: var(--text-3); cursor: pointer; font-size: 14px;
+    padding: 4px 8px; line-height: 1; font-family: var(--ff-sans);
+    transition: color .15s, border-color .15s;
+  }
+  .twk-btn:hover, .twk-btn.open { color: var(--accent); border-color: var(--accent); }
+
+  /* Dropdown panel */
   .twk {
-    position: fixed; right: 16px; top: 16px; z-index: 9999;
-    width: 280px; max-height: calc(100vh - 32px);
-    background: rgba(17, 22, 30, 0.92); backdrop-filter: blur(16px) saturate(140%);
+    position: fixed; right: 16px; z-index: 9999;
+    width: 280px; max-height: calc(100vh - 80px);
+    background: rgba(17, 22, 30, 0.96); backdrop-filter: blur(16px) saturate(140%);
     -webkit-backdrop-filter: blur(16px) saturate(140%);
     border: 1px solid var(--border-2); border-radius: 12px;
     color: var(--text); font-family: var(--ff-sans); font-size: 12px;
-    box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(74,214,199,.1);
-    display: flex; flex-direction: column; overflow: hidden;
-    transition: max-height .25s ease, opacity .2s;
+    box-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(74,214,199,.12);
+    display: none; flex-direction: column; overflow: hidden;
+    transform-origin: top right;
+    animation: twkIn .18s ease;
   }
-  body.theme-light .twk { background: rgba(255,255,255,.92); }
-  .twk.collapsed { max-height: 38px; }
+  .twk.open { display: flex; }
+  body.theme-light .twk { background: rgba(255,255,255,.97); }
+  @keyframes twkIn {
+    from { opacity:0; transform: scale(.95) translateY(-6px); }
+    to   { opacity:1; transform: scale(1)  translateY(0); }
+  }
   .twk-hd {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 9px 12px; cursor: pointer; user-select: none;
+    padding: 9px 12px; user-select: none;
     border-bottom: 1px solid var(--border);
   }
   .twk-hd b { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; color: var(--accent); }
-  .twk-hd .ic { color: var(--text-3); transition: transform .25s; font-size: 10px; }
-  .twk.collapsed .twk-hd .ic { transform: rotate(180deg); }
+  .twk-hd .ic {
+    color: var(--text-3); font-size: 10px; cursor: pointer;
+    padding: 2px 6px; border-radius: 4px;
+  }
+  .twk-hd .ic:hover { color: var(--text); background: var(--bg-2); }
   .twk-body {
     padding: 10px 14px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
   }
@@ -3439,9 +3467,9 @@ function buildSplitStatsHtml(items, groups, procName) {
 </style>
 
 <div class="twk" id="twkPanel">
-  <div class="twk-hd" onclick="toggleTweaks(event)">
+  <div class="twk-hd">
     <b>⚙ TWEAKS</b>
-    <span class="ic">▾</span>
+    <span class="ic" onclick="toggleTweaks(event)" title="關閉">✕</span>
   </div>
   <div class="twk-body">
     <div class="twk-sec">
@@ -3510,8 +3538,28 @@ const TWK = /*EDITMODE-BEGIN*/{
 
 function toggleTweaks(e) {
   e.stopPropagation();
-  document.getElementById('twkPanel').classList.toggle('collapsed');
+  const panel   = document.getElementById('twkPanel');
+  const trigger = document.getElementById('twkTrigger');
+  const isOpen  = panel.classList.toggle('open');
+  trigger.classList.toggle('open', isOpen);
+  if (isOpen) {
+    // Position panel just below the header
+    const hdr = document.querySelector('.header');
+    const top  = hdr ? hdr.getBoundingClientRect().bottom + 4 : 64;
+    panel.style.top = top + 'px';
+    panel.style.maxHeight = 'calc(100vh - ' + (top + 8) + 'px)';
+  }
 }
+// Close TWEAK when clicking outside
+document.addEventListener('click', function(e) {
+  const panel   = document.getElementById('twkPanel');
+  const trigger = document.getElementById('twkTrigger');
+  if (panel && panel.classList.contains('open') &&
+      !panel.contains(e.target) && e.target !== trigger) {
+    panel.classList.remove('open');
+    trigger && trigger.classList.remove('open');
+  }
+});
 
 function persistTweaks() {
   try { window.parent.postMessage({type:'__edit_mode_set_keys', edits: TWK}, '*'); } catch(e) {}
@@ -3578,16 +3626,6 @@ document.getElementById('twkMono').addEventListener('change', e => {
   TWK.monoFont = e.target.value; applyTweaks(); persistTweaks();
 });
 
-// Position TWEAK below header + tab-nav so it doesn't cover the lot info pills
-(function positionTwk() {
-  const nav = document.querySelector('.tab-nav');
-  const panel = document.getElementById('twkPanel');
-  if (nav && panel) {
-    const bottom = nav.getBoundingClientRect().bottom;
-    panel.style.top = (bottom + 8) + 'px';
-    panel.style.maxHeight = 'calc(100vh - ' + (bottom + 16) + 'px)';
-  }
-})();
 </script>
 
 </body>
