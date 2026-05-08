@@ -4496,6 +4496,7 @@ function newTemplate() {
   S.splitTemplates[name] = { rows: [] };
   S.activeTemplate = name;
   renderTemplateDesigner();
+  renderBatchList();
   debounceSave();
 }
 
@@ -4520,6 +4521,7 @@ function deleteTemplate() {
   delete S.splitTemplates[S.activeTemplate];
   S.activeTemplate = Object.keys(S.splitTemplates)[0] || '';
   renderTemplateDesigner();
+  renderBatchList();
   debounceSave();
 }
 
@@ -4590,6 +4592,7 @@ function loadXlsxAsTemplate(file) {
       S.splitTemplates[name] = { rows };
       S.activeTemplate = name;
       renderTemplateDesigner();
+      renderBatchList();
       debounceSave();
     } catch (err) {
       alert('載入失敗：' + err.message);
