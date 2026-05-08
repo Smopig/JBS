@@ -2487,46 +2487,62 @@ function onChartSplitChange() {
   renderChart();
 }
 
-// Returns color for a lot, optionally overridden by split group assignment
+// Returns color for a lot, optionally overridden by split group assignment.
+// Searches ALL profiles for the lot so cross-batch comprehensive analysis works.
 function getLotColor(lot, fallbackIdx) {
-  if (!S.chartSplitStep || !S.chartSplitProfile) return getColor(fallbackIdx);
-  const pd = S.splitProfiles[S.chartSplitProfile];
-  const lotMap = S.splitLotMaps[S.chartSplitProfile] || {};
-  if (!pd || !pd.groups) return getColor(fallbackIdx);
-  const groups = pd.groups[S.chartSplitStep];
-  if (!groups) return getColor(fallbackIdx);
-  const splitLot = Object.keys(lotMap).find(k => lotMap[k] === lot);
-  if (!splitLot) return '#a0aec0';
-  const condIdx = groups.findIndex(row => row.lotDone[splitLot]);
+  if (!S.chartSplitStep) return getColor(fallbackIdx);
+  const condIdx = _findLotCondIdx(lot, S.chartSplitStep);
   return condIdx === -1 ? '#a0aec0' : SPLIT_COLORS[condIdx % SPLIT_COLORS.length].mk;
 }
 
-// Returns array of {name, color, lots, data} for current chart settings
+// Find condIdx for a lot across all profiles for a given step name.
+// Returns -1 if lot is not found in any profile's step.
+function _findLotCondIdx(lot, stepName) {
+  for (const [profName, pd] of Object.entries(S.splitProfiles)) {
+    if (!pd || !pd.groups || !pd.groups[stepName]) continue;
+    const lotMap = S.splitLotMaps[profName] || {};
+    const splitLot = Object.keys(lotMap).find(k => lotMap[k] === lot);
+    if (!splitLot) continue;
+    const condIdx = pd.groups[stepName].findIndex(row => row.lotDone[splitLot]);
+    if (condIdx !== -1) return condIdx;
+  }
+  return -1;
+}
+
+// Returns array of {name, color, lots, data} for current chart settings.
+// In combined mode: merges lots at the same condIdx across ALL profiles for the step.
 function getChartGroups(item) {
-  // No split mode: each lot is its own group
-  if (!S.chartSplitStep || !S.chartSplitProfile) {
+  if (!S.chartSplitStep) {
     return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
   }
-  const pd = S.splitProfiles[S.chartSplitProfile];
-  const lotMap = S.splitLotMaps[S.chartSplitProfile] || {};
-  if (!pd || !pd.groups) {
-    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
-  }
-  const groups = pd.groups[S.chartSplitStep];
-  if (!groups || !groups.length) {
+  // Gather all rows across every profile that has this step
+  const allRows = [];  // [{row, lotMap}]
+  let hasAny = false;
+  Object.entries(S.splitProfiles).forEach(([profName, pd]) => {
+    if (!pd || !pd.groups || !pd.groups[S.chartSplitStep]) return;
+    hasAny = true;
+    const lotMap = S.splitLotMaps[profName] || {};
+    pd.groups[S.chartSplitStep].forEach((row, condIdx) => {
+      while (allRows.length <= condIdx) allRows.push([]);
+      allRows[condIdx].push({ row, lotMap });
+    });
+  });
+  if (!hasAny) {
     return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
   }
   if (S.chartSplitMode === 'combined') {
-    return groups.map((row, condIdx) => {
+    return allRows.map((entries, condIdx) => {
       const col = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
-      const splitLots = Object.keys(row.lotDone).filter(sl => row.lotDone[sl]);
-      const loadedLots = splitLots.map(sl => lotMap[sl]).filter(l => l && S.lots.includes(l));
+      const loadedLots = entries.flatMap(({ row, lotMap }) => {
+        const splitLots = Object.keys(row.lotDone).filter(sl => row.lotDone[sl]);
+        return splitLots.map(sl => lotMap[sl]).filter(l => l && S.lots.includes(l));
+      });
+      const conditionLabel = entries.map(e => e.row.condition).filter(Boolean).join('/') || `條件 ${condIdx + 1}`;
       const data = loadedLots.flatMap(lot => validData(lot, item));
-      const name = row.condition || `條件 ${condIdx + 1}`;
-      return { name, color:col.mk, lots:loadedLots, data };
+      return { name:conditionLabel, color:col.mk, lots:loadedLots, data };
     }).filter(g => g.data.length > 0);
   }
-  // Individual mode: each lot its own trace but colored by group
+  // Individual mode: each lot its own trace, colored by condIdx across profiles
   return S.lots.map((lot, li) => ({ name:lot, color:getLotColor(lot,li), lots:[lot], data:validData(lot,item) }));
 }
 
@@ -2766,25 +2782,32 @@ function renderChart() {
   _updateSplitStatsCompare(items);
 }
 
-// Render Split group comparison stats table below the chart grid
+// Render Split group comparison stats table below the chart grid.
+// Aggregates lots across ALL profiles for the selected step name.
 function _updateSplitStatsCompare(items) {
   const div = document.getElementById('caStatsCompare');
   if (!div) return;
   const step = S.chartSplitStep;
-  const prof = S.chartSplitProfile;
-  if (!step || !prof) { div.style.display = 'none'; return; }
-  const pd = S.splitProfiles[prof];
-  const lotMap = S.splitLotMaps[prof] || {};
-  if (!pd || !pd.groups || !pd.groups[step]) { div.style.display = 'none'; return; }
+  if (!step) { div.style.display = 'none'; return; }
   if (!items || !items.length) { div.style.display = 'none'; return; }
-  const condRows = pd.groups[step];
-  const groups = condRows.map((row, gi) => {
-    const color = SPLIT_COLORS[gi % SPLIT_COLORS.length];
-    const label = condRows.length === 1 ? (row.condition || step) : (row.condition || `條件 ${gi + 1}`);
-    const lots  = pd.lots
-      .filter(sl => row.lotDone[sl] && lotMap[sl] != null)
-      .map(sl => lotMap[sl]);
-    return { label, lots, color };
+  // Collect condIdx → lots from every profile that has this step
+  const byCondIdx = [];  // index → {labels:[], lots:[]}
+  let hasAny = false;
+  Object.entries(S.splitProfiles).forEach(([profName, pd]) => {
+    if (!pd || !pd.groups || !pd.groups[step]) return;
+    hasAny = true;
+    const lotMap = S.splitLotMaps[profName] || {};
+    pd.groups[step].forEach((row, gi) => {
+      if (!byCondIdx[gi]) byCondIdx[gi] = { labels:[], lots:[] };
+      if (row.condition) byCondIdx[gi].labels.push(row.condition);
+      const matched = pd.lots.filter(sl => row.lotDone[sl] && lotMap[sl] != null).map(sl => lotMap[sl]);
+      byCondIdx[gi].lots.push(...matched);
+    });
+  });
+  if (!hasAny) { div.style.display = 'none'; return; }
+  const groups = byCondIdx.map((entry, gi) => {
+    const label = entry.labels.length ? [...new Set(entry.labels)].join('/') : `條件 ${gi + 1}`;
+    return { label, lots:entry.lots, color:SPLIT_COLORS[gi % SPLIT_COLORS.length] };
   });
   div.innerHTML = buildSplitStatsHtml(items, groups, step, 'combined');
   div.style.display = '';
