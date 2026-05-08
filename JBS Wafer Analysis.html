@@ -931,11 +931,23 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
              oninput="renderChart()">
       <!-- Split grouping controls (shown only when split data has split steps) -->
       <span id="caGrpWrap" style="display:none;align-items:center;gap:6px;margin-left:12px">
-        <label style="white-space:nowrap;font-size:12px;font-weight:700">Split 分組：</label>
-        <select id="caGrpStep" onchange="onChartSplitChange()"
-                style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
-          <option value="">— 不使用 —</option>
-        </select>
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">SPLIT 分組：</label>
+        <div id="caGrpDropdown" style="position:relative">
+          <button id="caGrpBtn" onclick="toggleSplitDropdown()"
+                  style="padding:4px 22px 4px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;
+                         background:var(--bg-2);color:var(--text);cursor:pointer;text-align:left;
+                         min-width:160px;max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative">
+            <span id="caGrpLabel">— 不使用 —</span>
+            <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:9px;color:var(--text-3);pointer-events:none">▾</span>
+          </button>
+          <div id="caGrpMenu" style="display:none;position:absolute;top:calc(100% + 2px);left:0;z-index:200;
+                                     background:var(--bg-2);border:1px solid var(--border-2);border-radius:6px;
+                                     min-width:200px;max-height:280px;overflow-y:auto;
+                                     box-shadow:0 6px 24px rgba(0,0,0,.45);padding:4px 0">
+          </div>
+        </div>
+        <!-- keep caGrpStep hidden for legacy code paths -->
+        <select id="caGrpStep" style="display:none"></select>
         <select id="caGrpMode" onchange="S.chartSplitMode=this.value;renderChart()"
                 style="display:none;padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
           <option value="individual">個別 Lot（同組同色）</option>
@@ -1431,7 +1443,8 @@ const S = {
   chartItems:       [''],
   chartType:        'box',
   chartSpecs:       {},               // { item: { lsl, typical, usl } }
-  chartSplitStep:   '',               // selected process step for split-group coloring
+  chartSplitStep:   '',               // legacy single-step (kept for compat)
+  chartSplitSteps:  [],               // multi-step selection for combined grouping
   chartSplitMode:   'individual',     // 'individual' | 'combined'
   // Split Association Analysis
   splitProfiles:    {},               // { profileName: { lots, rows, groups, procNames } }
@@ -2460,93 +2473,187 @@ function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
 
 // Populate the chart split step selector.
 // Collects all unique step names that have splits across ALL profiles (flat list).
-function populateChartSplitSel() {
-  const sel = document.getElementById('caGrpStep');
-  const wrap = document.getElementById('caGrpWrap');
-  if (!sel || !wrap) return;
-  // Unique step names with ≥2 conditions in any profile
-  const seen = new Set();
-  const steps = [];
+// ── Split multi-step grouping ─────────────────────────────
+// _splitComboColorMap: comboKey → SPLIT_COLORS entry, built once per step selection change
+let _splitComboColorMap = {};
+
+function _getAllSplitSteps() {
+  const seen = new Set(); const steps = [];
   Object.values(S.splitProfiles).forEach(pd => {
     if (!pd || !pd.procNames) return;
     pd.procNames.forEach(n => {
-      if (!seen.has(n) && pd.groups[n] && pd.groups[n].length > 1) {
-        seen.add(n); steps.push(n);
-      }
+      if (!seen.has(n) && pd.groups[n] && pd.groups[n].length > 1) { seen.add(n); steps.push(n); }
     });
   });
-  wrap.style.display = steps.length ? 'inline-flex' : 'none';
-  sel.innerHTML = '<option value="">— 不使用 —</option>' +
-    steps.map(n => `<option value="${escHtml(n)}"${n === S.chartSplitStep ? ' selected' : ''}>${escHtml(n)}</option>`).join('');
-  if (!steps.includes(S.chartSplitStep)) S.chartSplitStep = '';
-  sel.value = S.chartSplitStep;
-  const modeEl = document.getElementById('caGrpMode');
-  if (modeEl) { modeEl.style.display = sel.value ? '' : 'none'; modeEl.value = S.chartSplitMode; }
+  return steps;
 }
 
-function onChartSplitChange() {
-  S.chartSplitStep = document.getElementById('caGrpStep').value;
-  const modeEl = document.getElementById('caGrpMode');
-  if (modeEl) modeEl.style.display = S.chartSplitStep ? '' : 'none';
-  renderChart();
+// Returns condition label string for a lot + one step (across all profiles). null if not found.
+function _findLotCondLabel(lot, stepName) {
+  for (const [profName, pd] of Object.entries(S.splitProfiles)) {
+    if (!pd || !pd.groups || !pd.groups[stepName]) continue;
+    const lotMap = S.splitLotMaps[profName] || {};
+    const splitLot = Object.keys(lotMap).find(k => lotMap[k] === lot);
+    if (!splitLot) continue;
+    const ci = pd.groups[stepName].findIndex(row => row.lotDone[splitLot]);
+    if (ci !== -1) return pd.groups[stepName][ci].condition || String(ci + 1);
+  }
+  return null;
 }
 
-// Returns color for a lot, optionally overridden by split group assignment.
-// Searches ALL profiles for the lot so cross-batch comprehensive analysis works.
-function getLotColor(lot, fallbackIdx) {
-  if (!S.chartSplitStep) return getColor(fallbackIdx);
-  const condIdx = _findLotCondIdx(lot, S.chartSplitStep);
-  return condIdx === -1 ? '#a0aec0' : SPLIT_COLORS[condIdx % SPLIT_COLORS.length].mk;
-}
-
-// Find condIdx for a lot across all profiles for a given step name.
-// Returns -1 if lot is not found in any profile's step.
+// Returns condIdx for legacy single-step callers. -1 if not found.
 function _findLotCondIdx(lot, stepName) {
   for (const [profName, pd] of Object.entries(S.splitProfiles)) {
     if (!pd || !pd.groups || !pd.groups[stepName]) continue;
     const lotMap = S.splitLotMaps[profName] || {};
     const splitLot = Object.keys(lotMap).find(k => lotMap[k] === lot);
     if (!splitLot) continue;
-    const condIdx = pd.groups[stepName].findIndex(row => row.lotDone[splitLot]);
-    if (condIdx !== -1) return condIdx;
+    const ci = pd.groups[stepName].findIndex(row => row.lotDone[splitLot]);
+    if (ci !== -1) return ci;
   }
   return -1;
 }
 
-// Returns array of {name, color, lots, data} for current chart settings.
-// In combined mode: merges lots at the same condIdx across ALL profiles for the step.
-function getChartGroups(item) {
-  if (!S.chartSplitStep) {
-    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
-  }
-  // Gather all rows across every profile that has this step
-  const allRows = [];  // [{row, lotMap}]
-  let hasAny = false;
-  Object.entries(S.splitProfiles).forEach(([profName, pd]) => {
-    if (!pd || !pd.groups || !pd.groups[S.chartSplitStep]) return;
-    hasAny = true;
-    const lotMap = S.splitLotMaps[profName] || {};
-    pd.groups[S.chartSplitStep].forEach((row, condIdx) => {
-      while (allRows.length <= condIdx) allRows.push([]);
-      allRows[condIdx].push({ row, lotMap });
-    });
+// Returns "A / X" style key for a lot given the selected steps array.
+function _getLotComboKey(lot) {
+  return S.chartSplitSteps.map(s => _findLotCondLabel(lot, s) || '—').join(' / ');
+}
+
+// Build combo→color map from the current S.lots order (first encountered = teal, etc.)
+function _resetComboColorMap() {
+  _splitComboColorMap = {};
+  S.lots.forEach(lot => {
+    const key = _getLotComboKey(lot);
+    if (!(key in _splitComboColorMap)) {
+      const idx = Object.keys(_splitComboColorMap).length;
+      _splitComboColorMap[key] = SPLIT_COLORS[idx % SPLIT_COLORS.length];
+    }
   });
-  if (!hasAny) {
+}
+
+// Checkbox dropdown for multi-step selection ─────────────
+function populateChartSplitSel() {
+  const wrap = document.getElementById('caGrpWrap');
+  if (!wrap) return;
+  const steps = _getAllSplitSteps();
+  wrap.style.display = steps.length ? 'inline-flex' : 'none';
+  // Prune selected steps that no longer exist
+  S.chartSplitSteps = S.chartSplitSteps.filter(s => steps.includes(s));
+  _updateSplitBtnLabel();
+  _resetComboColorMap();
+  const modeEl = document.getElementById('caGrpMode');
+  if (modeEl) { modeEl.style.display = S.chartSplitSteps.length ? '' : 'none'; modeEl.value = S.chartSplitMode; }
+}
+
+function _updateSplitBtnLabel() {
+  const lbl = document.getElementById('caGrpLabel');
+  if (!lbl) return;
+  lbl.textContent = S.chartSplitSteps.length === 0 ? '— 不使用 —' : S.chartSplitSteps.join(', ');
+  // Sync hidden legacy single-step for any old code that reads it
+  S.chartSplitStep = S.chartSplitSteps[0] || '';
+}
+
+function toggleSplitDropdown() {
+  const menu = document.getElementById('caGrpMenu');
+  if (!menu) return;
+  if (menu.style.display === 'none') openSplitDropdown(); else closeSplitDropdown();
+}
+function closeSplitDropdown() {
+  const m = document.getElementById('caGrpMenu'); if (m) m.style.display = 'none';
+}
+function openSplitDropdown() {
+  const menu = document.getElementById('caGrpMenu'); if (!menu) return;
+  const steps = _getAllSplitSteps();
+  if (!steps.length) {
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:11px;color:var(--text-3)">尚無 Split 步驟資料</div>';
+  } else {
+    const allChecked = steps.every(s => S.chartSplitSteps.includes(s));
+    menu.innerHTML =
+      `<label style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border)">
+         <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="toggleAllSplitSteps(this.checked)"> 全選 / 取消
+       </label>` +
+      steps.map(s => {
+        const on = S.chartSplitSteps.includes(s);
+        return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--bg-3)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" value="${escHtml(s)}" ${on ? 'checked' : ''}
+                 onchange="onSplitStepToggle('${escHtml(s)}',this.checked)"
+                 onclick="event.stopPropagation()">
+          ${escHtml(s)}
+        </label>`;
+      }).join('');
+  }
+  menu.style.display = '';
+  // Close on outside click (one-time listener)
+  setTimeout(() => document.addEventListener('click', _onOutsideSplitClick, { once: true }), 0);
+}
+function _onOutsideSplitClick(e) {
+  const dd = document.getElementById('caGrpDropdown');
+  if (dd && dd.contains(e.target)) {
+    // Clicked inside — re-arm
+    setTimeout(() => document.addEventListener('click', _onOutsideSplitClick, { once: true }), 0);
+  } else {
+    closeSplitDropdown();
+  }
+}
+function onSplitStepToggle(step, checked) {
+  if (checked) { if (!S.chartSplitSteps.includes(step)) S.chartSplitSteps.push(step); }
+  else { S.chartSplitSteps = S.chartSplitSteps.filter(s => s !== step); }
+  _updateSplitBtnLabel();
+  _resetComboColorMap();
+  const modeEl = document.getElementById('caGrpMode');
+  if (modeEl) modeEl.style.display = S.chartSplitSteps.length ? '' : 'none';
+  renderChart();
+}
+function toggleAllSplitSteps(checked) {
+  S.chartSplitSteps = checked ? _getAllSplitSteps() : [];
+  _updateSplitBtnLabel();
+  _resetComboColorMap();
+  openSplitDropdown(); // re-render checkboxes
+  const modeEl = document.getElementById('caGrpMode');
+  if (modeEl) modeEl.style.display = S.chartSplitSteps.length ? '' : 'none';
+  renderChart();
+}
+
+// Legacy shim (old code calls onChartSplitChange from caGrpStep.onchange; now hidden)
+function onChartSplitChange() {}
+
+// ── Color & group logic ──────────────────────────────────
+
+// Returns the marker color for a lot based on current multi-step selection.
+function getLotColor(lot, fallbackIdx) {
+  if (!S.chartSplitSteps.length) return getColor(fallbackIdx);
+  const key = _getLotComboKey(lot);
+  if (key.split(' / ').every(p => p === '—')) return '#a0aec0';
+  return (_splitComboColorMap[key] || SPLIT_COLORS[0]).mk;
+}
+
+// Returns array of {name, color, lots, data} for current chart settings.
+// Supports multi-step cross-product grouping.
+function getChartGroups(item) {
+  const steps = S.chartSplitSteps;
+  if (!steps.length) {
     return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
   }
+
   if (S.chartSplitMode === 'combined') {
-    return allRows.map((entries, condIdx) => {
-      const col = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
-      const loadedLots = entries.flatMap(({ row, lotMap }) => {
-        const splitLots = Object.keys(row.lotDone).filter(sl => row.lotDone[sl]);
-        return splitLots.map(sl => lotMap[sl]).filter(l => l && S.lots.includes(l));
-      });
-      const conditionLabel = entries.map(e => e.row.condition).filter(Boolean).join('/') || `條件 ${condIdx + 1}`;
-      const data = loadedLots.flatMap(lot => validData(lot, item));
-      return { name:conditionLabel, color:col.mk, lots:loadedLots, data };
-    }).filter(g => g.data.length > 0);
+    // Group lots by their combo condition key
+    const order = [];  // preserve insertion order
+    const map = {};    // key → {name, color, lots, data}
+    S.lots.forEach(lot => {
+      const key = _getLotComboKey(lot);
+      if (key.split(' / ').every(p => p === '—')) return; // unassigned
+      if (!map[key]) {
+        const col = _splitComboColorMap[key] || SPLIT_COLORS[0];
+        map[key] = { name: key, color: col.mk, lots: [], data: [] };
+        order.push(key);
+      }
+      map[key].lots.push(lot);
+      map[key].data.push(...validData(lot, item));
+    });
+    return order.map(k => map[k]).filter(g => g.data.length > 0);
   }
-  // Individual mode: each lot its own trace, colored by condIdx across profiles
+
+  // Individual mode: each lot its own trace, colored by its combo
   return S.lots.map((lot, li) => ({ name:lot, color:getLotColor(lot,li), lots:[lot], data:validData(lot,item) }));
 }
 
@@ -2787,33 +2894,30 @@ function renderChart() {
 }
 
 // Render Split group comparison stats table below the chart grid.
-// Aggregates lots across ALL profiles for the selected step name.
+// Uses multi-step combo grouping when multiple steps are selected.
 function _updateSplitStatsCompare(items) {
   const div = document.getElementById('caStatsCompare');
   if (!div) return;
-  const step = S.chartSplitStep;
-  if (!step) { div.style.display = 'none'; return; }
-  if (!items || !items.length) { div.style.display = 'none'; return; }
-  // Collect condIdx → lots from every profile that has this step
-  const byCondIdx = [];  // index → {labels:[], lots:[]}
-  let hasAny = false;
-  Object.entries(S.splitProfiles).forEach(([profName, pd]) => {
-    if (!pd || !pd.groups || !pd.groups[step]) return;
-    hasAny = true;
-    const lotMap = S.splitLotMaps[profName] || {};
-    pd.groups[step].forEach((row, gi) => {
-      if (!byCondIdx[gi]) byCondIdx[gi] = { labels:[], lots:[] };
-      if (row.condition) byCondIdx[gi].labels.push(row.condition);
-      const matched = pd.lots.filter(sl => row.lotDone[sl] && lotMap[sl] != null).map(sl => lotMap[sl]);
-      byCondIdx[gi].lots.push(...matched);
-    });
+  const steps = S.chartSplitSteps;
+  if (!steps.length || !items || !items.length) { div.style.display = 'none'; return; }
+
+  // Build groups using same combo-key logic as getChartGroups
+  const order = [];
+  const map = {};  // comboKey → {label, lots, color}
+  S.lots.forEach(lot => {
+    const key = _getLotComboKey(lot);
+    if (key.split(' / ').every(p => p === '—')) return;
+    if (!map[key]) {
+      const col = _splitComboColorMap[key] || SPLIT_COLORS[0];
+      map[key] = { label: key, lots: [], color: col };
+      order.push(key);
+    }
+    map[key].lots.push(lot);
   });
-  if (!hasAny) { div.style.display = 'none'; return; }
-  const groups = byCondIdx.map((entry, gi) => {
-    const label = entry.labels.length ? [...new Set(entry.labels)].join('/') : `條件 ${gi + 1}`;
-    return { label, lots:entry.lots, color:SPLIT_COLORS[gi % SPLIT_COLORS.length] };
-  });
-  div.innerHTML = buildSplitStatsHtml(items, groups, step, 'combined');
+  if (!order.length) { div.style.display = 'none'; return; }
+
+  const groups = order.map(k => map[k]);
+  div.innerHTML = buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined');
   div.style.display = '';
 }
 
@@ -3373,6 +3477,7 @@ function saveSettings() {
       chartItems:       S.chartItems,
       chartType:        S.chartType,
       chartSplitStep:   S.chartSplitStep,
+      chartSplitSteps:  S.chartSplitSteps,
       chartSplitMode:   S.chartSplitMode,
       activeStats:      S.activeStats,
       customStats:      S.customStats,
@@ -3413,6 +3518,9 @@ function loadSettings() {
     if (o.chartItems && o.chartItems.length) S.chartItems = o.chartItems;
     if (o.chartType)       S.chartType       = o.chartType;
     if (o.chartSplitStep)  S.chartSplitStep  = o.chartSplitStep;
+    // Migrate single → array; prefer the array form if present
+    S.chartSplitSteps = Array.isArray(o.chartSplitSteps) ? o.chartSplitSteps
+                      : (o.chartSplitStep ? [o.chartSplitStep] : []);
     if (o.chartSplitMode)  S.chartSplitMode  = o.chartSplitMode;
     if (o.activeStats) S.activeStats = o.activeStats;
     if (o.customStats) S.customStats = o.customStats;
