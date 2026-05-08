@@ -705,14 +705,15 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <div>
           <div class="title"><span class="step-badge">2</span> 欄位命名</div>
           <div class="hint">
-            修改欄位名稱 ｜ <span style="color:#90cdf4">IR_ 開頭 → 自動 ×1,000,000（A→uA）</span>
-            ｜ <span style="color:#9ae6b4">VR_ → 小數 0.1</span>
-            ｜ <span style="color:#fefcbf">VF_ → 小數 0.001</span>
+            修改欄位名稱與換算方式 ｜ <span style="color:#90cdf4">IR_ → ×1,000,000（A→uA）</span>
+            ｜ <span style="color:#9ae6b4">VR_ → round 0.1</span>
+            ｜ <span style="color:#fefcbf">VF_ → round 0.001</span>
+            ｜ 自訂模式可輸入任意倍數
           </div>
         </div>
         <div class="btns">
           <button class="btn btn-gray" style="font-size:12px" onclick="autoFillRename()">🔄 自動命名（VFBC/BVCBO/ICBO）</button>
-          <button class="btn btn-gray" style="font-size:12px" onclick="resetRename()">↩ 還原原始名稱</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="restoreRenameDefaults()">↩ 還原預設</button>
         </div>
       </div>
 
@@ -720,10 +721,11 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <table class="rename-table">
           <thead>
             <tr>
-              <th style="width:24%">原始欄位名稱</th>
-              <th style="width:30%">新名稱（可直接修改）</th>
-              <th style="width:18%">數值換算方式</th>
-              <th style="width:28%">參考數值（第14~19列）</th>
+              <th style="width:18%">原始欄位名稱</th>
+              <th style="width:26%">新名稱（可直接修改）</th>
+              <th style="width:26%">數值換算方式</th>
+              <th style="width:24%">參考數值（第14~19列）</th>
+              <th style="width:6%"></th>
             </tr>
           </thead>
           <tbody id="renameBody"></tbody>
@@ -1433,6 +1435,8 @@ const S = {
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
+  _excludedCols:    new Set(),   // original col names to skip in analysis
+  _colConvOverrides: {},         // origColName → {type, factor?}
   activeStats:      [...DEFAULT_STATS],
   customStats:      [],
   statSpecs:        {},
@@ -1654,8 +1658,10 @@ async function loadColumns() {
     } catch(e) { errs.push(file.name); }
   }
 
-  S._rawCols     = [...allCols];
-  S._colSamples  = colSamples;
+  S._rawCols          = [...allCols];
+  S._colSamples       = colSamples;
+  S._excludedCols     = new Set();   // reset on new file load
+  S._colConvOverrides = {};
   buildRenameTable(S._rawCols);
   document.getElementById('renameSection').style.display = 'block';
 
@@ -1667,60 +1673,125 @@ async function loadColumns() {
 // ══════════════════════════════════════════════════
 // RENAME TABLE UI
 // ══════════════════════════════════════════════════
+const _CONV_OPTS = [
+  { v:'auto',   label:'自動（依名稱前綴）' },
+  { v:'none',   label:'不換算' },
+  { v:'ir',     label:'× 1,000,000 → uA' },
+  { v:'vr',     label:'round 0.1' },
+  { v:'vf',     label:'round 0.001' },
+  { v:'custom', label:'自訂倍數…' },
+];
+
 function buildRenameTable(cols) {
   const tbody = document.getElementById('renameBody');
   tbody.innerHTML = '';
   cols.forEach((col, idx) => {
-    const tr = document.createElement('tr');
-    const inputId = `ri_${idx}`;
-    const badgeId = `rb_${idx}`;
+    if (S._excludedCols && S._excludedCols.has(col)) return; // skip deleted
+    const inputId  = `ri_${idx}`;
+    const convId   = `conv_${idx}`;
+    const factorId = `convF_${idx}`;
     const samples  = (S._colSamples[col] || []).slice(0, 6);
     const sampHtml = samples.length
       ? samples.map(v => escHtml(v)).join('<br>')
       : '<span style="color:#a0aec0">—</span>';
+    const override = S._colConvOverrides && S._colConvOverrides[col];
+    const curType  = override ? override.type : 'auto';
+    const curFact  = override && override.factor != null ? override.factor : 1;
+    const opts = _CONV_OPTS.map(o =>
+      `<option value="${o.v}"${o.v === curType ? ' selected' : ''}>${escHtml(o.label)}</option>`
+    ).join('');
+    const tr = document.createElement('tr');
+    tr.dataset.orig = col;
     tr.innerHTML = `
       <td><span class="orig-name">${escHtml(col)}</span></td>
       <td>
-        <input id="${inputId}" class="rename-input" type="text" value="${escHtml(col)}"
-               oninput="updateBadge(this,'${badgeId}')">
+        <input id="${inputId}" class="rename-input" type="text" value="${escHtml(col)}">
       </td>
-      <td style="text-align:center">
-        <span id="${badgeId}" class="cbadge none">不換算</span>
+      <td style="padding:3px 6px">
+        <select id="${convId}" data-orig="${escHtml(col)}"
+                style="width:100%;font-size:11px;padding:2px 4px;border-radius:3px;
+                       background:var(--bg-2);color:var(--text);border:1px solid var(--border-2)"
+                onchange="onConvChange(this,'${escHtml(col)}','${factorId}')">
+          ${opts}
+        </select>
+        <input id="${factorId}" type="number" step="any" min="0" placeholder="倍數" value="${curFact}"
+               data-orig="${escHtml(col)}"
+               style="display:${curType==='custom'?'block':'none'};width:100%;margin-top:3px;
+                      font-size:11px;padding:2px 4px;border-radius:3px;
+                      background:var(--bg);color:var(--text);border:1px solid var(--border-2)"
+               oninput="onConvFactorChange(this,'${escHtml(col)}')">
       </td>
-      <td class="sample-vals">${sampHtml}</td>`;
+      <td class="sample-vals">${sampHtml}</td>
+      <td style="text-align:center;padding:2px">
+        <button title="排除此欄位" onclick="deleteRenameRow('${escHtml(col)}')"
+                style="border:none;background:transparent;color:#e53e3e;cursor:pointer;font-size:14px;line-height:1;padding:0 4px">×</button>
+      </td>`;
     tbody.appendChild(tr);
-    updateBadge(document.getElementById(inputId), badgeId);
   });
 }
 
-function updateBadge(inputEl, badgeId) {
-  const name = inputEl.value.trim();
-  const el   = document.getElementById(badgeId);
-  if (name.startsWith('IR_')) {
-    el.className = 'cbadge ir'; el.textContent = '× 1,000,000 → uA';
-  } else if (name.startsWith('VR_')) {
-    el.className = 'cbadge vr'; el.textContent = 'round 0.1';
-  } else if (name.startsWith('VF_')) {
-    el.className = 'cbadge vf'; el.textContent = 'round 0.001';
+// Legacy shim — some paths may still call this; now a no-op.
+function updateBadge() {}
+
+function onConvChange(sel, origColName, factorId) {
+  const type = sel.value;
+  const factorInp = document.getElementById(factorId);
+  if (factorInp) factorInp.style.display = type === 'custom' ? 'block' : 'none';
+  if (!S._colConvOverrides) S._colConvOverrides = {};
+  if (type === 'auto') {
+    delete S._colConvOverrides[origColName];
+  } else if (type === 'custom') {
+    const factor = parseFloat(factorInp?.value) || 1;
+    S._colConvOverrides[origColName] = { type, factor };
   } else {
-    el.className = 'cbadge none'; el.textContent = '不換算';
+    S._colConvOverrides[origColName] = { type };
   }
+}
+
+function onConvFactorChange(inp, origColName) {
+  const factor = parseFloat(inp.value) || 1;
+  if (!S._colConvOverrides) S._colConvOverrides = {};
+  S._colConvOverrides[origColName] = { type: 'custom', factor };
+}
+
+function deleteRenameRow(origColName) {
+  if (!S._excludedCols) S._excludedCols = new Set();
+  S._excludedCols.add(origColName);
+  const tr = document.querySelector(`#renameBody tr[data-orig="${CSS.escape(origColName)}"]`);
+  if (tr) tr.remove();
+  const active = S._rawCols.length - S._excludedCols.size;
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status ok">✅ 偵測到 ${S._rawCols.length} 個欄位，已排除 ${S._excludedCols.size} 個（剩 ${active} 個），確認後執行步驟 3</div>`;
+}
+
+function restoreRenameDefaults() {
+  S._excludedCols = new Set();
+  S._colConvOverrides = {};
+  buildRenameTable(S._rawCols);
+  // Also reset all name inputs
+  S._rawCols.forEach((col, idx) => {
+    const inp = document.getElementById(`ri_${idx}`);
+    if (inp) inp.value = col;
+  });
 }
 
 function autoFillRename() {
   S._rawCols.forEach((col, idx) => {
+    if (S._excludedCols && S._excludedCols.has(col)) return;
     const inp     = document.getElementById(`ri_${idx}`);
     const samples = S._colSamples[col] || [];
     const cond    = parseConditionLabel(samples[0]);
     let newName   = null;
-
     if      (col.includes('VFBC')  && cond) newName = `VF_${cond}`;
     else if (col.includes('BVCBO') && cond) newName = `VR_${cond}`;
     else if (col.includes('ICBO')  && cond) newName = `IR_${cond}`;
-
-    if (newName) {
+    if (newName && inp) {
       inp.value = newName;
-      updateBadge(inp, `rb_${idx}`);
+      // Reset conversion to auto (prefix will determine it)
+      const convSel = document.getElementById(`conv_${idx}`);
+      const factorInp = document.getElementById(`convF_${idx}`);
+      if (convSel) { convSel.value = 'auto'; if (factorInp) factorInp.style.display = 'none'; }
+      if (S._colConvOverrides) delete S._colConvOverrides[col];
     }
   });
 }
@@ -1740,23 +1811,28 @@ function parseConditionLabel(raw) {
   return numStr + unit;
 }
 
-function resetRename() {
-  S._rawCols.forEach((col, idx) => {
-    const inp = document.getElementById(`ri_${idx}`);
-    inp.value = col;
-    updateBadge(inp, `rb_${idx}`);
-  });
-}
-
 // ══════════════════════════════════════════════════
 // STEP 3：APPLY RENAME + ANALYZE
 // ══════════════════════════════════════════════════
 async function applyAndAnalyze() {
-  // Build rename map from table
+  // Build rename map (skip excluded cols) and convMap (newName → conv rule)
   const renameMap = {};
+  const convMap   = {};  // newName → {type, factor?}
   S._rawCols.forEach((col, idx) => {
-    const newName = document.getElementById(`ri_${idx}`).value.trim() || col;
+    if (S._excludedCols && S._excludedCols.has(col)) return;
+    const inp = document.getElementById(`ri_${idx}`);
+    if (!inp) return;
+    const newName = inp.value.trim() || col;
     if (newName !== col) renameMap[col] = newName;
+    // Determine conversion: override first, then auto from new name prefix
+    const ov = S._colConvOverrides && S._colConvOverrides[col];
+    if (ov && ov.type !== 'auto') {
+      convMap[newName] = ov;
+    } else {
+      if      (newName.startsWith('IR_')) convMap[newName] = { type: 'ir' };
+      else if (newName.startsWith('VR_')) convMap[newName] = { type: 'vr' };
+      else if (newName.startsWith('VF_')) convMap[newName] = { type: 'vf' };
+    }
   });
 
   document.getElementById('upStatus').innerHTML =
@@ -1790,10 +1866,17 @@ async function applyAndAnalyze() {
         .filter(r => r && r.some(v => v !== null && v !== undefined && v !== ''));
       if (!dataRows.length) { errs.push(`${file.name}：無資料`); continue; }
 
+      // Build excluded set of RENAMED names (to skip them when inserting data)
+      const excludedNewNames = new Set();
+      if (S._excludedCols && S._excludedCols.size) {
+        S._excludedCols.forEach(orig => {
+          excludedNewNames.add(renameMap[orig] ?? orig);
+        });
+      }
       dataRows.forEach(row => {
         const obj = { Lot: lot, _batch: batchId };
         heads.forEach((h, i) => {
-          if (!h || h.includes('SOT_SOT')) return;
+          if (!h || h.includes('SOT_SOT') || excludedNewNames.has(h)) return;
           obj[h] = row[i] ?? null;
         });
         S.data.push(obj);
@@ -1805,11 +1888,14 @@ async function applyAndAnalyze() {
   S.data.forEach(row => {
     if (row._batch !== batchId) return;
     Object.keys(row).forEach(k => {
+      const conv = convMap[k];
+      if (!conv) return;
       const v = parseFloat(row[k]);
       if (isNaN(v)) return;
-      if      (k.startsWith('IR_')) row[k] = rd(v * 1e6, 2);
-      else if (k.startsWith('VR_')) row[k] = rd(v, 1);
-      else if (k.startsWith('VF_')) row[k] = rd(v, 3);
+      if      (conv.type === 'ir')     row[k] = rd(v * 1e6, 2);
+      else if (conv.type === 'vr')     row[k] = rd(v, 1);
+      else if (conv.type === 'vf')     row[k] = rd(v, 3);
+      else if (conv.type === 'custom') row[k] = parseFloat((v * (conv.factor || 1)).toPrecision(7));
     });
   });
 
