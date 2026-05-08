@@ -622,8 +622,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
   <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
-  <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
   <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
+  <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
   <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
 </div>
 
@@ -1021,6 +1021,9 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
     <!-- Chart output grid -->
     <div id="caGrid" class="chart-grid"></div>
+
+    <!-- Split group comparison stats (auto-shown when Split 分組 is active) -->
+    <div id="caStatsCompare" style="display:none;margin-top:14px"></div>
   </div>
 
   <!-- ══ Split Association Analysis ══ -->
@@ -1066,35 +1069,17 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <div id="splitMatchTable" class="tbl-wrap" style="max-height:150px;overflow:auto"></div>
     </div>
 
-    <!-- Analysis controls -->
-    <div id="splitCtrlWrap" style="display:none;flex-wrap:wrap;gap:8px;align-items:flex-start" class="ctrl">
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <label style="font-size:12px;font-weight:700">製程步驟：</label>
-        <select id="splitStepSel" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:180px"></select>
+    <!-- Hidden: analysis controls & output (kept for JS compatibility, UI moved to 圖表分析) -->
+    <div style="display:none" aria-hidden="true">
+      <div id="splitCtrlWrap" class="ctrl">
+        <select id="splitStepSel"></select>
+        <div id="splitItemList"><select id="splitItemSel0" class="split-item-sel"></select></div>
+        <select id="splitDispMode"><option value="combined">combined</option><option value="individual">individual</option></select>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <label style="font-size:12px;font-weight:700">量測項目：</label>
-        <div id="splitItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-          <select id="splitItemSel0" class="split-item-sel" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px"></select>
-          <button class="btn btn-gray" style="font-size:12px" onclick="addSplitItem()">＋ 新增項目</button>
-        </div>
+      <div id="splitResultWrap">
+        <div id="splitStatsTable"></div>
+        <div id="splitChartGrid"></div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px">
-        <label style="font-size:12px;font-weight:700">顯示模式：</label>
-        <select id="splitDispMode" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text)">
-          <option value="combined">合併同組計算</option>
-          <option value="individual">個別 Lot（同組同色）</option>
-        </select>
-      </div>
-      <div style="display:flex;align-items:flex-end;padding-bottom:2px">
-        <button class="btn btn-blue" style="font-size:12px" onclick="renderSplitAnalysis()">執行分析</button>
-      </div>
-    </div>
-
-    <!-- Analysis output -->
-    <div id="splitResultWrap" style="display:none">
-      <div id="splitStatsTable" class="tbl-wrap" style="margin-bottom:12px"></div>
-      <div id="splitChartGrid" class="chart-grid"></div>
     </div>
 
   </div>
@@ -2697,6 +2682,29 @@ function renderChart() {
     case 'cdf':    caCDF(items, grid);    break;
     case 'corr':   caCorr(items, grid);   break;
   }
+  _updateSplitStatsCompare(items);
+}
+
+// Render Split group comparison stats table below the chart grid
+function _updateSplitStatsCompare(items) {
+  const div = document.getElementById('caStatsCompare');
+  if (!div) return;
+  const step = S.chartSplitStep;
+  if (!step || !S.splitData || !S.splitData.groups || !S.splitData.groups[step]) {
+    div.style.display = 'none'; return;
+  }
+  if (!items || !items.length) { div.style.display = 'none'; return; }
+  const condRows = S.splitData.groups[step];
+  const groups = condRows.map((row, gi) => {
+    const color = SPLIT_COLORS[gi % SPLIT_COLORS.length];
+    const label = condRows.length === 1 ? (row.condition || step) : (row.condition || `條件 ${gi + 1}`);
+    const lots  = S.splitData.lots
+      .filter(sl => row.lotDone[sl] && S.splitLotMap[sl] != null)
+      .map(sl => S.splitLotMap[sl]);
+    return { label, lots, color };
+  });
+  div.innerHTML = buildSplitStatsHtml(items, groups, step, 'combined');
+  div.style.display = '';
 }
 
 // ── Box ──
