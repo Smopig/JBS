@@ -131,6 +131,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .chart-stats-row details[open] summary::before { transform:rotate(90deg); }
 .chart-stats-row details[open] { padding-bottom:4px; }
 .chart-stats-row details table { margin:2px 0 0; }
+#splitEditorDetails summary::-webkit-details-marker { display:none; }
+#splitEditorDetails[open] .split-details-arrow { transform:rotate(90deg); }
 
 /* Stats table */
 .tbl-wrap { overflow: auto; }
@@ -1040,8 +1042,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <!-- ══ Split Association Analysis ══ -->
   <div id="panel-split" class="tab-panel">
 
-    <!-- Toolbar row 0: profile management -->
-    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px">
+    <!-- Row 0: Profile management + quick load -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
       <span style="font-size:12px;font-weight:700">設定檔：</span>
       <select id="splitProfileSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:160px" onchange="switchProfile(this.value)">
         <option value="">— 尚無設定檔 —</option>
@@ -1049,49 +1051,68 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <button class="btn btn-gray" style="font-size:12px" onclick="promptCreateProfile()">＋ 新增</button>
       <button class="btn btn-gray" id="btnRenameProfile" style="font-size:12px" onclick="renameProfile()" disabled>✎ 改名</button>
       <button class="btn btn-gray" id="btnDeleteProfile" style="font-size:12px;color:#e53e3e" onclick="confirmDeleteProfile()" disabled>🗑 刪除</button>
-    </div>
-
-    <!-- Toolbar row 1: mode + edit actions -->
-    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
-      <span style="font-size:12px;font-weight:700">Split 條件：</span>
-      <button class="btn btn-gray" id="btnSplitEditMode" style="font-size:12px;min-width:72px" onclick="toggleSplitEditMode()">🔒 鎖定</button>
-      <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
+      <label class="btn btn-gray" style="font-size:12px;cursor:pointer;margin-left:8px">
         📂 載入 .xlsx
         <input type="file" id="splitFileInput" accept=".xlsx,.xls" style="display:none" onchange="loadSplitFile(this.files[0])">
       </label>
-      <!-- Edit-mode-only buttons -->
-      <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="addSplitRow()">＋ 新增行</button>
-      <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="promptAddSplitLot()">＋ 新增 Lot 欄</button>
-      <button class="btn btn-gray split-edit-only" style="font-size:12px" id="btnFromLots" onclick="initSplitFromLoadedLots()">🔗 從已載入 Lot 建欄</button>
       <span style="flex:1"></span>
       <span id="splitFileStatus" style="font-size:11px;color:var(--text-3)"></span>
-      <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="clearSplitData()">🗑 清除</button>
-    </div>
-    <!-- Toolbar row 2: template management -->
-    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px">
-      <span style="font-size:12px;font-weight:700;color:var(--text-3)">範本：</span>
-      <button class="btn btn-gray" style="font-size:12px" onclick="saveAsTemplate()">💾 另存為範本</button>
-      <select id="splitTemplateSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px">
-        <option value="">— 選擇已存範本 —</option>
-      </select>
-      <button class="btn btn-gray" style="font-size:12px" onclick="loadSelectedTemplate()">📂 載入</button>
-      <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="deleteSelectedTemplate()">🗑 刪除</button>
     </div>
 
-    <!-- Always-on editable table -->
-    <div id="splitEditorWrap" style="overflow:auto;max-height:280px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
+    <!-- Unified conditions matrix (main view, all profiles merged) -->
+    <div style="margin-top:10px;display:flex;align-items:baseline;gap:8px">
+      <span style="font-size:12px;font-weight:700;color:var(--text-2)">條件總覽</span>
+      <span style="font-size:11px;color:var(--text-3)">（所有設定檔合併顯示，行 = 製程步驟，欄 = Lot）</span>
+    </div>
+    <div id="splitUnifiedWrap" style="overflow:auto;max-height:380px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
       <div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">
-        尚無資料。請載入 Split.xlsx 或點擊「＋ 新增行」手動建立。
+        尚無資料。請載入 Split.xlsx 建立設定檔。
       </div>
     </div>
 
+    <!-- Per-profile editor (collapsible, secondary) -->
+    <details id="splitEditorDetails" style="margin-top:8px">
+      <summary style="font-size:12px;font-weight:700;cursor:pointer;padding:6px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;user-select:none;list-style:none;display:flex;align-items:center;gap:6px">
+        <span style="font-size:9px;transition:transform .15s" class="split-details-arrow">▶</span>
+        ✏ 設定檔詳細編輯
+        <span style="font-weight:400;color:var(--text-3)">（當前：<span id="splitEditorProfName">—</span>）</span>
+      </summary>
+      <div style="padding:6px 0 2px">
+        <!-- Edit actions -->
+        <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
+          <button class="btn btn-gray" id="btnSplitEditMode" style="font-size:12px;min-width:72px" onclick="toggleSplitEditMode()">🔒 鎖定</button>
+          <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="addSplitRow()">＋ 新增行</button>
+          <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="promptAddSplitLot()">＋ 新增 Lot 欄</button>
+          <button class="btn btn-gray split-edit-only" style="font-size:12px" id="btnFromLots" onclick="initSplitFromLoadedLots()">🔗 從已載入 Lot 建欄</button>
+          <span style="flex:1"></span>
+          <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="clearSplitData()">🗑 清除</button>
+        </div>
+        <!-- Template management -->
+        <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px">
+          <span style="font-size:12px;font-weight:700;color:var(--text-3)">範本：</span>
+          <button class="btn btn-gray" style="font-size:12px" onclick="saveAsTemplate()">💾 另存為範本</button>
+          <select id="splitTemplateSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px">
+            <option value="">— 選擇已存範本 —</option>
+          </select>
+          <button class="btn btn-gray" style="font-size:12px" onclick="loadSelectedTemplate()">📂 載入</button>
+          <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="deleteSelectedTemplate()">🗑 刪除</button>
+        </div>
+        <!-- Per-profile editable table -->
+        <div id="splitEditorWrap" style="overflow:auto;max-height:280px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
+          <div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">
+            尚無資料。請先選擇或建立一個設定檔。
+          </div>
+        </div>
+      </div>
+    </details>
+
     <!-- Lot matching -->
-    <div id="splitMatchWrap" style="display:none;margin-top:6px">
+    <div id="splitMatchWrap" style="display:none;margin-top:8px">
       <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">Lot 名稱對應</div>
       <div id="splitMatchTable" class="tbl-wrap" style="max-height:150px;overflow:auto"></div>
     </div>
 
-    <!-- Hidden: analysis controls & output (kept for JS compatibility, UI moved to 圖表分析) -->
+    <!-- Hidden: analysis controls & output (kept for JS compatibility) -->
     <div style="display:none" aria-hidden="true">
       <div id="splitCtrlWrap" class="ctrl">
         <select id="splitStepSel"></select>
@@ -2434,54 +2455,34 @@ function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
 
 // ── Split-group chart helpers ──
 
-// Populate the chart split step selector (called when split data changes)
-// Uses <optgroup> per profile; option value = "profileName||stepName"
+// Populate the chart split step selector.
+// Collects all unique step names that have splits across ALL profiles (flat list).
 function populateChartSplitSel() {
   const sel = document.getElementById('caGrpStep');
   const wrap = document.getElementById('caGrpWrap');
   if (!sel || !wrap) return;
-  const profiles = Object.keys(S.splitProfiles);
-  let opts = '<option value="">— 不使用 —</option>';
-  let anyStep = false;
-  profiles.forEach(profName => {
-    const pd = S.splitProfiles[profName];
+  // Unique step names with ≥2 conditions in any profile
+  const seen = new Set();
+  const steps = [];
+  Object.values(S.splitProfiles).forEach(pd => {
     if (!pd || !pd.procNames) return;
-    const steps = pd.procNames.filter(n => pd.groups[n] && pd.groups[n].length > 1);
-    if (!steps.length) return;
-    anyStep = true;
-    opts += `<optgroup label="${escHtml(profName)}">`;
-    steps.forEach(n => {
-      const val = `${profName}||${n}`;
-      const sel2 = (S.chartSplitProfile === profName && S.chartSplitStep === n) ? ' selected' : '';
-      opts += `<option value="${escHtml(val)}"${sel2}>${escHtml(n)}</option>`;
+    pd.procNames.forEach(n => {
+      if (!seen.has(n) && pd.groups[n] && pd.groups[n].length > 1) {
+        seen.add(n); steps.push(n);
+      }
     });
-    opts += '</optgroup>';
   });
-  wrap.style.display = anyStep ? 'inline-flex' : 'none';
-  sel.innerHTML = opts;
-  // Restore or reset selection
-  const curVal = S.chartSplitProfile && S.chartSplitStep
-    ? `${S.chartSplitProfile}||${S.chartSplitStep}` : '';
-  sel.value = curVal;
-  if (sel.value !== curVal) {
-    S.chartSplitProfile = '';
-    S.chartSplitStep = '';
-    sel.value = '';
-  }
+  wrap.style.display = steps.length ? 'inline-flex' : 'none';
+  sel.innerHTML = '<option value="">— 不使用 —</option>' +
+    steps.map(n => `<option value="${escHtml(n)}"${n === S.chartSplitStep ? ' selected' : ''}>${escHtml(n)}</option>`).join('');
+  if (!steps.includes(S.chartSplitStep)) S.chartSplitStep = '';
+  sel.value = S.chartSplitStep;
   const modeEl = document.getElementById('caGrpMode');
   if (modeEl) { modeEl.style.display = sel.value ? '' : 'none'; modeEl.value = S.chartSplitMode; }
 }
 
 function onChartSplitChange() {
-  const val = document.getElementById('caGrpStep').value;
-  if (val && val.includes('||')) {
-    const sep = val.indexOf('||');
-    S.chartSplitProfile = val.slice(0, sep);
-    S.chartSplitStep    = val.slice(sep + 2);
-  } else {
-    S.chartSplitProfile = '';
-    S.chartSplitStep    = '';
-  }
+  S.chartSplitStep = document.getElementById('caGrpStep').value;
   const modeEl = document.getElementById('caGrpMode');
   if (modeEl) modeEl.style.display = S.chartSplitStep ? '' : 'none';
   renderChart();
@@ -3489,7 +3490,7 @@ function importSession(file) {
       if (o.chartSplitMode) S.chartSplitMode = o.chartSplitMode;
       if (Object.keys(S.splitProfiles).length) {
         renderProfileSel();
-        renderSplitEditor(); renderSplitMatchTable(); populateSplitStepSel(); populateChartSplitSel();
+        renderSplitViews(); renderSplitMatchTable(); populateSplitStepSel(); populateChartSplitSel();
         document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
         document.getElementById('splitCtrlWrap').style.display = S.splitData ? '' : 'none';
       }
@@ -3558,7 +3559,7 @@ function renderProfileSel() {
 function switchProfile(name) {
   S.activeProfile = name;
   renderProfileSel();
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   const hasSplit = !!(name && S.splitProfiles[name]);
   document.getElementById('splitMatchWrap').style.display = hasSplit ? '' : 'none';
@@ -3575,7 +3576,7 @@ function promptCreateProfile(suggestName) {
   S.splitLotMaps[n] = {};
   S.activeProfile = n;
   renderProfileSel();
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = 'none';
   document.getElementById('splitFileStatus').textContent = '';
@@ -3609,7 +3610,7 @@ function confirmDeleteProfile() {
   const remaining = Object.keys(S.splitProfiles);
   S.activeProfile = remaining.length ? remaining[remaining.length - 1] : '';
   renderProfileSel();
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
   document.getElementById('splitFileStatus').textContent = S.activeProfile ? `當前設定檔：${S.activeProfile}` : '';
@@ -3689,7 +3690,7 @@ function loadSplitFile(file) {
         `✓ 已載入「${profName}」：${rows.length} 條製程條件 × ${lots.length} 個 Lot（其中 ${splitCount} 個製程有 Split）`;
       statusEl.style.color = 'var(--accent)';
 
-      renderSplitEditor();
+      renderSplitViews();
       renderSplitMatchTable();
       populateSplitStepSel();
       document.getElementById('splitMatchWrap').style.display = '';
@@ -3744,6 +3745,98 @@ function autoMatchLots(splitLots, loadedLots) {
 
 // Shared input style for editable cells
 const _sinp = 'padding:2px 4px;font-size:11px;background:var(--bg);border:1px solid var(--border-2);border-radius:3px;color:var(--text);font-family:var(--ff-sans)';
+
+// ── Unified matrix: all profiles merged, rows=steps, cols=all lots ──
+function renderUnifiedMatrix() {
+  const wrap = document.getElementById('splitUnifiedWrap');
+  if (!wrap) return;
+  const profs = Object.entries(S.splitProfiles).filter(([, pd]) => pd && pd.lots && pd.lots.length);
+  if (!profs.length) {
+    wrap.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">尚無資料。請載入 Split.xlsx 建立設定檔。</div>';
+    return;
+  }
+
+  // Build column list: for each profile, in order of pd.lots
+  const cols = [];  // [{profName, splitLot, loadedLot, isMatched, display}]
+  profs.forEach(([profName, pd]) => {
+    const lotMap = S.splitLotMaps[profName] || {};
+    pd.lots.forEach(sl => {
+      const ll = lotMap[sl];
+      cols.push({ profName, splitLot: sl, loadedLot: ll, isMatched: !!(ll && S.lots.includes(ll)), display: ll || sl });
+    });
+  });
+
+  // Collect all unique step names in order of first appearance across profiles
+  const seenSteps = new Set();
+  const allStepNames = [];
+  profs.forEach(([, pd]) => {
+    (pd.procNames || []).forEach(n => {
+      if (!seenSteps.has(n)) { seenSteps.add(n); allStepNames.push(n); }
+    });
+  });
+
+  if (!allStepNames.length) {
+    wrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-3);font-size:12px">設定檔中尚無製程條件資料。</div>';
+    return;
+  }
+
+  // Cell lookup: given col and stepName → {condIdx, label} or null
+  function getCellInfo(col, stepName) {
+    const pd = S.splitProfiles[col.profName];
+    if (!pd || !pd.groups || !pd.groups[stepName]) return null;
+    const condRows = pd.groups[stepName];
+    const ci = condRows.findIndex(r => r.lotDone[col.splitLot]);
+    if (ci === -1) return null;
+    return { condIdx: ci, label: condRows[ci].condition || String(ci + 1) };
+  }
+
+  const thS = 'padding:4px 8px;font-size:11px;white-space:nowrap;border:1px solid var(--border);background:var(--bg-2);position:sticky;top:0;z-index:1';
+  const tdS = 'padding:3px 6px;font-size:11px;border:1px solid var(--border)';
+
+  let html = '<table style="border-collapse:collapse;width:100%"><thead>';
+
+  // Row 1: profile headers (colspan per profile)
+  html += '<tr><th style="' + thS + ';min-width:120px;border-bottom:none"></th>';
+  profs.forEach(([profName, pd]) => {
+    if (!pd.lots.length) return;
+    html += `<th colspan="${pd.lots.length}" style="${thS};text-align:center;color:var(--accent);border-bottom:2px solid var(--accent)">${escHtml(profName)}</th>`;
+  });
+  html += '</tr>';
+
+  // Row 2: lot name headers
+  html += '<tr><th style="' + thS + ';border-top:none">製程步驟</th>';
+  cols.forEach(col => {
+    const c = col.isMatched ? 'var(--text)' : 'var(--text-3)';
+    html += `<th style="${thS};text-align:center;color:${c};min-width:58px;border-top:none">${escHtml(col.display)}${col.isMatched ? '' : '<br><span style="color:#e53e3e;font-size:9px">未匹配</span>'}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  // Step rows
+  allStepNames.forEach(stepName => {
+    const hasSplit = profs.some(([, pd]) => pd.groups && pd.groups[stepName] && pd.groups[stepName].length > 1);
+    html += `<tr><td style="${tdS};font-weight:${hasSplit ? '700' : '400'};white-space:nowrap">${escHtml(stepName)}</td>`;
+    cols.forEach(col => {
+      const info = getCellInfo(col, stepName);
+      if (!info) {
+        html += `<td style="${tdS};text-align:center;color:var(--text-3)">—</td>`;
+        return;
+      }
+      const c = SPLIT_COLORS[info.condIdx % SPLIT_COLORS.length];
+      const op = col.isMatched ? '' : ';opacity:0.45';
+      html += `<td style="${tdS};text-align:center;background:${c.bg};color:${c.fg};font-weight:700${op}">${escHtml(info.label)}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// Wrapper: update both the per-profile editor and the unified matrix
+function renderSplitViews() {
+  renderSplitEditor();
+  renderUnifiedMatrix();
+}
 
 function renderSplitEditor() {
   const wrap = document.getElementById('splitEditorWrap');
@@ -3862,6 +3955,14 @@ function _syncSplitEditModeUI() {
   document.querySelectorAll('.split-edit-only').forEach(el => {
     el.style.display = editMode ? '' : 'none';
   });
+  const profNameEl = document.getElementById('splitEditorProfName');
+  if (profNameEl) profNameEl.textContent = S.activeProfile || '—';
+  // Rotate details arrow when open
+  const det = document.getElementById('splitEditorDetails');
+  if (det) {
+    const arrow = det.querySelector('.split-details-arrow');
+    if (arrow) arrow.style.transform = det.open ? 'rotate(90deg)' : '';
+  }
 }
 
 // ── Editor: add/delete rows and lots ──
@@ -3872,7 +3973,7 @@ function addSplitRow() {
   S.splitData.lots.forEach(l => lotDone[l] = false);
   S.splitData.rows.push({ stepNo:'', procName:'', condition:'', lotDone });
   rebuildSplitGroups();
-  renderSplitEditor();
+  renderSplitViews();
   populateSplitStepSel();
   if (S.splitData.lots.length) {
     document.getElementById('splitMatchWrap').style.display = '';
@@ -3885,7 +3986,7 @@ function deleteSplitRow(ri) {
   if (!S.splitData) return;
   S.splitData.rows.splice(ri, 1);
   rebuildSplitGroups();
-  renderSplitEditor();
+  renderSplitViews();
   populateSplitStepSel();
   debounceSave();
 }
@@ -3905,7 +4006,7 @@ function addSplitLot(name) {
   S.splitData.lots.push(name);
   S.splitData.rows.forEach(r => r.lotDone[name] = false);
   S.splitLotMap[name] = autoMatchOneLot(name, S.lots);
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = '';
   debounceSave();
@@ -3917,7 +4018,7 @@ function deleteSplitLot(li) {
   S.splitData.lots.splice(li, 1);
   S.splitData.rows.forEach(r => delete r.lotDone[lot]);
   delete S.splitLotMap[lot];
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   debounceSave();
 }
@@ -3949,7 +4050,7 @@ function clearSplitData() {
     S.activeProfile = remaining.length ? remaining[remaining.length - 1] : '';
   }
   renderProfileSel();
-  renderSplitEditor();
+  renderSplitViews();
   document.getElementById('splitMatchWrap').style.display = 'none';
   document.getElementById('splitCtrlWrap').style.display = 'none';
   document.getElementById('splitResultWrap').style.display = 'none';
@@ -3971,7 +4072,7 @@ function initSplitFromLoadedLots() {
       added++;
     }
   });
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = '';
   if (S.splitData.rows.length) document.getElementById('splitCtrlWrap').style.display = '';
@@ -3982,7 +4083,7 @@ function initSplitFromLoadedLots() {
 // ── Edit mode toggle ──
 function toggleSplitEditMode() {
   S.splitEditMode = !S.splitEditMode;
-  renderSplitEditor();
+  renderSplitViews();
 }
 
 // ── Insert row / column ──
@@ -3993,7 +4094,7 @@ function insertSplitRowBefore(ri) {
   S.splitData.lots.forEach(l => lotDone[l] = false);
   S.splitData.rows.splice(ri, 0, { stepNo:'', procName:'', condition:'', lotDone });
   rebuildSplitGroups();
-  renderSplitEditor();
+  renderSplitViews();
   populateSplitStepSel();
   if (S.splitData.lots.length) {
     document.getElementById('splitMatchWrap').style.display = '';
@@ -4011,7 +4112,7 @@ function insertSplitColBefore(li) {
   S.splitData.lots.splice(li, 0, name);
   S.splitData.rows.forEach(r => r.lotDone[name] = false);
   S.splitLotMap[name] = autoMatchOneLot(name, S.lots);
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = '';
   debounceSave();
@@ -4061,7 +4162,7 @@ function loadSelectedTemplate() {
   S.splitData = tpl.splitData;
   S.splitLotMap = tpl.splitLotMap || {};
   rebuildSplitGroups();
-  renderSplitEditor();
+  renderSplitViews();
   renderSplitMatchTable();
   populateSplitStepSel();
   document.getElementById('splitMatchWrap').style.display = '';
@@ -4341,7 +4442,7 @@ function buildSplitStatsHtml(items, groups, procName, dispMode) {
     // Defer rendering until DOM is ready
     setTimeout(function() {
       renderProfileSel();
-      renderSplitEditor();
+      renderSplitViews();
       renderSplitMatchTable();
       populateSplitStepSel();
       populateChartSplitSel();
