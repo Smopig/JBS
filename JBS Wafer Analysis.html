@@ -1079,6 +1079,13 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
           <button class="btn btn-gray" style="font-size:12px" onclick="addSplitItem()">＋ 新增項目</button>
         </div>
       </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <label style="font-size:12px;font-weight:700">顯示模式：</label>
+        <select id="splitDispMode" style="padding:5px 9px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text)">
+          <option value="combined">合併同組計算</option>
+          <option value="individual">個別 Lot（同組同色）</option>
+        </select>
+      </div>
       <div style="display:flex;align-items:flex-end;padding-bottom:2px">
         <button class="btn btn-blue" style="font-size:12px" onclick="renderSplitAnalysis()">執行分析</button>
       </div>
@@ -3904,75 +3911,121 @@ function renderSplitAnalysis() {
   if (!S.splitData || !S.data.length) return;
 
   const procName = document.getElementById('splitStepSel').value;
-  const items = Array.from(document.querySelectorAll('.split-item-sel'))
-    .map(s => s.value).filter(Boolean);
+  const items    = Array.from(document.querySelectorAll('.split-item-sel')).map(s=>s.value).filter(Boolean);
+  const dispMode = (document.getElementById('splitDispMode') || {}).value || 'combined';
   if (!items.length) return;
 
   const condRows = S.splitData.groups[procName];
   if (!condRows || !condRows.length) return;
 
-  // Build groups: each condition row = one group
-  // lots without any 'V' for this process are "unclassified" (skipped in analysis)
+  // Build condition groups
   const groups = condRows.map((row, gi) => {
     const color = SPLIT_COLORS[gi % SPLIT_COLORS.length];
-    const label = condRows.length === 1
-      ? (row.condition || procName)
-      : (row.condition || `條件 ${gi + 1}`);
-    // Map split lot → loaded lot name, keep only matched ones that have 'V'
-    const lots = S.splitData.lots
+    const label = condRows.length === 1 ? (row.condition || procName) : (row.condition || `條件 ${gi + 1}`);
+    const lots  = S.splitData.lots
       .filter(sl => row.lotDone[sl] && S.splitLotMap[sl] != null)
       .map(sl => S.splitLotMap[sl]);
     return { label, lots, color, condition: row.condition, stepNo: row.stepNo };
   });
 
-  const allEmpty = groups.every(g => g.lots.length === 0);
-  const resultWrap  = document.getElementById('splitResultWrap');
-  const statsDiv    = document.getElementById('splitStatsTable');
-  const chartGrid   = document.getElementById('splitChartGrid');
+  const liveGroups = groups.filter(g => g.lots.length > 0);
+  const resultWrap = document.getElementById('splitResultWrap');
+  const statsDiv   = document.getElementById('splitStatsTable');
+  const chartGrid  = document.getElementById('splitChartGrid');
 
-  if (allEmpty) {
+  if (!liveGroups.length) {
     resultWrap.style.display = '';
     statsDiv.innerHTML = '<div class="status err">⚠️ 此製程步驟無可匹配的 Lot 數據，請確認 Lot 對應設定。</div>';
     chartGrid.innerHTML = '';
     return;
   }
 
-  statsDiv.innerHTML  = buildSplitStatsHtml(items, groups, procName);
+  statsDiv.innerHTML  = buildSplitStatsHtml(items, groups, procName, dispMode);
   chartGrid.innerHTML = '';
 
   items.forEach(item => {
-    const traces = groups
-      .filter(g => g.lots.length > 0)
-      .map(g => {
-        const vals = S.data
+    let traces, chartGroups;
+
+    if (dispMode === 'individual') {
+      // One box per lot, colored by group
+      chartGroups = liveGroups.flatMap(g =>
+        g.lots.map(lotName => {
+          const data = S.data
+            .filter(r => r.Lot === lotName && r[item] != null && isFinite(r[item]))
+            .map(r => +r[item]);
+          return { name: lotName, color: g.color.mk, lots: [lotName], data, groupLabel: g.label };
+        })
+      ).filter(cg => cg.data.length > 0);
+      traces = chartGroups.map(cg => ({
+        type: 'box', y: cg.data, name: cg.name,
+        legendgroup: cg.groupLabel,
+        marker: { color: cg.color }, line: { color: cg.color },
+        boxpoints: 'outliers', jitter: 0.3, pointpos: 0
+      }));
+    } else {
+      // Combined: one box per condition group (default)
+      chartGroups = liveGroups.map(g => {
+        const data = S.data
           .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
           .map(r => +r[item]);
-        return {
-          type: 'box', y: vals,
-          name: `${g.label} (n=${vals.length})`,
-          marker: { color: g.color.mk },
-          line:   { color: g.color.mk },
-          boxpoints: 'outliers', jitter: 0.3, pointpos: 0
-        };
-      });
+        return { name: g.label, color: g.color.mk, lots: g.lots, data };
+      }).filter(cg => cg.data.length > 0);
+      traces = chartGroups.map(cg => ({
+        type: 'box', y: cg.data, name: `${cg.name} (n=${cg.data.length})`,
+        marker: { color: cg.color }, line: { color: cg.color },
+        boxpoints: 'outliers', jitter: 0.3, pointpos: 0
+      }));
+    }
 
-    const id = uid('sp', item + procName);
+    const id = uid('sp', item + procName + dispMode);
     chartGrid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+      `<div class="chart-card">
+         <div id="${id}" style="height:290px"></div>
+         <div class="chart-stats-row">${buildChartStatsHTML(item, chartGroups)}</div>
+       </div>`);
     Plotly.newPlot(id, traces, {
       title: { text: escHtml(item), font:{size:13}, x:0.04 },
-      yaxis: { title: '' },
+      yaxis: { title: '' }, height: 290,
       showlegend: true,
       legend: { orientation:'h', x:0, y:1.18 },
-      margin: {t:60, r:16, b:48, l:60}
+      margin: {t:60, r:16, b:36, l:60}
     }, {responsive:true, displayModeBar:false});
   });
 
   resultWrap.style.display = '';
 }
 
-function buildSplitStatsHtml(items, groups, procName) {
+function buildSplitStatsHtml(items, groups, procName, dispMode) {
   const liveGroups = groups.filter(g => g.lots.length > 0);
+  if (dispMode === 'individual') {
+    // Per-lot breakdown grouped by condition
+    let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（個別 Lot）</div>`;
+    html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
+    html += '<th>量測項目</th><th>條件</th><th>Lot</th><th>n</th><th>Mean</th><th>Std</th><th>Median</th><th>Min</th><th>Max</th></tr></thead><tbody>';
+    items.forEach(item => {
+      let first = true;
+      liveGroups.forEach(g => {
+        g.lots.forEach((lotName, li) => {
+          const vals = S.data.filter(r => r.Lot === lotName && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+          const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color.mk};margin-right:4px;vertical-align:middle"></span>`;
+          html += `<tr>
+            ${first ? `<td rowspan="${liveGroups.reduce((s,gx)=>s+gx.lots.length,0)}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
+            ${li === 0 ? `<td rowspan="${g.lots.length}" style="color:${g.color.fg};font-weight:600;vertical-align:top">${dot}${escHtml(g.label)}</td>` : ''}
+            <td>${escHtml(lotName)}</td>
+            <td>${vals.length}</td>
+            <td>${vals.length ? rd(mean(vals),4) : '—'}</td>
+            <td>${vals.length>=2 ? rd(std(vals),4) : '—'}</td>
+            <td>${vals.length ? rd(median(vals),4) : '—'}</td>
+            <td>${vals.length ? rd(Math.min(...vals),4) : '—'}</td>
+            <td>${vals.length ? rd(Math.max(...vals),4) : '—'}</td>
+          </tr>`;
+          first = false;
+        });
+      });
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
   let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}</div>`;
   html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr><th>量測項目</th>';
   liveGroups.forEach(g => {
