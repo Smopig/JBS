@@ -1042,78 +1042,77 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <!-- ══ Split Association Analysis ══ -->
   <div id="panel-split" class="tab-panel">
 
-    <!-- Row 0: Profile management + quick load -->
-    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
-      <span style="font-size:12px;font-weight:700">設定檔：</span>
-      <select id="splitProfileSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:160px" onchange="switchProfile(this.value)">
-        <option value="">— 尚無設定檔 —</option>
-      </select>
-      <button class="btn btn-gray" style="font-size:12px" onclick="promptCreateProfile()">＋ 新增</button>
-      <button class="btn btn-gray" id="btnRenameProfile" style="font-size:12px" onclick="renameProfile()" disabled>✎ 改名</button>
-      <button class="btn btn-gray" id="btnDeleteProfile" style="font-size:12px;color:#e53e3e" onclick="confirmDeleteProfile()" disabled>🗑 刪除</button>
-      <label class="btn btn-gray" style="font-size:12px;cursor:pointer;margin-left:8px">
-        📂 載入 .xlsx
-        <input type="file" id="splitFileInput" accept=".xlsx,.xls" style="display:none" onchange="loadSplitFile(this.files[0])">
-      </label>
-      <span style="flex:1"></span>
-      <span id="splitFileStatus" style="font-size:11px;color:var(--text-3)"></span>
-    </div>
-
-    <!-- Unified conditions matrix (main view, all profiles merged) -->
-    <div style="margin-top:10px;display:flex;align-items:baseline;gap:8px">
-      <span style="font-size:12px;font-weight:700;color:var(--text-2)">條件總覽</span>
-      <span style="font-size:11px;color:var(--text-3)">（所有設定檔合併顯示，行 = 製程步驟，欄 = Lot）</span>
-    </div>
-    <div id="splitUnifiedWrap" style="overflow:auto;max-height:380px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
-      <div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">
-        尚無資料。請載入 Split.xlsx 建立設定檔。
-      </div>
-    </div>
-
-    <!-- Per-profile editor (collapsible, secondary) -->
-    <details id="splitEditorDetails" style="margin-top:8px">
+    <!-- ── Section 1: Template Designer (collapsible) ── -->
+    <details id="splitTplDetails" open style="margin-bottom:10px">
       <summary style="font-size:12px;font-weight:700;cursor:pointer;padding:6px 10px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;user-select:none;list-style:none;display:flex;align-items:center;gap:6px">
-        <span style="font-size:9px;transition:transform .15s" class="split-details-arrow">▶</span>
-        ✏ 設定檔詳細編輯
-        <span style="font-weight:400;color:var(--text-3)">（當前：<span id="splitEditorProfName">—</span>）</span>
+        <span style="font-size:9px;transition:transform .15s" class="tpl-details-arrow">▶</span>
+        📋 模板設計器 Template Designer
       </summary>
-      <div style="padding:6px 0 2px">
-        <!-- Edit actions -->
-        <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
-          <button class="btn btn-gray" id="btnSplitEditMode" style="font-size:12px;min-width:72px" onclick="toggleSplitEditMode()">🔒 鎖定</button>
-          <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="addSplitRow()">＋ 新增行</button>
-          <button class="btn btn-gray split-edit-only" style="font-size:12px" onclick="promptAddSplitLot()">＋ 新增 Lot 欄</button>
-          <button class="btn btn-gray split-edit-only" style="font-size:12px" id="btnFromLots" onclick="initSplitFromLoadedLots()">🔗 從已載入 Lot 建欄</button>
-          <span style="flex:1"></span>
-          <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="clearSplitData()">🗑 清除</button>
-        </div>
-        <!-- Template management -->
-        <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px">
-          <span style="font-size:12px;font-weight:700;color:var(--text-3)">範本：</span>
-          <button class="btn btn-gray" style="font-size:12px" onclick="saveAsTemplate()">💾 另存為範本</button>
-          <select id="splitTemplateSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px">
-            <option value="">— 選擇已存範本 —</option>
+      <div style="padding:6px 0 2px" id="splitTplWrap">
+        <!-- Toolbar -->
+        <div class="ctrl" style="flex-wrap:wrap;gap:6px;align-items:center;padding:4px 0">
+          <select id="splitTplSelEl" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:150px" onchange="switchTemplate(this.value)">
+            <option value="">— 尚無模板 —</option>
           </select>
-          <button class="btn btn-gray" style="font-size:12px" onclick="loadSelectedTemplate()">📂 載入</button>
-          <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="deleteSelectedTemplate()">🗑 刪除</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="newTemplate()">＋ New</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="renameTemplatePrompt()">✎ Rename</button>
+          <button class="btn btn-gray" style="font-size:12px;color:#e53e3e" onclick="deleteTemplate()">🗑 Delete</button>
+          <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
+            📂 Load .xlsx
+            <input type="file" style="display:none" accept=".xlsx,.xls" onchange="loadXlsxAsTemplate(this.files[0])">
+          </label>
+          <button class="btn btn-gray" style="font-size:12px" onclick="exportTemplateAsXlsx()">📄 Export</button>
+          <button class="btn btn-gray" style="font-size:12px;color:var(--accent)" onclick="saveCurrentTemplate()">💾 Save Template</button>
+          <span style="flex:1"></span>
+          <span id="tplSaveStatus" style="font-size:11px;color:var(--text-3)"></span>
         </div>
-        <!-- Per-profile editable table -->
-        <div id="splitEditorWrap" style="overflow:auto;max-height:280px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
-          <div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">
-            尚無資料。請先選擇或建立一個設定檔。
+        <!-- Editable template table -->
+        <div id="splitTplTableWrap" style="overflow:auto;max-height:260px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
+          <div style="text-align:center;padding:24px;color:var(--text-3);font-size:12px">
+            尚無模板。點擊「＋ New」建立，或「📂 Load .xlsx」從檔案載入結構。
           </div>
+        </div>
+        <!-- Add row button -->
+        <div style="padding:4px 0">
+          <button class="btn btn-gray" style="font-size:12px" onclick="addTemplateRow()">＋ Add Row</button>
         </div>
       </div>
     </details>
 
-    <!-- Lot matching -->
-    <div id="splitMatchWrap" style="display:none;margin-top:8px">
-      <div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">Lot 名稱對應</div>
-      <div id="splitMatchTable" class="tbl-wrap" style="max-height:150px;overflow:auto"></div>
+    <!-- ── Section 2: Batch List ── -->
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <span style="font-size:12px;font-weight:700;color:var(--text-2)">批次 Lot 分組</span>
+      <button class="btn btn-gray" style="font-size:12px" onclick="promptCreateBatch()">＋ 新增批次</button>
+    </div>
+    <div id="batchList" style="display:flex;flex-direction:column;gap:8px">
+      <div style="text-align:center;padding:20px;color:var(--text-3);font-size:12px">
+        尚無批次。點擊「＋ 新增批次」開始。
+      </div>
+    </div>
+    <div style="padding:6px 0">
+      <button class="btn btn-gray" style="font-size:12px" onclick="promptCreateBatch()">＋ 新增批次</button>
     </div>
 
-    <!-- Hidden: analysis controls & output (kept for JS compatibility) -->
+    <!-- ── Section 3: Unified Overview ── -->
+    <div style="margin-top:10px;display:flex;align-items:baseline;gap:8px">
+      <span style="font-size:12px;font-weight:700;color:var(--text-2)">條件總覽</span>
+      <span style="font-size:11px;color:var(--text-3)">（所有批次合併顯示，行 = 製程步驟，欄 = Lot）</span>
+    </div>
+    <div id="splitUnifiedWrap" style="overflow:auto;max-height:380px;border:1px solid var(--border);border-radius:6px;margin-top:4px">
+      <div style="text-align:center;padding:28px;color:var(--text-3);font-size:12px">
+        尚無資料。請新增批次並設定製程條件。
+      </div>
+    </div>
+
+    <!-- Hidden: kept for JS compatibility -->
     <div style="display:none" aria-hidden="true">
+      <select id="splitProfileSel"></select>
+      <span id="splitFileStatus"></span>
+      <div id="splitMatchWrap">
+        <div id="splitMatchTable"></div>
+      </div>
+      <div id="splitEditorWrap"></div>
+      <span id="splitEditorProfName"></span>
       <div id="splitCtrlWrap" class="ctrl">
         <select id="splitStepSel"></select>
         <div id="splitItemList"><select id="splitItemSel0" class="split-item-sel"></select></div>
@@ -1440,7 +1439,11 @@ const S = {
   activeProfile:    '',               // currently active profile name (split panel)
   chartSplitProfile: '',              // profile used for chart split coloring
   splitItems:       [''],             // selected measurement items for split analysis
-  splitEditMode:    true              // true = editable inputs, false = read-only display
+  splitEditMode:    true,             // true = editable inputs, false = read-only display
+  // Template Designer
+  splitTemplates:      {},            // { name: { rows: [{stepNo, procName, condition}] } }
+  activeTemplate:      '',            // currently selected template in designer
+  splitBatchTemplates: {},            // { profName: templateName } — links batches to templates
 };
 
 // Make S.splitData / S.splitLotMap transparently proxy to the active profile
@@ -3356,10 +3359,13 @@ function debounceSave() {
 function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      splitProfiles:    S.splitProfiles,
-      splitLotMaps:     S.splitLotMaps,
-      activeProfile:    S.activeProfile,
-      chartSplitProfile: S.chartSplitProfile,
+      splitProfiles:       S.splitProfiles,
+      splitLotMaps:        S.splitLotMaps,
+      activeProfile:       S.activeProfile,
+      chartSplitProfile:   S.chartSplitProfile,
+      splitTemplates:      S.splitTemplates,
+      activeTemplate:      S.activeTemplate,
+      splitBatchTemplates: S.splitBatchTemplates,
       statSpecs:        S.statSpecs,
       statFormats:      S.statFormats,
       chartSpecs:       S.chartSpecs,
@@ -3397,6 +3403,9 @@ function loadSettings() {
       S.chartSplitProfile = legacyName;
       rebuildSplitGroupsForProfile(S.splitProfiles[legacyName]);
     }
+    if (o.splitTemplates)      S.splitTemplates      = o.splitTemplates;
+    if (o.activeTemplate)      S.activeTemplate      = o.activeTemplate;
+    if (o.splitBatchTemplates) S.splitBatchTemplates = o.splitBatchTemplates;
     if (o.statSpecs)   S.statSpecs   = o.statSpecs;
     if (o.statFormats) S.statFormats = o.statFormats;
     if (o.chartSpecs)  S.chartSpecs  = o.chartSpecs;
@@ -3832,9 +3841,9 @@ function renderUnifiedMatrix() {
   wrap.innerHTML = html;
 }
 
-// Wrapper: update both the per-profile editor and the unified matrix
+// Wrapper: update batch list + unified matrix
 function renderSplitViews() {
-  renderSplitEditor();
+  renderBatchList();
   renderUnifiedMatrix();
 }
 
