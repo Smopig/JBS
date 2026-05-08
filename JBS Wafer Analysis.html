@@ -115,6 +115,11 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .cols-6 { grid-template-columns: repeat(6, 1fr); }
 .chart-card { background: white; border-radius: 8px; padding: 6px;
               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.chart-stats-row { overflow-x: auto; border-top: 1px solid var(--border); padding: 3px 6px 5px; }
+.chart-stats-row table { width:100%; border-collapse:collapse; font-size:10px; }
+.chart-stats-row th, .chart-stats-row td { padding:2px 6px; text-align:right; white-space:nowrap; }
+.chart-stats-row th:first-child, .chart-stats-row td:first-child { text-align:left; }
+.chart-stats-row th { color:var(--text-3); font-weight:600; border-bottom:1px solid var(--border); }
 
 /* Stats table */
 .tbl-wrap { overflow: auto; }
@@ -905,6 +910,19 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <input id="caColsNum" type="number" min="1" max="20" value="4"
              style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
              oninput="renderChart()">
+      <!-- Split grouping controls (shown only when split data has split steps) -->
+      <span id="caGrpWrap" style="display:none;align-items:center;gap:6px;margin-left:12px">
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">Split 分組：</label>
+        <select id="caGrpStep" onchange="onChartSplitChange()"
+                style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+          <option value="">— 不使用 —</option>
+        </select>
+        <select id="caGrpMode" onchange="S.chartSplitMode=this.value;renderChart()"
+                style="display:none;padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+          <option value="individual">個別 Lot（同組同色）</option>
+          <option value="combined">合併同組計算</option>
+        </select>
+      </span>
     </div>
 
     <!-- Row 2: Chart type buttons -->
@@ -1379,6 +1397,8 @@ const S = {
   chartItems:       [''],
   chartType:        'box',
   chartSpecs:       {},               // { item: { lsl, typical, usl } }
+  chartSplitStep:   '',               // selected process step for split-group coloring
+  chartSplitMode:   'individual',     // 'individual' | 'combined'
   // Split Association Analysis
   splitData:        null,             // { steps:[], lots:[], matrix:{step:{lot:1|2}} }
   splitLotMap:      {},               // { splitLotId: loadedLotName }
@@ -2381,6 +2401,97 @@ const LOT_COLORS = [
 ];
 function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
 
+// ── Split-group chart helpers ──
+
+// Populate the chart split step selector (called when split data changes)
+function populateChartSplitSel() {
+  const sel = document.getElementById('caGrpStep');
+  const wrap = document.getElementById('caGrpWrap');
+  if (!sel || !wrap) return;
+  const curVal = S.chartSplitStep;
+  // Only show steps that have actual splits (>1 condition row)
+  const splitSteps = (S.splitData && S.splitData.procNames || [])
+    .filter(n => S.splitData.groups[n] && S.splitData.groups[n].length > 1);
+  wrap.style.display = splitSteps.length ? 'inline-flex' : 'none';
+  sel.innerHTML = '<option value="">— 不使用 —</option>' +
+    splitSteps.map(n => `<option value="${escHtml(n)}"${n===curVal?' selected':''}>${escHtml(n)}</option>`).join('');
+  sel.value = splitSteps.includes(curVal) ? curVal : '';
+  S.chartSplitStep = sel.value;
+  const modeEl = document.getElementById('caGrpMode');
+  if (modeEl) { modeEl.style.display = S.chartSplitStep ? '' : 'none'; modeEl.value = S.chartSplitMode; }
+}
+
+function onChartSplitChange() {
+  S.chartSplitStep = document.getElementById('caGrpStep').value;
+  const modeEl = document.getElementById('caGrpMode');
+  if (modeEl) modeEl.style.display = S.chartSplitStep ? '' : 'none';
+  renderChart();
+}
+
+// Returns color for a lot, optionally overridden by split group assignment
+function getLotColor(lot, fallbackIdx) {
+  if (!S.chartSplitStep || !S.splitData) return getColor(fallbackIdx);
+  const groups = S.splitData.groups[S.chartSplitStep];
+  if (!groups) return getColor(fallbackIdx);
+  const splitLot = Object.keys(S.splitLotMap).find(k => S.splitLotMap[k] === lot);
+  if (!splitLot) return '#a0aec0';
+  const condIdx = groups.findIndex(row => row.lotDone[splitLot]);
+  return condIdx === -1 ? '#a0aec0' : SPLIT_COLORS[condIdx % SPLIT_COLORS.length].mk;
+}
+
+// Returns array of {name, color, lots, data} for current chart settings
+function getChartGroups(item) {
+  // No split mode: each lot is its own group
+  if (!S.chartSplitStep || !S.splitData) {
+    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
+  }
+  const groups = S.splitData.groups[S.chartSplitStep];
+  if (!groups || !groups.length) {
+    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
+  }
+  if (S.chartSplitMode === 'combined') {
+    // Merge all lots sharing the same condition row
+    return groups.map((row, condIdx) => {
+      const col = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
+      const splitLots = Object.keys(row.lotDone).filter(sl => row.lotDone[sl]);
+      const loadedLots = splitLots.map(sl => S.splitLotMap[sl]).filter(l => l && S.lots.includes(l));
+      const data = loadedLots.flatMap(lot => validData(lot, item));
+      const name = row.condition || `條件 ${condIdx + 1}`;
+      return { name, color:col.mk, lots:loadedLots, data };
+    }).filter(g => g.data.length > 0);
+  }
+  // Individual mode: each lot its own trace but colored by group
+  return S.lots.map((lot, li) => ({ name:lot, color:getLotColor(lot,li), lots:[lot], data:validData(lot,item) }));
+}
+
+// Compact stats table HTML rendered under each chart card
+function buildChartStatsHTML(item, groups) {
+  const spec = S.chartSpecs[item] || {};
+  const hasSpec = spec.lsl != null || spec.usl != null;
+  let html = `<table><thead><tr>
+    <th>名稱</th><th>n</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th>
+    ${hasSpec ? '<th>Cpk</th>' : ''}
+  </tr></thead><tbody>`;
+  groups.forEach(g => {
+    const d = g.data;
+    const dot = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${g.color};margin-right:4px;vertical-align:middle"></span>`;
+    if (!d.length) {
+      html += `<tr><td>${dot}${escHtml(g.name)}</td><td colspan="${hasSpec?6:5}" style="color:var(--text-3);text-align:center">無資料</td></tr>`;
+      return;
+    }
+    const mu = mean(d), sg = std(d), mn = Math.min(...d), mx = Math.max(...d);
+    const cpk = hasSpec ? calcCpk(d, spec) : null;
+    html += `<tr>
+      <td style="font-weight:600">${dot}${escHtml(g.name)}</td>
+      <td>${d.length}</td><td>${rd(mu,4)}</td><td>${rd(sg,4)}</td>
+      <td>${rd(mn,4)}</td><td>${rd(mx,4)}</td>
+      ${hasSpec ? `<td style="font-weight:700;color:${cpk!==null&&cpk<1.33?'#e53e3e':'var(--accent)'}">${cpk!==null?rd(cpk,2):'—'}</td>` : ''}
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
 // Chart types where lot mode is not meaningful (always one chart per item)
 const CA_NO_LOTMODE = new Set(['box','violin','bar','corr']);
 
@@ -2588,17 +2699,21 @@ function caBox(items, grid) {
     const spec   = S.chartSpecs[item] || {};
     const shapes = buildSpecShapes(spec, showSpec);
     const annots = buildSpecAnnotations(spec, showSpec);
-    const traces = S.lots.map((lot, li) => ({
-      type:'box', y:validData(lot, item), name:lot,
-      boxpoints:'outliers', marker:{color:getColor(li)}, line:{color:getColor(li)}
+    const groups = getChartGroups(item);
+    const traces = groups.map(g => ({
+      type:'box', y:g.data, name:g.name,
+      boxpoints:'outliers', marker:{color:g.color}, line:{color:g.color}
     }));
     const id = uid('ca', item+'box');
     grid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+      `<div class="chart-card">
+         <div id="${id}" style="height:300px"></div>
+         <div class="chart-stats-row">${buildChartStatsHTML(item, groups)}</div>
+       </div>`);
     Plotly.newPlot(id, traces, {
       title:{text:escHtml(item), font:{size:12}},
       margin:{t:40,b:36,l:44,r:10}, showlegend:true,
-      shapes, annotations:annots, height:340,
+      shapes, annotations:annots, height:300,
       yaxis:{title:{text:escHtml(item),font:{size:10}}}
     }, {responsive:true, displayModeBar:false});
   });
@@ -2611,18 +2726,22 @@ function caViolin(items, grid) {
     const spec   = S.chartSpecs[item] || {};
     const shapes = buildSpecShapes(spec, showSpec);
     const annots = buildSpecAnnotations(spec, showSpec);
-    const traces = S.lots.map((lot, li) => ({
-      type:'violin', y:validData(lot, item), name:lot,
+    const groups = getChartGroups(item);
+    const traces = groups.map(g => ({
+      type:'violin', y:g.data, name:g.name,
       box:{visible:true}, meanline:{visible:true},
-      fillcolor:getColor(li), line:{color:getColor(li)}, opacity:0.7
+      fillcolor:g.color, line:{color:g.color}, opacity:0.7
     }));
     const id = uid('ca', item+'violin');
     grid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div id="${id}" style="height:340px"></div></div>`);
+      `<div class="chart-card">
+         <div id="${id}" style="height:300px"></div>
+         <div class="chart-stats-row">${buildChartStatsHTML(item, groups)}</div>
+       </div>`);
     Plotly.newPlot(id, traces, {
       title:{text:escHtml(item), font:{size:12}},
       margin:{t:40,b:36,l:44,r:10}, showlegend:true, violinmode:'group',
-      shapes, annotations:annots, height:340,
+      shapes, annotations:annots, height:300,
       yaxis:{title:{text:escHtml(item),font:{size:10}}}
     }, {responsive:true, displayModeBar:false});
   });
@@ -2653,7 +2772,7 @@ function caScatter(items, grid) {
         return {
           type:'scatter', mode:'markers', name:lot,
           x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
-          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+          marker:{color:getLotColor(lot,li), size:ptSize, opacity:0.75}
         };
       });
       const id = uid('ca', item+'sc');
@@ -2681,7 +2800,7 @@ function caScatter(items, grid) {
         Plotly.newPlot(id, [{
           type:'scatter', mode:'markers', name:lot,
           x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
-          marker:{color:getColor(li), size:ptSize, opacity:0.75}
+          marker:{color:getLotColor(lot,li), size:ptSize, opacity:0.75}
         }], {
           title:{text:`${lot} — ${escHtml(item)}`, font:{size:12}},
           margin:{t:40,b:36,l:44,r:10}, showlegend:false,
@@ -2797,20 +2916,19 @@ function caBar(items, grid) {
     const spec   = S.chartSpecs[item] || {};
     const shapes = buildSpecShapes(spec, showSpec);
     const annots = buildSpecAnnotations(spec, showSpec);
+    const groups = getChartGroups(item);
     const mus = [], ep = [], em = [];
-    S.lots.forEach(lot => {
-      const d = validData(lot, item);
-      if (!d.length) { mus.push(null); ep.push(null); em.push(null); return; }
-      const mu = mean(d);
-      const [emv, epv] = errBarVals(d, errMode);
+    groups.forEach(g => {
+      if (!g.data.length) { mus.push(null); ep.push(null); em.push(null); return; }
+      const mu = mean(g.data);
+      const [emv, epv] = errBarVals(g.data, errMode);
       mus.push(mu); ep.push(epv); em.push(emv);
     });
     if (showCpk) {
-      S.lots.forEach((lot, li) => {
-        const d = validData(lot, item);
-        const cpk = calcCpk(d, spec);
-        if (cpk !== null && mus[li] !== null) annots.push({
-          x:lot, yref:'y', y:mus[li],
+      groups.forEach((g, gi) => {
+        const cpk = calcCpk(g.data, spec);
+        if (cpk !== null && mus[gi] !== null) annots.push({
+          x:g.name, yref:'y', y:mus[gi],
           text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
           font:{size:10,color:'#555'}, ax:0, ay:-26
         });
@@ -2818,17 +2936,20 @@ function caBar(items, grid) {
     }
     const id = uid('ca', item+'bar');
     grid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+      `<div class="chart-card">
+         <div id="${id}" style="height:280px"></div>
+         <div class="chart-stats-row">${buildChartStatsHTML(item, groups)}</div>
+       </div>`);
     Plotly.newPlot(id, [{
       type:'bar', name:item,
-      x:S.lots, y:mus,
+      x:groups.map(g=>g.name), y:mus,
       error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
                color:'rgba(0,0,0,.45)',thickness:1.5,width:4},
-      marker:{color:S.lots.map((_,li)=>getColor(li)),opacity:0.8}
+      marker:{color:groups.map(g=>g.color), opacity:0.8}
     }], {
       title:{text:escHtml(item), font:{size:12}},
       margin:{t:40,b:50,l:44,r:10}, showlegend:false,
-      shapes, annotations:annots, height:320,
+      shapes, annotations:annots, height:280,
       xaxis:{title:{text:'Lot',font:{size:10}}},
       yaxis:{title:{text:escHtml(item),font:{size:10}}}
     }, {responsive:true, displayModeBar:false});
@@ -2877,7 +2998,7 @@ function caSPC(items, grid) {
       {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
     ];
 
-    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getColor(S.lots.indexOf(p.lot)));
+    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getLotColor(p.lot, S.lots.indexOf(p.lot)));
     const id = uid('ca', item+'spc');
     const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
     grid.insertAdjacentHTML('beforeend',
@@ -2925,7 +3046,7 @@ function caCDF(items, grid) {
         return {
           type:'scatter', mode:'lines', name:lot,
           x:d, y:cdf,
-          line:{color:getColor(li), width:2, shape:'hv'}
+          line:{color:getLotColor(lot,li), width:2, shape:'hv'}
         };
       }).filter(Boolean);
       const id = uid('ca', item+'cdf');
@@ -2944,13 +3065,14 @@ function caCDF(items, grid) {
         if (!d.length) return;
         const cdf = d.map((_,i)=>(i+1)/d.length*100);
         const id = uid('ca', item+lot+'cdf');
+        const lc = getLotColor(lot,li);
         grid.insertAdjacentHTML('beforeend',
           `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
         Plotly.newPlot(id, [{
           type:'scatter', mode:'lines', name:lot,
           x:d, y:cdf,
-          line:{color:getColor(li), width:2, shape:'hv'},
-          fill:'tozeroy', fillcolor:getColor(li)+'28'
+          line:{color:lc, width:2, shape:'hv'},
+          fill:'tozeroy', fillcolor:lc+'28'
         }], {
           title:{text:`${lot} — ${escHtml(item)} CDF`, font:{size:12}},
           margin:{t:40,b:36,l:44,r:10}, showlegend:false,
@@ -3112,18 +3234,20 @@ function debounceSave() {
 function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      splitData:    S.splitData,
-      splitLotMap:  S.splitLotMap,
-      statSpecs:    S.statSpecs,
-      statFormats:  S.statFormats,
-      chartSpecs:   S.chartSpecs,
-      statItems:    S.statItems,
-      chartItems:   S.chartItems,
-      chartType:    S.chartType,
-      activeStats:  S.activeStats,
-      customStats:  S.customStats,
-      headerIdx:    S._headerIdx,
-      dataStartIdx: S._dataStartIdx,
+      splitData:       S.splitData,
+      splitLotMap:     S.splitLotMap,
+      statSpecs:       S.statSpecs,
+      statFormats:     S.statFormats,
+      chartSpecs:      S.chartSpecs,
+      statItems:       S.statItems,
+      chartItems:      S.chartItems,
+      chartType:       S.chartType,
+      chartSplitStep:  S.chartSplitStep,
+      chartSplitMode:  S.chartSplitMode,
+      activeStats:     S.activeStats,
+      customStats:     S.customStats,
+      headerIdx:       S._headerIdx,
+      dataStartIdx:    S._dataStartIdx,
     }));
   } catch(e) { console.warn('saveSettings failed', e); }
 }
@@ -3140,7 +3264,9 @@ function loadSettings() {
     if (o.chartSpecs)  S.chartSpecs  = o.chartSpecs;
     if (o.statItems && o.statItems.length)  S.statItems  = o.statItems;
     if (o.chartItems && o.chartItems.length) S.chartItems = o.chartItems;
-    if (o.chartType)   S.chartType   = o.chartType;
+    if (o.chartType)       S.chartType       = o.chartType;
+    if (o.chartSplitStep)  S.chartSplitStep  = o.chartSplitStep;
+    if (o.chartSplitMode)  S.chartSplitMode  = o.chartSplitMode;
     if (o.activeStats) S.activeStats = o.activeStats;
     if (o.customStats) S.customStats = o.customStats;
     if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
@@ -3207,8 +3333,10 @@ function importSession(file) {
       renderStatChips(); renderCustomStatTags();
       renderMap(); renderCount(); renderPct(); renderStats(); initChartTab();
 
+      if (o.chartSplitStep) S.chartSplitStep = o.chartSplitStep;
+      if (o.chartSplitMode) S.chartSplitMode = o.chartSplitMode;
       if (S.splitData) {
-        renderSplitEditor(); renderSplitMatchTable(); populateSplitStepSel();
+        renderSplitEditor(); renderSplitMatchTable(); populateSplitStepSel(); populateChartSplitSel();
         document.getElementById('splitMatchWrap').style.display = '';
         document.getElementById('splitCtrlWrap').style.display = '';
       }
@@ -3331,6 +3459,7 @@ function rebuildSplitGroups() {
   });
   S.splitData.groups   = groups;
   S.splitData.procNames = [...new Set(S.splitData.rows.map(r => r.procName).filter(Boolean))];
+  populateChartSplitSel();
 }
 
 function autoMatchOneLot(splitLot, loadedLots) {
@@ -3897,6 +4026,7 @@ function buildSplitStatsHtml(items, groups, procName) {
       renderSplitEditor();
       renderSplitMatchTable();
       populateSplitStepSel();
+      populateChartSplitSel();
       document.getElementById('splitMatchWrap').style.display = '';
       document.getElementById('splitCtrlWrap').style.display = '';
       const cnt = S.splitData.rows.length;
