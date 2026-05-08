@@ -115,11 +115,22 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .cols-6 { grid-template-columns: repeat(6, 1fr); }
 .chart-card { background: white; border-radius: 8px; padding: 6px;
               box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
-.chart-stats-row { overflow-x: auto; border-top: 1px solid var(--border); padding: 3px 6px 5px; }
+.chart-stats-row { overflow-x: auto; border-top: 1px solid var(--border); }
 .chart-stats-row table { width:100%; border-collapse:collapse; font-size:10px; }
 .chart-stats-row th, .chart-stats-row td { padding:2px 6px; text-align:right; white-space:nowrap; }
 .chart-stats-row th:first-child, .chart-stats-row td:first-child { text-align:left; }
 .chart-stats-row th { color:var(--text-3); font-weight:600; border-bottom:1px solid var(--border); }
+.chart-stats-row details summary {
+  font-size:10px; color:var(--text-3); cursor:pointer; padding:3px 8px; user-select:none;
+  list-style:none; display:flex; align-items:center; gap:5px;
+}
+.chart-stats-row details summary::-webkit-details-marker { display:none; }
+.chart-stats-row details summary::before {
+  content:'▶'; font-size:8px; transition:transform .15s; display:inline-block;
+}
+.chart-stats-row details[open] summary::before { transform:rotate(90deg); }
+.chart-stats-row details[open] { padding-bottom:4px; }
+.chart-stats-row details table { margin:2px 0 0; }
 
 /* Stats table */
 .tbl-wrap { overflow: auto; }
@@ -887,13 +898,19 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <!-- ══ Chart Analysis ══ -->
   <div id="panel-chart" class="tab-panel">
 
-    <!-- Row 1: Items + Lot mode + Cols -->
+    <!-- Row 1: Chart type buttons -->
+    <div class="ctrl" style="gap:6px;flex-wrap:wrap">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap;margin-right:4px">圖表類型：</label>
+      <div id="caTypeButtons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+
+    <!-- Row 2: Items + Lot mode + Cols + Split grouping -->
     <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
       <label style="white-space:nowrap;font-size:12px;font-weight:700">量測項目：</label>
       <div id="caItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
       <button class="btn btn-gray" style="font-size:12px" onclick="addChartItem()">＋ 新增項目</button>
       <span id="caLotModeWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px">
-        <label style="white-space:nowrap;font-size:12px;font-weight:700">Lot 顯示：</label>
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">LOT 顯示：</label>
         <select id="caLotMode" onchange="renderChart()"
                 style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
           <option value="overlay">全部疊加</option>
@@ -923,12 +940,6 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
           <option value="combined">合併同組計算</option>
         </select>
       </span>
-    </div>
-
-    <!-- Row 2: Chart type buttons -->
-    <div class="ctrl" style="gap:6px;flex-wrap:wrap">
-      <label style="font-size:12px;font-weight:700;white-space:nowrap;margin-right:4px">圖表類型：</label>
-      <div id="caTypeButtons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
     </div>
 
     <!-- Row 3a: Scatter contextual -->
@@ -2460,7 +2471,14 @@ function getChartGroups(item) {
 function buildChartStatsHTML(item, groups) {
   const spec = S.chartSpecs[item] || {};
   const hasSpec = spec.lsl != null || spec.usl != null;
-  let html = `<table><thead><tr>
+  // Build a summary line for the <summary> tag: n ranges, mean range
+  const live = groups.filter(g => g.data.length > 0);
+  const totalN = live.reduce((s, g) => s + g.data.length, 0);
+  const summaryText = live.length
+    ? `統計數字 (${live.length} 組 · n=${totalN})`
+    : '統計數字';
+
+  let table = `<table><thead><tr>
     <th>名稱</th><th>n</th><th>Mean</th><th>Std</th><th>Min</th><th>Max</th>
     ${hasSpec ? '<th>Cpk</th>' : ''}
   </tr></thead><tbody>`;
@@ -2468,20 +2486,20 @@ function buildChartStatsHTML(item, groups) {
     const d = g.data;
     const dot = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${g.color};margin-right:4px;vertical-align:middle"></span>`;
     if (!d.length) {
-      html += `<tr><td>${dot}${escHtml(g.name)}</td><td colspan="${hasSpec?6:5}" style="color:var(--text-3);text-align:center">無資料</td></tr>`;
+      table += `<tr><td>${dot}${escHtml(g.name)}</td><td colspan="${hasSpec?6:5}" style="color:var(--text-3);text-align:center">無資料</td></tr>`;
       return;
     }
     const mu = mean(d), sg = std(d), mn = Math.min(...d), mx = Math.max(...d);
     const cpk = hasSpec ? calcCpk(d, spec) : null;
-    html += `<tr>
+    table += `<tr>
       <td style="font-weight:600">${dot}${escHtml(g.name)}</td>
       <td>${d.length}</td><td>${rd(mu,4)}</td><td>${rd(sg,4)}</td>
       <td>${rd(mn,4)}</td><td>${rd(mx,4)}</td>
       ${hasSpec ? `<td style="font-weight:700;color:${cpk!==null&&cpk<1.33?'#e53e3e':'var(--accent)'}">${cpk!==null?rd(cpk,2):'—'}</td>` : ''}
     </tr>`;
   });
-  html += '</tbody></table>';
-  return html;
+  table += '</tbody></table>';
+  return `<details><summary>${summaryText}</summary>${table}</details>`;
 }
 
 // Chart types where lot mode is not meaningful (always one chart per item)
