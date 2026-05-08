@@ -1457,6 +1457,7 @@ const S = {
   splitTemplates:      {},            // { name: { rows: [{stepNo, procName, condition}] } }
   activeTemplate:      '',            // currently selected template in designer
   splitBatchTemplates: {},            // { profName: templateName } — links batches to templates
+  splitBatchLocked:    {},            // { profName: bool } — lock display mode per batch
 };
 
 // Make S.splitData / S.splitLotMap transparently proxy to the active profile
@@ -3470,6 +3471,7 @@ function saveSettings() {
       splitTemplates:      S.splitTemplates,
       activeTemplate:      S.activeTemplate,
       splitBatchTemplates: S.splitBatchTemplates,
+      splitBatchLocked:    S.splitBatchLocked,
       statSpecs:        S.statSpecs,
       statFormats:      S.statFormats,
       chartSpecs:       S.chartSpecs,
@@ -3511,6 +3513,7 @@ function loadSettings() {
     if (o.splitTemplates)      S.splitTemplates      = o.splitTemplates;
     if (o.activeTemplate)      S.activeTemplate      = o.activeTemplate;
     if (o.splitBatchTemplates) S.splitBatchTemplates = o.splitBatchTemplates;
+    if (o.splitBatchLocked)    S.splitBatchLocked    = o.splitBatchLocked;
     if (o.statSpecs)   S.statSpecs   = o.statSpecs;
     if (o.statFormats) S.statFormats = o.statFormats;
     if (o.chartSpecs)  S.chartSpecs  = o.chartSpecs;
@@ -4570,27 +4573,23 @@ function renderTemplateDesigner() {
     tableWrap.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-3);font-size:12px">尚無模板。點擊「＋ New」建立，或「📂 Load .xlsx」從檔案載入結構。</div>';
     return;
   }
-  const sinp = 'padding:2px 4px;font-size:11px;background:var(--bg);border:1px solid var(--border-2);border-radius:3px;color:var(--text);font-family:var(--ff-sans)';
-  let html = '<table style="border-collapse:collapse;width:100%;font-size:11px"><thead><tr>' +
-    '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);min-width:50px">順序</th>' +
-    '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);min-width:120px">製程名稱</th>' +
-    '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);min-width:150px">條件</th>' +
-    '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);width:28px"></th>' +
-    '</tr></thead><tbody>';
+  const sinp = 'padding:2px 4px;font-size:11px;background:var(--bg);border:1px solid var(--border-2);border-radius:3px;color:var(--text);font-family:var(--ff-sans);width:100%;box-sizing:border-box';
+  const thS = 'padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);text-align:left';
+  const tdS = 'padding:2px 4px;border:1px solid var(--border)';
+  let html = `<table style="border-collapse:collapse;table-layout:fixed;width:100%;font-size:11px">
+    <colgroup><col style="width:56px"><col style="width:34%"><col><col style="width:28px"></colgroup>
+    <thead><tr>
+      <th style="${thS};text-align:center">順序</th>
+      <th style="${thS}">製程名稱</th>
+      <th style="${thS}">條件</th>
+      <th style="${thS};width:28px"></th>
+    </tr></thead><tbody>`;
   tpl.rows.forEach((row, ri) => {
     html += `<tr>
-      <td style="padding:2px 4px;border:1px solid var(--border)">
-        <input class="t-inp" data-ri="${ri}" data-f="stepNo" value="${escHtml(row.stepNo||'')}" style="${sinp};width:42px">
-      </td>
-      <td style="padding:2px 4px;border:1px solid var(--border)">
-        <input class="t-inp" data-ri="${ri}" data-f="procName" value="${escHtml(row.procName||'')}" style="${sinp};width:110px">
-      </td>
-      <td style="padding:2px 4px;border:1px solid var(--border)">
-        <input class="t-inp" data-ri="${ri}" data-f="condition" value="${escHtml(row.condition||'')}" style="${sinp};width:140px">
-      </td>
-      <td style="padding:2px 4px;border:1px solid var(--border);text-align:center">
-        <button class="t-del" data-ri="${ri}" style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;padding:0 3px;line-height:1" title="刪除此行">×</button>
-      </td>
+      <td style="${tdS};text-align:center"><input class="t-inp" data-ri="${ri}" data-f="stepNo" value="${escHtml(row.stepNo||'')}" style="${sinp}"></td>
+      <td style="${tdS}"><input class="t-inp" data-ri="${ri}" data-f="procName" value="${escHtml(row.procName||'')}" style="${sinp}"></td>
+      <td style="${tdS}"><input class="t-inp" data-ri="${ri}" data-f="condition" value="${escHtml(row.condition||'')}" style="${sinp}"></td>
+      <td style="${tdS};text-align:center"><button class="t-del" data-ri="${ri}" style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;padding:0 3px;line-height:1">×</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
@@ -4760,34 +4759,49 @@ function renderBatchCard(profName) {
     <button class="btn btn-gray" style="font-size:11px" onclick="initBatchFromLoadedLots('${escHtml(profName)}')">🔗 建欄</button>
     <span style="flex:1"></span>
     <button class="btn btn-gray" style="font-size:11px" onclick="autoMatchBatchLots('${escHtml(profName)}')">🔗 匹配</button>
+    <button class="btn btn-gray" style="font-size:11px;${locked ? 'color:var(--accent);border-color:var(--accent)' : ''}"
+            onclick="toggleBatchLock('${escHtml(profName)}')" title="${locked ? '解除鎖定（顯示編輯模式）' : '鎖定（隱藏外框）'}">
+      ${locked ? '🔒 鎖定中' : '🔓 編輯'}
+    </button>
     <button class="btn btn-gray" style="font-size:11px;color:#e53e3e" onclick="if(confirm('確定要刪除批次「${escHtml(profName)}」？'))deleteBatch('${escHtml(profName)}')">🗑</button>
   </div>`;
 
+  const locked = !!(S.splitBatchLocked && S.splitBatchLocked[profName]);
+  const thS = 'padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);white-space:nowrap';
+  const tdS = 'padding:3px 6px;border:1px solid var(--border)';
+  const pe = s => escHtml(s); // alias
+
   // --- Card body: checkmark table ---
-  html += '<div style="overflow:auto"><table style="border-collapse:collapse;width:100%;font-size:11px"><thead><tr>';
-  html += '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);min-width:110px;text-align:left;white-space:nowrap">製程名稱</th>';
-  html += '<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);min-width:120px;text-align:left;white-space:nowrap">條件</th>';
+  html += '<div style="overflow:auto"><table style="border-collapse:collapse;font-size:11px"><thead><tr>';
+  // Row-action column (check-all / clear-all) — hidden when locked
+  if (!locked) html += `<th style="${thS};width:46px;text-align:center" title="全行打勾 / 全清"></th>`;
+  html += `<th style="${thS};min-width:100px;text-align:left">製程名稱</th>`;
+  html += `<th style="${thS};min-width:110px;text-align:left">條件</th>`;
 
   lots.forEach((lot, li) => {
     const matched = lotMap[lot] != null && S.lots.includes(lotMap[lot]);
-    const unmatched = !matched;
-    const dispLot = lotMap[lot] || lot;
-    html += `<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);text-align:center;min-width:60px;white-space:nowrap">
-      <div style="display:flex;align-items:center;gap:3px;justify-content:center">
-        <span style="color:${unmatched ? '#e53e3e' : 'var(--text)'}${unmatched ? ';font-size:10px' : ''}">${escHtml(lot)}${unmatched ? ' ⚠' : ' ✓'}</span>
-        <button class="b-del-lot" data-prof="${escHtml(profName)}" data-li="${li}" title="刪除此欄"
-                style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:11px;padding:0 1px;line-height:1">×</button>
+    html += `<th style="${thS};text-align:center;min-width:58px">
+      <div style="display:flex;align-items:center;gap:2px;justify-content:center">
+        <span style="color:${matched ? 'var(--text)' : '#e53e3e'}">${pe(lot)}${matched ? ' ✓' : ' ⚠'}</span>
+        ${locked ? '' : `<button class="b-del-lot" data-prof="${pe(profName)}" data-li="${li}"
+                style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:11px;padding:0 1px;line-height:1">×</button>`}
       </div>
     </th>`;
   });
-  html += `<th style="padding:4px 6px;border:1px solid var(--border);background:var(--bg-2);text-align:center;width:28px">
-    <button onclick="promptAddBatchLot('${escHtml(profName)}')" style="border:none;background:transparent;color:var(--accent);cursor:pointer;font-size:14px;padding:0;line-height:1" title="新增 Lot 欄">＋</button>
-  </th>`;
+  // ＋ add lot column — hidden when locked
+  if (!locked) {
+    html += `<th style="${thS};text-align:center;width:28px">
+      <button onclick="promptAddBatchLot('${pe(profName)}')"
+              style="border:none;background:transparent;color:var(--accent);cursor:pointer;font-size:14px;padding:0;line-height:1">＋</button>
+    </th>`;
+  }
+  // × delete row column — hidden when locked
+  if (!locked) html += `<th style="${thS};width:24px"></th>`;
   html += '</tr></thead><tbody>';
 
   if (!rows.length) {
-    const colspan = 3 + lots.length;
-    html += `<tr><td colspan="${colspan}" style="padding:16px;text-align:center;color:var(--text-3);font-size:11px">尚無製程行。點擊「＋ 新增行」或套用模板。</td></tr>`;
+    const cols = 2 + lots.length + (locked ? 0 : 3);
+    html += `<tr><td colspan="${cols}" style="padding:16px;text-align:center;color:var(--text-3);font-size:11px">尚無製程行。點擊「＋ 新增行」或套用模板。</td></tr>`;
   } else {
     rows.forEach((row, ri) => {
       const grpRows = pd.groups[row.procName] || [];
@@ -4795,31 +4809,59 @@ function renderBatchCard(profName) {
       const col = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
       const isSplit = grpRows.length > 1;
       html += `<tr style="${isSplit ? 'background:' + col.bg : ''}">`;
-      html += `<td style="padding:3px 6px;border:1px solid var(--border);font-weight:${isSplit ? '700' : '400'};white-space:nowrap">${escHtml(row.procName || '')}</td>`;
-      html += `<td style="padding:3px 6px;border:1px solid var(--border);white-space:nowrap">${escHtml(row.condition || '')}</td>`;
+
+      // Row check-all / clear-all buttons
+      if (!locked) {
+        html += `<td style="${tdS};text-align:center;padding:2px">
+          <button onclick="checkAllBatchRow('${pe(profName)}',${ri},true)"
+                  title="此行全部打勾"
+                  style="border:1px solid var(--border-2);background:transparent;color:var(--accent);cursor:pointer;font-size:10px;padding:1px 4px;border-radius:3px;line-height:1">✓全</button>
+          <button onclick="checkAllBatchRow('${pe(profName)}',${ri},false)"
+                  title="此行全部清除"
+                  style="border:1px solid var(--border-2);background:transparent;color:var(--text-3);cursor:pointer;font-size:10px;padding:1px 4px;border-radius:3px;line-height:1;margin-top:2px">·清</button>
+        </td>`;
+      }
+      html += `<td style="${tdS};font-weight:${isSplit ? '700' : '400'}">${pe(row.procName || '')}</td>`;
+      html += `<td style="${tdS}">${pe(row.condition || '')}</td>`;
+
       lots.forEach(lot => {
         const done = row.lotDone[lot];
-        const bk = done ? (isSplit ? col.mk : 'var(--accent)') : 'transparent';
-        const fc = done ? 'var(--bg)' : 'var(--border-2)';
-        const br = `1px solid ${isSplit ? col.fg : 'var(--border-2)'}`;
-        html += `<td style="text-align:center;padding:2px;border:1px solid var(--border)">
-          <button class="b-chk" data-prof="${escHtml(profName)}" data-ri="${ri}" data-lot="${escHtml(lot)}"
-                  style="width:26px;height:20px;border-radius:3px;font-size:11px;cursor:pointer;border:${br};background:${bk};color:${fc};font-weight:700;line-height:1">
-            ${done ? '✓' : '·'}</button></td>`;
+        if (locked) {
+          // Lock mode: ✓ with condition color (no box), empty if not done
+          const fc = done ? (isSplit ? col.fg : 'var(--accent)') : 'transparent';
+          html += `<td style="text-align:center;padding:2px;border:1px solid var(--border)">
+            <span style="font-size:13px;font-weight:700;color:${fc}">${done ? '✓' : ''}</span>
+          </td>`;
+        } else {
+          const bk = done ? (isSplit ? col.mk : 'var(--accent)') : 'transparent';
+          const fc = done ? 'var(--bg)' : 'var(--border-2)';
+          const br = `1px solid ${isSplit ? col.fg : 'var(--border-2)'}`;
+          html += `<td style="text-align:center;padding:2px;border:1px solid var(--border)">
+            <button class="b-chk" data-prof="${pe(profName)}" data-ri="${ri}" data-lot="${pe(lot)}"
+                    style="width:26px;height:20px;border-radius:3px;font-size:11px;cursor:pointer;
+                           border:${br};background:${bk};color:${fc};font-weight:700;line-height:1">
+              ${done ? '✓' : '·'}</button></td>`;
+        }
       });
-      html += `<td style="text-align:center;padding:2px;border:1px solid var(--border)">
-        <button class="b-del-row" data-prof="${escHtml(profName)}" data-ri="${ri}" title="刪除此行"
-                style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;padding:0 3px;line-height:1">×</button>
-      </td>`;
+
+      if (!locked) {
+        html += `<td style="padding:0;border:1px solid var(--border)"></td>`; // ＋ add lot spacer
+        html += `<td style="text-align:center;padding:2px;border:1px solid var(--border)">
+          <button class="b-del-row" data-prof="${pe(profName)}" data-ri="${ri}"
+                  style="border:none;background:transparent;color:var(--text-3);cursor:pointer;font-size:13px;padding:0 3px;line-height:1">×</button>
+        </td>`;
+      }
       html += '</tr>';
     });
   }
   html += '</tbody></table></div>';
 
-  // --- Card footer ---
-  html += `<div style="padding:4px 8px;border-top:1px solid var(--border);background:var(--bg-2)">
-    <button class="btn btn-gray" style="font-size:11px" onclick="addBatchRow('${escHtml(profName)}')">＋ 新增行</button>
-  </div>`;
+  // --- Card footer (hidden when locked) ---
+  if (!locked) {
+    html += `<div style="padding:4px 8px;border-top:1px solid var(--border);background:var(--bg-2)">
+      <button class="btn btn-gray" style="font-size:11px" onclick="addBatchRow('${pe(profName)}')">＋ 新增行</button>
+    </div>`;
+  }
 
   card.innerHTML = html;
 }
@@ -4928,6 +4970,7 @@ function deleteBatchLot(profName, li) {
 }
 
 function toggleBatchCell(profName, ri, lot) {
+  if (S.splitBatchLocked && S.splitBatchLocked[profName]) return; // locked = read-only
   const pd = S.splitProfiles[profName];
   if (!pd || !pd.rows[ri]) return;
   const row = pd.rows[ri];
@@ -4948,6 +4991,26 @@ function toggleBatchCell(profName, ri, lot) {
     btn.style.color = fc;
     btn.style.border = br;
   }
+  renderUnifiedMatrix();
+  renderChart();
+  debounceSave();
+}
+
+// Toggle lock/edit mode for a batch card
+function toggleBatchLock(profName) {
+  if (!S.splitBatchLocked) S.splitBatchLocked = {};
+  S.splitBatchLocked[profName] = !S.splitBatchLocked[profName];
+  renderBatchCard(profName);
+  debounceSave();
+}
+
+// Check or uncheck all lots for a specific row
+function checkAllBatchRow(profName, ri, checked) {
+  const pd = S.splitProfiles[profName];
+  if (!pd || !pd.rows[ri]) return;
+  pd.lots.forEach(lot => { pd.rows[ri].lotDone[lot] = checked; });
+  rebuildSplitGroupsForProfile(pd);
+  renderBatchCard(profName);
   renderUnifiedMatrix();
   renderChart();
   debounceSave();
