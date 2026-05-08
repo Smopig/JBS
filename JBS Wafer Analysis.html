@@ -1040,6 +1040,17 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <!-- ══ Split Association Analysis ══ -->
   <div id="panel-split" class="tab-panel">
 
+    <!-- Toolbar row 0: profile management -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px">
+      <span style="font-size:12px;font-weight:700">設定檔：</span>
+      <select id="splitProfileSel" style="padding:4px 8px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text);min-width:160px" onchange="switchProfile(this.value)">
+        <option value="">— 尚無設定檔 —</option>
+      </select>
+      <button class="btn btn-gray" style="font-size:12px" onclick="promptCreateProfile()">＋ 新增</button>
+      <button class="btn btn-gray" id="btnRenameProfile" style="font-size:12px" onclick="renameProfile()" disabled>✎ 改名</button>
+      <button class="btn btn-gray" id="btnDeleteProfile" style="font-size:12px;color:#e53e3e" onclick="confirmDeleteProfile()" disabled>🗑 刪除</button>
+    </div>
+
     <!-- Toolbar row 1: mode + edit actions -->
     <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
       <span style="font-size:12px;font-weight:700">Split 條件：</span>
@@ -1403,11 +1414,28 @@ const S = {
   chartSplitStep:   '',               // selected process step for split-group coloring
   chartSplitMode:   'individual',     // 'individual' | 'combined'
   // Split Association Analysis
-  splitData:        null,             // { steps:[], lots:[], matrix:{step:{lot:1|2}} }
-  splitLotMap:      {},               // { splitLotId: loadedLotName }
+  splitProfiles:    {},               // { profileName: { lots, rows, groups, procNames } }
+  splitLotMaps:     {},               // { profileName: { splitLotId: loadedLotName } }
+  activeProfile:    '',               // currently active profile name (split panel)
+  chartSplitProfile: '',              // profile used for chart split coloring
   splitItems:       [''],             // selected measurement items for split analysis
   splitEditMode:    true              // true = editable inputs, false = read-only display
 };
+
+// Make S.splitData / S.splitLotMap transparently proxy to the active profile
+// so all existing code continues to work without modification
+;(function() {
+  Object.defineProperty(S, 'splitData', {
+    get() { return S.splitProfiles[S.activeProfile] || null; },
+    set(v) { if (S.activeProfile) S.splitProfiles[S.activeProfile] = v; },
+    configurable: true, enumerable: true
+  });
+  Object.defineProperty(S, 'splitLotMap', {
+    get() { return S.splitLotMaps[S.activeProfile] || {}; },
+    set(v) { if (S.activeProfile) S.splitLotMaps[S.activeProfile] = v; },
+    configurable: true, enumerable: true
+  });
+})();
 
 // ══════════════════════════════════════════════════
 // PLOTLY THEME — auto-inject dark/light layout defaults
@@ -2407,25 +2435,53 @@ function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
 // ── Split-group chart helpers ──
 
 // Populate the chart split step selector (called when split data changes)
+// Uses <optgroup> per profile; option value = "profileName||stepName"
 function populateChartSplitSel() {
   const sel = document.getElementById('caGrpStep');
   const wrap = document.getElementById('caGrpWrap');
   if (!sel || !wrap) return;
-  const curVal = S.chartSplitStep;
-  // Only show steps that have actual splits (>1 condition row)
-  const splitSteps = (S.splitData && S.splitData.procNames || [])
-    .filter(n => S.splitData.groups[n] && S.splitData.groups[n].length > 1);
-  wrap.style.display = splitSteps.length ? 'inline-flex' : 'none';
-  sel.innerHTML = '<option value="">— 不使用 —</option>' +
-    splitSteps.map(n => `<option value="${escHtml(n)}"${n===curVal?' selected':''}>${escHtml(n)}</option>`).join('');
-  sel.value = splitSteps.includes(curVal) ? curVal : '';
-  S.chartSplitStep = sel.value;
+  const profiles = Object.keys(S.splitProfiles);
+  let opts = '<option value="">— 不使用 —</option>';
+  let anyStep = false;
+  profiles.forEach(profName => {
+    const pd = S.splitProfiles[profName];
+    if (!pd || !pd.procNames) return;
+    const steps = pd.procNames.filter(n => pd.groups[n] && pd.groups[n].length > 1);
+    if (!steps.length) return;
+    anyStep = true;
+    opts += `<optgroup label="${escHtml(profName)}">`;
+    steps.forEach(n => {
+      const val = `${profName}||${n}`;
+      const sel2 = (S.chartSplitProfile === profName && S.chartSplitStep === n) ? ' selected' : '';
+      opts += `<option value="${escHtml(val)}"${sel2}>${escHtml(n)}</option>`;
+    });
+    opts += '</optgroup>';
+  });
+  wrap.style.display = anyStep ? 'inline-flex' : 'none';
+  sel.innerHTML = opts;
+  // Restore or reset selection
+  const curVal = S.chartSplitProfile && S.chartSplitStep
+    ? `${S.chartSplitProfile}||${S.chartSplitStep}` : '';
+  sel.value = curVal;
+  if (sel.value !== curVal) {
+    S.chartSplitProfile = '';
+    S.chartSplitStep = '';
+    sel.value = '';
+  }
   const modeEl = document.getElementById('caGrpMode');
-  if (modeEl) { modeEl.style.display = S.chartSplitStep ? '' : 'none'; modeEl.value = S.chartSplitMode; }
+  if (modeEl) { modeEl.style.display = sel.value ? '' : 'none'; modeEl.value = S.chartSplitMode; }
 }
 
 function onChartSplitChange() {
-  S.chartSplitStep = document.getElementById('caGrpStep').value;
+  const val = document.getElementById('caGrpStep').value;
+  if (val && val.includes('||')) {
+    const sep = val.indexOf('||');
+    S.chartSplitProfile = val.slice(0, sep);
+    S.chartSplitStep    = val.slice(sep + 2);
+  } else {
+    S.chartSplitProfile = '';
+    S.chartSplitStep    = '';
+  }
   const modeEl = document.getElementById('caGrpMode');
   if (modeEl) modeEl.style.display = S.chartSplitStep ? '' : 'none';
   renderChart();
@@ -2433,10 +2489,13 @@ function onChartSplitChange() {
 
 // Returns color for a lot, optionally overridden by split group assignment
 function getLotColor(lot, fallbackIdx) {
-  if (!S.chartSplitStep || !S.splitData) return getColor(fallbackIdx);
-  const groups = S.splitData.groups[S.chartSplitStep];
+  if (!S.chartSplitStep || !S.chartSplitProfile) return getColor(fallbackIdx);
+  const pd = S.splitProfiles[S.chartSplitProfile];
+  const lotMap = S.splitLotMaps[S.chartSplitProfile] || {};
+  if (!pd || !pd.groups) return getColor(fallbackIdx);
+  const groups = pd.groups[S.chartSplitStep];
   if (!groups) return getColor(fallbackIdx);
-  const splitLot = Object.keys(S.splitLotMap).find(k => S.splitLotMap[k] === lot);
+  const splitLot = Object.keys(lotMap).find(k => lotMap[k] === lot);
   if (!splitLot) return '#a0aec0';
   const condIdx = groups.findIndex(row => row.lotDone[splitLot]);
   return condIdx === -1 ? '#a0aec0' : SPLIT_COLORS[condIdx % SPLIT_COLORS.length].mk;
@@ -2445,19 +2504,23 @@ function getLotColor(lot, fallbackIdx) {
 // Returns array of {name, color, lots, data} for current chart settings
 function getChartGroups(item) {
   // No split mode: each lot is its own group
-  if (!S.chartSplitStep || !S.splitData) {
+  if (!S.chartSplitStep || !S.chartSplitProfile) {
     return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
   }
-  const groups = S.splitData.groups[S.chartSplitStep];
+  const pd = S.splitProfiles[S.chartSplitProfile];
+  const lotMap = S.splitLotMaps[S.chartSplitProfile] || {};
+  if (!pd || !pd.groups) {
+    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
+  }
+  const groups = pd.groups[S.chartSplitStep];
   if (!groups || !groups.length) {
     return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:validData(lot,item) }));
   }
   if (S.chartSplitMode === 'combined') {
-    // Merge all lots sharing the same condition row
     return groups.map((row, condIdx) => {
       const col = SPLIT_COLORS[condIdx % SPLIT_COLORS.length];
       const splitLots = Object.keys(row.lotDone).filter(sl => row.lotDone[sl]);
-      const loadedLots = splitLots.map(sl => S.splitLotMap[sl]).filter(l => l && S.lots.includes(l));
+      const loadedLots = splitLots.map(sl => lotMap[sl]).filter(l => l && S.lots.includes(l));
       const data = loadedLots.flatMap(lot => validData(lot, item));
       const name = row.condition || `條件 ${condIdx + 1}`;
       return { name, color:col.mk, lots:loadedLots, data };
@@ -2708,17 +2771,19 @@ function _updateSplitStatsCompare(items) {
   const div = document.getElementById('caStatsCompare');
   if (!div) return;
   const step = S.chartSplitStep;
-  if (!step || !S.splitData || !S.splitData.groups || !S.splitData.groups[step]) {
-    div.style.display = 'none'; return;
-  }
+  const prof = S.chartSplitProfile;
+  if (!step || !prof) { div.style.display = 'none'; return; }
+  const pd = S.splitProfiles[prof];
+  const lotMap = S.splitLotMaps[prof] || {};
+  if (!pd || !pd.groups || !pd.groups[step]) { div.style.display = 'none'; return; }
   if (!items || !items.length) { div.style.display = 'none'; return; }
-  const condRows = S.splitData.groups[step];
+  const condRows = pd.groups[step];
   const groups = condRows.map((row, gi) => {
     const color = SPLIT_COLORS[gi % SPLIT_COLORS.length];
     const label = condRows.length === 1 ? (row.condition || step) : (row.condition || `條件 ${gi + 1}`);
-    const lots  = S.splitData.lots
-      .filter(sl => row.lotDone[sl] && S.splitLotMap[sl] != null)
-      .map(sl => S.splitLotMap[sl]);
+    const lots  = pd.lots
+      .filter(sl => row.lotDone[sl] && lotMap[sl] != null)
+      .map(sl => lotMap[sl]);
     return { label, lots, color };
   });
   div.innerHTML = buildSplitStatsHtml(items, groups, step, 'combined');
@@ -3267,20 +3332,22 @@ function debounceSave() {
 function saveSettings() {
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      splitData:       S.splitData,
-      splitLotMap:     S.splitLotMap,
-      statSpecs:       S.statSpecs,
-      statFormats:     S.statFormats,
-      chartSpecs:      S.chartSpecs,
-      statItems:       S.statItems,
-      chartItems:      S.chartItems,
-      chartType:       S.chartType,
-      chartSplitStep:  S.chartSplitStep,
-      chartSplitMode:  S.chartSplitMode,
-      activeStats:     S.activeStats,
-      customStats:     S.customStats,
-      headerIdx:       S._headerIdx,
-      dataStartIdx:    S._dataStartIdx,
+      splitProfiles:    S.splitProfiles,
+      splitLotMaps:     S.splitLotMaps,
+      activeProfile:    S.activeProfile,
+      chartSplitProfile: S.chartSplitProfile,
+      statSpecs:        S.statSpecs,
+      statFormats:      S.statFormats,
+      chartSpecs:       S.chartSpecs,
+      statItems:        S.statItems,
+      chartItems:       S.chartItems,
+      chartType:        S.chartType,
+      chartSplitStep:   S.chartSplitStep,
+      chartSplitMode:   S.chartSplitMode,
+      activeStats:      S.activeStats,
+      customStats:      S.customStats,
+      headerIdx:        S._headerIdx,
+      dataStartIdx:     S._dataStartIdx,
     }));
   } catch(e) { console.warn('saveSettings failed', e); }
 }
@@ -3290,8 +3357,22 @@ function loadSettings() {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return false;
     const o = JSON.parse(raw);
-    if (o.splitData)   { S.splitData = o.splitData; rebuildSplitGroups(); }
-    if (o.splitLotMap) S.splitLotMap = o.splitLotMap;
+    // New multi-profile format
+    if (o.splitProfiles) {
+      S.splitProfiles  = o.splitProfiles;
+      S.splitLotMaps   = o.splitLotMaps  || {};
+      S.activeProfile  = o.activeProfile || Object.keys(o.splitProfiles)[0] || '';
+      S.chartSplitProfile = o.chartSplitProfile || '';
+      Object.values(S.splitProfiles).forEach(pd => { if (pd) rebuildSplitGroupsForProfile(pd); });
+    } else if (o.splitData) {
+      // Migrate from old single-profile format
+      const legacyName = '預設';
+      S.splitProfiles[legacyName] = o.splitData;
+      S.splitLotMaps[legacyName]  = o.splitLotMap || {};
+      S.activeProfile  = legacyName;
+      S.chartSplitProfile = legacyName;
+      rebuildSplitGroupsForProfile(S.splitProfiles[legacyName]);
+    }
     if (o.statSpecs)   S.statSpecs   = o.statSpecs;
     if (o.statFormats) S.statFormats = o.statFormats;
     if (o.chartSpecs)  S.chartSpecs  = o.chartSpecs;
@@ -3315,7 +3396,8 @@ function exportSession() {
     data: S.data, lots: S.lots, items: S.items,
     batchCounter: S.batchCounter, lotColors: S.lotColors,
     globalBins: S.globalBins, rawCols: S._rawCols,
-    splitData: S.splitData, splitLotMap: S.splitLotMap,
+    splitProfiles: S.splitProfiles, splitLotMaps: S.splitLotMaps,
+    activeProfile: S.activeProfile, chartSplitProfile: S.chartSplitProfile,
     statSpecs: S.statSpecs, statFormats: S.statFormats,
     chartSpecs: S.chartSpecs, statItems: S.statItems,
     chartItems: S.chartItems, chartType: S.chartType,
@@ -3344,8 +3426,22 @@ function importSession(file) {
       S.lotColors    = o.lotColors    || {};
       S.globalBins   = o.globalBins   || {};
       S._rawCols     = o.rawCols      || [];
-      if (o.splitData)   { S.splitData = o.splitData; rebuildSplitGroups(); }
-      if (o.splitLotMap) S.splitLotMap = o.splitLotMap;
+      // New multi-profile format
+      if (o.splitProfiles) {
+        S.splitProfiles  = o.splitProfiles;
+        S.splitLotMaps   = o.splitLotMaps  || {};
+        S.activeProfile  = o.activeProfile || Object.keys(o.splitProfiles)[0] || '';
+        S.chartSplitProfile = o.chartSplitProfile || '';
+        Object.values(S.splitProfiles).forEach(pd => { if (pd) rebuildSplitGroupsForProfile(pd); });
+      } else if (o.splitData) {
+        // Migrate old single-profile session format
+        const legacyName = '預設';
+        S.splitProfiles[legacyName] = o.splitData;
+        S.splitLotMaps[legacyName]  = o.splitLotMap || {};
+        S.activeProfile = legacyName;
+        S.chartSplitProfile = legacyName;
+        rebuildSplitGroupsForProfile(S.splitProfiles[legacyName]);
+      }
       if (o.statSpecs)   S.statSpecs   = o.statSpecs;
       if (o.statFormats) S.statFormats = o.statFormats;
       if (o.chartSpecs)  S.chartSpecs  = o.chartSpecs;
@@ -3368,10 +3464,11 @@ function importSession(file) {
 
       if (o.chartSplitStep) S.chartSplitStep = o.chartSplitStep;
       if (o.chartSplitMode) S.chartSplitMode = o.chartSplitMode;
-      if (S.splitData) {
+      if (Object.keys(S.splitProfiles).length) {
+        renderProfileSel();
         renderSplitEditor(); renderSplitMatchTable(); populateSplitStepSel(); populateChartSplitSel();
-        document.getElementById('splitMatchWrap').style.display = '';
-        document.getElementById('splitCtrlWrap').style.display = '';
+        document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
+        document.getElementById('splitCtrlWrap').style.display = S.splitData ? '' : 'none';
       }
       st.textContent = `✓ 已載入工作階段（${S.lots.length} Lot，${S.data.length} 筆）`;
       st.style.color = 'var(--accent)';
@@ -3400,6 +3497,102 @@ const SPLIT_COLORS = [
   {bg:'rgba(34,197,94,0.2)',  fg:'#22c55e',  mk:'rgba(34,197,94,0.85)'},
   {bg:'rgba(99,179,237,0.2)', fg:'#63b3ed',  mk:'rgba(99,179,237,0.85)'},
 ];
+
+// ── Profile management ──
+
+function _ensureActiveProfile() {
+  if (S.activeProfile) return true;
+  const name = prompt('請先建立一個設定檔，輸入名稱：', `設定檔 ${Object.keys(S.splitProfiles).length + 1}`);
+  if (!name || !name.trim()) return false;
+  const n = name.trim();
+  if (!S.splitProfiles[n]) S.splitProfiles[n] = { lots:[], rows:[], groups:{}, procNames:[] };
+  if (!S.splitLotMaps[n]) S.splitLotMaps[n] = {};
+  S.activeProfile = n;
+  renderProfileSel();
+  debounceSave();
+  return true;
+}
+
+function renderProfileSel() {
+  const sel = document.getElementById('splitProfileSel');
+  if (!sel) return;
+  const names = Object.keys(S.splitProfiles);
+  if (names.length) {
+    sel.innerHTML = names.map(n =>
+      `<option value="${escHtml(n)}"${n === S.activeProfile ? ' selected' : ''}>${escHtml(n)}</option>`
+    ).join('');
+  } else {
+    sel.innerHTML = '<option value="">— 尚無設定檔 —</option>';
+  }
+  sel.value = S.activeProfile || '';
+  const hasProf = !!S.activeProfile;
+  const btn1 = document.getElementById('btnRenameProfile');
+  const btn2 = document.getElementById('btnDeleteProfile');
+  if (btn1) btn1.disabled = !hasProf;
+  if (btn2) btn2.disabled = !hasProf;
+}
+
+function switchProfile(name) {
+  S.activeProfile = name;
+  renderProfileSel();
+  renderSplitEditor();
+  renderSplitMatchTable();
+  const hasSplit = !!(name && S.splitProfiles[name]);
+  document.getElementById('splitMatchWrap').style.display = hasSplit ? '' : 'none';
+  document.getElementById('splitFileStatus').textContent = name ? `當前設定檔：${name}` : '';
+}
+
+function promptCreateProfile(suggestName) {
+  const dflt = suggestName || `設定檔 ${Object.keys(S.splitProfiles).length + 1}`;
+  const name = prompt('請輸入新設定檔名稱：', dflt);
+  if (!name || !name.trim()) return null;
+  const n = name.trim();
+  if (S.splitProfiles[n]) { alert(`設定檔「${n}」已存在`); return null; }
+  S.splitProfiles[n] = { lots:[], rows:[], groups:{}, procNames:[] };
+  S.splitLotMaps[n] = {};
+  S.activeProfile = n;
+  renderProfileSel();
+  renderSplitEditor();
+  renderSplitMatchTable();
+  document.getElementById('splitMatchWrap').style.display = 'none';
+  document.getElementById('splitFileStatus').textContent = '';
+  debounceSave();
+  return n;
+}
+
+function renameProfile() {
+  if (!S.activeProfile) return;
+  const newName = prompt('請輸入新名稱：', S.activeProfile);
+  if (!newName || !newName.trim() || newName.trim() === S.activeProfile) return;
+  const n = newName.trim();
+  if (S.splitProfiles[n]) { alert(`設定檔「${n}」已存在`); return; }
+  S.splitProfiles[n] = S.splitProfiles[S.activeProfile];
+  S.splitLotMaps[n]  = S.splitLotMaps[S.activeProfile] || {};
+  delete S.splitProfiles[S.activeProfile];
+  delete S.splitLotMaps[S.activeProfile];
+  if (S.chartSplitProfile === S.activeProfile) S.chartSplitProfile = n;
+  S.activeProfile = n;
+  renderProfileSel();
+  populateChartSplitSel();
+  debounceSave();
+}
+
+function confirmDeleteProfile() {
+  if (!S.activeProfile) return;
+  if (!confirm(`確定要刪除設定檔「${S.activeProfile}」？此操作無法復原。`)) return;
+  delete S.splitProfiles[S.activeProfile];
+  delete S.splitLotMaps[S.activeProfile];
+  if (S.chartSplitProfile === S.activeProfile) { S.chartSplitProfile = ''; S.chartSplitStep = ''; }
+  const remaining = Object.keys(S.splitProfiles);
+  S.activeProfile = remaining.length ? remaining[remaining.length - 1] : '';
+  renderProfileSel();
+  renderSplitEditor();
+  renderSplitMatchTable();
+  document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
+  document.getElementById('splitFileStatus').textContent = S.activeProfile ? `當前設定檔：${S.activeProfile}` : '';
+  populateChartSplitSel();
+  debounceSave();
+}
 
 function loadSplitFile(file) {
   if (!file) return;
@@ -3461,12 +3654,16 @@ function loadSplitFile(file) {
       // Unique ordered process names for the step selector
       const procNames = [...new Set(rows.map(r => r.procName))];
 
-      S.splitData = { lots, rows, groups, procNames };
-      S.splitLotMap = autoMatchLots(lots, S.lots);
+      // Auto-create or overwrite a profile named after the file
+      const profName = file.name.replace(/\.(xlsx|xls)$/i, '').trim() || `Split_${Date.now()}`;
+      S.splitProfiles[profName] = { lots, rows, groups, procNames };
+      S.splitLotMaps[profName]  = autoMatchLots(lots, S.lots);
+      S.activeProfile = profName;
+      renderProfileSel();
 
       const splitCount = procNames.filter(n => groups[n].length > 1).length;
       statusEl.textContent =
-        `✓ 已載入：${rows.length} 條製程條件 × ${lots.length} 個 Lot（其中 ${splitCount} 個製程有 Split）`;
+        `✓ 已載入「${profName}」：${rows.length} 條製程條件 × ${lots.length} 個 Lot（其中 ${splitCount} 個製程有 Split）`;
       statusEl.style.color = 'var(--accent)';
 
       renderSplitEditor();
@@ -3483,15 +3680,20 @@ function loadSplitFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
-function rebuildSplitGroups() {
-  if (!S.splitData || !S.splitData.rows) return;
+function rebuildSplitGroupsForProfile(pd) {
+  if (!pd || !pd.rows) return;
   const groups = {};
-  S.splitData.rows.forEach(r => {
+  pd.rows.forEach(r => {
     if (!groups[r.procName]) groups[r.procName] = [];
     groups[r.procName].push(r);
   });
-  S.splitData.groups   = groups;
-  S.splitData.procNames = [...new Set(S.splitData.rows.map(r => r.procName).filter(Boolean))];
+  pd.groups   = groups;
+  pd.procNames = [...new Set(pd.rows.map(r => r.procName).filter(Boolean))];
+}
+
+function rebuildSplitGroups() {
+  if (!S.splitData || !S.splitData.rows) return;
+  rebuildSplitGroupsForProfile(S.splitData);
   populateChartSplitSel();
 }
 
@@ -3641,6 +3843,7 @@ function _syncSplitEditModeUI() {
 
 // ── Editor: add/delete rows and lots ──
 function addSplitRow() {
+  if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   const lotDone = {};
   S.splitData.lots.forEach(l => lotDone[l] = false);
@@ -3673,6 +3876,7 @@ function promptAddSplitLot() {
 }
 
 function addSplitLot(name) {
+  if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   if (S.splitData.lots.includes(name)) return;
   S.splitData.lots.push(name);
@@ -3712,18 +3916,28 @@ function toggleSplitCheck(btn) {
 }
 
 function clearSplitData() {
-  if (!confirm('確定要清除所有 Split 條件？')) return;
-  S.splitData = null; S.splitLotMap = {};
+  const profMsg = S.activeProfile ? `「${S.activeProfile}」` : '當前設定檔';
+  if (!confirm(`確定要清除 ${profMsg} 的所有 Split 條件？`)) return;
+  if (S.activeProfile) {
+    delete S.splitProfiles[S.activeProfile];
+    delete S.splitLotMaps[S.activeProfile];
+    if (S.chartSplitProfile === S.activeProfile) { S.chartSplitProfile = ''; S.chartSplitStep = ''; }
+    const remaining = Object.keys(S.splitProfiles);
+    S.activeProfile = remaining.length ? remaining[remaining.length - 1] : '';
+  }
+  renderProfileSel();
   renderSplitEditor();
   document.getElementById('splitMatchWrap').style.display = 'none';
   document.getElementById('splitCtrlWrap').style.display = 'none';
   document.getElementById('splitResultWrap').style.display = 'none';
   document.getElementById('splitFileStatus').textContent = '';
+  populateChartSplitSel();
   saveSettings();
 }
 
 function initSplitFromLoadedLots() {
   if (!S.lots.length) { alert('請先在「資料載入」頁面載入量測資料。'); return; }
+  if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   let added = 0;
   S.lots.forEach(l => {
@@ -3750,6 +3964,7 @@ function toggleSplitEditMode() {
 
 // ── Insert row / column ──
 function insertSplitRowBefore(ri) {
+  if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   const lotDone = {};
   S.splitData.lots.forEach(l => lotDone[l] = false);
@@ -3765,6 +3980,7 @@ function insertSplitRowBefore(ri) {
 }
 
 function insertSplitColBefore(li) {
+  if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   const name = prompt('輸入新 Lot 批號名稱', '').trim();
   if (!name) return;
@@ -4098,21 +4314,24 @@ function buildSplitStatsHtml(items, groups, procName, dispMode) {
   setTimeout(function() { renderTemplatesSel(); _syncSplitEditModeUI(); }, 0);
   if (!restored) return;
   // Restore split UI if split data was saved
-  if (S.splitData && S.splitData.rows && S.splitData.rows.length) {
-    rebuildSplitGroups();
+  if (Object.keys(S.splitProfiles).length > 0) {
     // Defer rendering until DOM is ready
     setTimeout(function() {
+      renderProfileSel();
       renderSplitEditor();
       renderSplitMatchTable();
       populateSplitStepSel();
       populateChartSplitSel();
-      document.getElementById('splitMatchWrap').style.display = '';
-      document.getElementById('splitCtrlWrap').style.display = '';
-      const cnt = S.splitData.rows.length;
-      const splitCount = S.splitData.procNames.filter(n => S.splitData.groups[n].length > 1).length;
-      document.getElementById('splitFileStatus').textContent =
-        `✓ 已從設定還原：${cnt} 條製程條件（${splitCount} 個 Split）`;
-      document.getElementById('splitFileStatus').style.color = 'var(--accent)';
+      const pd = S.splitData;
+      if (pd && pd.rows && pd.rows.length) {
+        document.getElementById('splitMatchWrap').style.display = '';
+        document.getElementById('splitCtrlWrap').style.display = '';
+        const cnt = pd.rows.length;
+        const splitCount = pd.procNames.filter(n => pd.groups[n].length > 1).length;
+        document.getElementById('splitFileStatus').textContent =
+          `✓ 已從設定還原：${Object.keys(S.splitProfiles).length} 個設定檔，當前「${S.activeProfile}」含 ${cnt} 條製程條件（${splitCount} 個 Split）`;
+        document.getElementById('splitFileStatus').style.color = 'var(--accent)';
+      }
     }, 0);
   }
   // Show a quick status note in the upload tab
