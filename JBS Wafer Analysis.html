@@ -773,6 +773,11 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <input id="cntColsNum" type="number" min="1" max="20" value="4"
              style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
              oninput="renderCount()">
+      <label style="margin-left:12px">Lot 顯示：</label>
+      <div class="seg" id="cntLotModeSeg">
+        <button class="on" type="button" onclick="setCntLotMode('split',this)">獨立</button>
+        <button type="button" onclick="setCntLotMode('overlay',this)">疊加</button>
+      </div>
     </div>
     <div class="ctrl">
       <label>X 軸範圍：</label>
@@ -812,6 +817,11 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <input id="pctColsNum" type="number" min="1" max="20" value="4"
              style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
              oninput="renderPct()">
+      <label style="margin-left:12px">Lot 顯示：</label>
+      <div class="seg" id="pctLotModeSeg">
+        <button class="on" type="button" onclick="setPctLotMode('split',this)">獨立</button>
+        <button type="button" onclick="setPctLotMode('overlay',this)">疊加</button>
+      </div>
     </div>
     <div class="ctrl">
       <label>X 軸範圍：</label>
@@ -1284,6 +1294,8 @@ const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 const S = {
   files: [], data: [], lots: [], items: [], globalBins: {},
   loadMode: 'overwrite',     // 'overwrite' | 'append'
+  cntLotMode: 'split',       // 'split' | 'overlay'
+  pctLotMode: 'split',       // 'split' | 'overlay'
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
@@ -1789,6 +1801,22 @@ function setGridCols(el, n) {
 }
 
 // ══════════════════════════════════════════════════
+// COUNT / PCT LOT-MODE HELPERS
+// ══════════════════════════════════════════════════
+function setCntLotMode(mode, btn) {
+  S.cntLotMode = mode;
+  document.querySelectorAll('#cntLotModeSeg button').forEach(b => b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  renderCount();
+}
+function setPctLotMode(mode, btn) {
+  S.pctLotMode = mode;
+  document.querySelectorAll('#pctLotModeSeg button').forEach(b => b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  renderPct();
+}
+
+// ══════════════════════════════════════════════════
 // % DIST AXIS HELPERS
 // ══════════════════════════════════════════════════
 function resetPctAxes() {
@@ -2059,6 +2087,53 @@ function renderCount() {
   grid.innerHTML = '';
 
   const lots = selLot === 'all' ? S.lots : [selLot];
+
+  // ── OVERLAY MODE ──────────────────────────────────
+  if (S.cntLotMode === 'overlay' && lots.length > 1) {
+    const allVals = lots.flatMap(lot => validData(lot, item));
+    if (allVals.length < 3) return;
+    const edges = hasXOvr
+      ? linspace(parseFloat(xMinV), parseFloat(xMaxV), N_BINS + 1)
+      : linspace(Math.min(...allVals), Math.max(...allVals), N_BINS + 1);
+    const bw = edges[1] - edges[0];
+    const bc = binCenters(edges);
+
+    const traces = [];
+    lots.forEach((lot, li) => {
+      const data = validData(lot, item);
+      if (data.length < 3) return;
+      const mu = mean(data), sg = std(data);
+      const cnts  = makeHist(data, edges);
+      const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
+      traces.push({
+        type:'bar', x:bc, y:cnts, name:lot, width:bw*0.98,
+        marker:{color:getColor(li), opacity:0.55, line:{color:getColor(li), width:0.5}},
+        hovertemplate:`${escHtml(lot)}<br>%{x:.4g}: %{y}<extra></extra>`
+      });
+      traces.push({
+        type:'scatter', mode:'lines', name:lot, showlegend:false,
+        x:bc, y:curve,
+        line:{color:getColor(li), width:1.5, dash:'dot', shape:'spline'},
+        hovertemplate:`${escHtml(lot)}<br>%{x:.4g}: %{y:.2f}<extra></extra>`
+      });
+    });
+
+    const id = uid('cnt', item + '_ovl');
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card" style="grid-column:1/-1"><div id="${id}" style="height:320px"></div></div>`);
+    Plotly.newPlot(id, traces, {
+      title:{text:`${escHtml(item)} — 全部 Lot 疊加`, font:{size:11}},
+      barmode:'overlay',
+      margin:{t:40,b:34,l:44,r:10}, showlegend:true, bargap:0,
+      xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
+      yaxis:{ title:{text:'Count', font:{size:10}},
+              range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
+      height:320
+    }, {responsive:true, displayModeBar:false});
+    return;
+  }
+
+  // ── SPLIT MODE (每 Lot 獨立圖表) ──────────────────
   lots.forEach(lot => {
     const data = validData(lot, item);
     if (data.length < 3) return;
@@ -2131,32 +2206,71 @@ function renderPct() {
     sec.appendChild(grid);
     area.appendChild(sec);
 
-    lots.forEach(lot => {
-      const data = validData(lot, item);
-      if (data.length < 3) return;
-      const mu   = mean(data), sg = std(data);
-      const cnts = makeHist(data, edges);
-      const pct  = cnts.map(c => c / data.length * 100);
-      const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+    // ── OVERLAY MODE ──────────────────────────────────
+    if (S.pctLotMode === 'overlay' && lots.length > 1) {
+      const traces = [];
+      lots.forEach((lot, li) => {
+        const data = validData(lot, item);
+        if (data.length < 3) return;
+        const mu   = mean(data), sg = std(data);
+        const cnts = makeHist(data, edges);
+        const pct  = cnts.map(c => c / data.length * 100);
+        const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+        traces.push({
+          type:'bar', x:bc, y:pct, name:lot, width:bw*0.98,
+          marker:{color:getColor(li), opacity:0.55, line:{color:getColor(li), width:0.5}},
+          hovertemplate:`${escHtml(lot)}<br>%{x:.4g}: %{y:.1f}%<extra></extra>`
+        });
+        traces.push({
+          type:'scatter', mode:'lines', name:lot, showlegend:false,
+          x:bc, y:curve,
+          line:{color:getColor(li), width:1.5, dash:'dot', shape:'spline'},
+          hovertemplate:`${escHtml(lot)}<br>%{x:.4g}: %{y:.2f}%<extra></extra>`
+        });
+      });
+      if (traces.length) {
+        const id = uid('pct', item + '_ovl');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card" style="grid-column:1/-1"><div id="${id}" style="height:300px"></div></div>`);
+        Plotly.newPlot(id, traces, {
+          title:{text:`${escHtml(item)} — 全部 Lot 疊加`, font:{size:11}},
+          barmode:'overlay',
+          margin:{t:40,b:34,l:44,r:10}, showlegend:true, bargap:0,
+          yaxis:{title:{text:'%', font:{size:10}}, range:[yMin, yMax]},
+          xaxis:{range: xRange},
+          height:300
+        }, {responsive:true, displayModeBar:false});
+      }
 
-      const id = uid('pct', lot + item);
-      grid.insertAdjacentHTML('beforeend',
-        `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
-      Plotly.newPlot(id, [
-        { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
-          marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
-          hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
-        { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
-          line:{color:'#e53e3e',width:2,shape:'spline'},
-          hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
-      ], {
-        title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
-        margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
-        yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
-        xaxis:{range: xRange},
-        height:230
-      }, {responsive:true, displayModeBar:false});
-    });
+    // ── SPLIT MODE (每 Lot 獨立圖表) ──────────────────
+    } else {
+      lots.forEach(lot => {
+        const data = validData(lot, item);
+        if (data.length < 3) return;
+        const mu   = mean(data), sg = std(data);
+        const cnts = makeHist(data, edges);
+        const pct  = cnts.map(c => c / data.length * 100);
+        const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+
+        const id = uid('pct', lot + item);
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
+        Plotly.newPlot(id, [
+          { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
+            marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
+            hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
+          { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+            line:{color:'#e53e3e',width:2,shape:'spline'},
+            hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
+        ], {
+          title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
+          margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
+          yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
+          xaxis:{range: xRange},
+          height:230
+        }, {responsive:true, displayModeBar:false});
+      });
+    }
   });
 }
 
