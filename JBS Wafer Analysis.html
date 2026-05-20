@@ -607,9 +607,24 @@ body.density-compact .stats-block-hd, body.density-compact .rename-header { padd
 /* Light mode plotly text fix */
 body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
+/* ── Toast notifications ── */
+#toast-container{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column-reverse;gap:8px;pointer-events:none}
+.toast-item{padding:10px 16px;border-radius:8px;font-size:13px;max-width:320px;box-shadow:0 4px 16px rgba(0,0,0,.25);pointer-events:auto;animation:toastIn .2s ease;display:flex;align-items:center;gap:10px}
+.toast-item.info{background:#2d3748;color:#e6edf3}
+.toast-item.success{background:#276749;color:#c6f6d5}
+.toast-item.warn{background:#744210;color:#fefcbf}
+.toast-item.error{background:#742a2a;color:#fed7d7}
+.toast-item.confirm{background:#2a4365;color:#bee3f8;flex-direction:column;align-items:flex-start}
+.toast-confirm-btns{display:flex;gap:8px;margin-top:6px}
+.toast-confirm-btns button{padding:4px 12px;border-radius:4px;border:none;cursor:pointer;font-size:12px}
+.toast-confirm-btns .btn-yes{background:#4299e1;color:#fff}
+.toast-confirm-btns .btn-no{background:#4a5568;color:#e6edf3}
+@keyframes toastIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+
 </style>
 </head>
 <body>
+<div id="toast-container"></div>
 
 <div class="header">
   <div class="jbs-hdr">
@@ -651,7 +666,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <div class="upload-text">點擊或拖曳上傳 Excel 檔案</div>
       <div class="upload-hint">支援 .xls / .xlsx，可同時選取多個 wafer 檔案</div>
     </div>
-    <input type="file" id="fi" multiple accept=".xls,.xlsx" style="display:none"
+    <input type="file" id="fi" multiple accept=".xls,.xlsx,.csv" style="display:none"
            onchange="handleFiles(this.files)">
 
     <!-- 載入模式 (覆蓋/附加) -->
@@ -823,6 +838,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <input id="cntColsNum" type="number" min="1" max="20" value="4"
              style="display:none;width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;margin-left:4px"
              oninput="renderCount()">
+      <label style="margin-left:12px">Bins：</label>
+      <input id="cntBinsNum" type="number" min="5" max="100" value="25"
+             style="width:54px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+             oninput="renderCount()">
     </div>
     <div class="ctrl">
       <label>X 軸範圍：</label>
@@ -909,6 +928,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <label style="white-space:nowrap;font-weight:700;font-size:12px">量測項目：</label>
       <div id="stItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
       <button class="btn btn-gray" style="font-size:12px" onclick="addStatItem()">＋ 新增項目</button>
+      <button class="btn btn-gray" style="font-size:12px" onclick="exportSpecTemplate()">💾 匯出 SPEC</button>
+      <label class="btn btn-gray" style="font-size:12px;cursor:pointer" title="載入 SPEC 範本 JSON">📂 載入 SPEC<input type="file" accept=".json" style="display:none" onchange="importSpecTemplate(this)"></label>
       <button class="btn btn-green" onclick="exportExcel()" style="margin-left:auto">💾 匯出 Excel</button>
     </div>
     <!-- Row 2: stat chips + reset -->
@@ -1674,8 +1695,15 @@ async function loadColumns() {
 
   for (const file of S.files) {
     try {
-      const buf  = await file.arrayBuffer();
-      const wb   = XLSX.read(buf, { type:'array' });
+      const isCsv = file.name.toLowerCase().endsWith('.csv');
+      let wb;
+      if (isCsv) {
+        const text = await file.text();
+        wb = XLSX.read(text, { type:'string' });
+      } else {
+        const buf = await file.arrayBuffer();
+        wb = XLSX.read(buf, { type:'array' });
+      }
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
       if (rows.length <= S._headerIdx) { errs.push(file.name); continue; }
@@ -1892,8 +1920,15 @@ async function applyAndAnalyze() {
   for (const file of S.files) {
     try {
       const lot  = getLotName(file.name);
-      const buf  = await file.arrayBuffer();
-      const wb   = XLSX.read(buf, { type:'array' });
+      const isCsv = file.name.toLowerCase().endsWith('.csv');
+      let wb;
+      if (isCsv) {
+        const text = await file.text();
+        wb = XLSX.read(text, { type:'string' });
+      } else {
+        const buf = await file.arrayBuffer();
+        wb = XLSX.read(buf, { type:'array' });
+      }
       const ws   = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
       if (rows.length <= S._headerIdx) { errs.push(`${file.name}：列數不足`); continue; }
@@ -1995,6 +2030,8 @@ function populateSels() {
   renderStatItemSelects();
   renderChartItemSelects();
   renderSplitItemSelects();
+  populateNsSplitSel('cnt');
+  populateNsSplitSel('pct');
 }
 
 // ══════════════════════════════════════════════════
@@ -2033,6 +2070,35 @@ function validData(lot,item) {
   return (lot ? S.data.filter(r=>r.Lot===lot) : S.data)
     .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
 }
+// ── Toast notifications ──
+const Toast = {
+  _show(msg, type, ms) {
+    const el = document.createElement('div');
+    el.className = `toast-item ${type}`;
+    el.textContent = msg;
+    const c = document.getElementById('toast-container');
+    if (c) { c.appendChild(el); setTimeout(() => el.remove(), ms || 3000); }
+  },
+  info(msg, ms)    { this._show(msg, 'info', ms); },
+  success(msg, ms) { this._show(msg, 'success', ms); },
+  warn(msg, ms)    { this._show(msg, 'warn', ms || 4000); },
+  error(msg, ms)   { this._show(msg, 'error', ms || 5000); },
+  confirm(msg) {
+    return new Promise(resolve => {
+      const el = document.createElement('div');
+      el.className = 'toast-item confirm';
+      el.innerHTML = `<div style="font-size:13px">${typeof escHtml === 'function' ? escHtml(msg) : msg}</div>
+        <div class="toast-confirm-btns">
+          <button class="btn-yes">確認</button>
+          <button class="btn-no">取消</button>
+        </div>`;
+      el.querySelectorAll('button')[0].onclick = () => { el.remove(); resolve(true); };
+      el.querySelectorAll('button')[1].onclick = () => { el.remove(); resolve(false); };
+      const c = document.getElementById('toast-container');
+      if (c) c.appendChild(el);
+    });
+  }
+};
 function tick() { return new Promise(r=>setTimeout(r,10)); }
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 let _uid=0;
@@ -2346,8 +2412,39 @@ function resetCntAxes() {
     document.getElementById(id).value = '');
   renderCount();
 }
+function _renderCntHistCard(grid, name, data, item, color, hasXOvr, xMinV, xMaxV, hasYOvr, yMinV, yMaxV, extraTraces) {
+  const mu = mean(data), sg = std(data);
+  const nBins = parseInt(document.getElementById('cntBinsNum')?.value || 25) || 25;
+  const edges = hasXOvr
+    ? linspace(parseFloat(xMinV), parseFloat(xMaxV), nBins + 1)
+    : linspace(Math.min(...data), Math.max(...data), nBins + 1);
+  const bw   = edges[1] - edges[0];
+  const bc   = binCenters(edges);
+  const cnts = makeHist(data, edges);
+  const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
+  const id = uid('cnt', name + item);
+  grid.insertAdjacentHTML('beforeend',
+    `<div class="chart-card"><div id="${id}" style="height:250px"></div></div>`);
+  const traces = [
+    { type:'bar', x:bc, y:cnts, name:'Count', width:bw*0.98,
+      marker:{color: color || 'rgba(66,153,225,0.65)', line:{color: color ? color.replace('0.65','1') : 'rgba(66,153,225,1)', width:0.5}},
+      hovertemplate:'%{x:.4g}: %{y}<extra></extra>' },
+    { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+      line:{color:'#e53e3e',width:2,shape:'spline'},
+      hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' },
+    ...(extraTraces || [])
+  ];
+  Plotly.newPlot(id, traces, {
+    title:{text:`${escHtml(name)} — ${escHtml(item)}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
+    margin:{t:54,b:34,l:44,r:10}, showlegend:false, bargap:0,
+    xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
+    yaxis:{ title:{text:'Count',font:{size:10}},
+            range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
+    height:250
+  }, {responsive:true, displayModeBar:'hover'});
+}
+
 function renderCount() {
-  const selLot = document.getElementById('cntLot').value;
   const item   = document.getElementById('cntItem').value;
   const n      = getCols('cnt');
   const grid   = document.getElementById('cntGrid');
@@ -2363,46 +2460,93 @@ function renderCount() {
   setGridCols(grid, n);
   grid.innerHTML = '';
 
+  // SPLIT mode
+  if (S.cntSplitSteps.length > 0) {
+    if (S.cntSplitMode === 'overlay') {
+      // All groups overlaid on one chart
+      const groups = _getSplitGroupsFor(item, S.cntSplitSteps, 'combined');
+      if (!groups.length) return;
+      const nBins = parseInt(document.getElementById('cntBinsNum')?.value || 25) || 25;
+      const allData = groups.flatMap(g => g.data);
+      const edges = hasXOvr
+        ? linspace(parseFloat(xMinV), parseFloat(xMaxV), nBins + 1)
+        : linspace(Math.min(...allData), Math.max(...allData), nBins + 1);
+      const bw = edges[1] - edges[0], bc = binCenters(edges);
+      const id = uid('cnt', 'overlay' + item);
+      grid.insertAdjacentHTML('beforeend',
+        `<div class="chart-card" style="grid-column:1/-1"><div id="${id}" style="height:320px"></div></div>`);
+      const traces = groups.flatMap(g => {
+        const cnts = makeHist(g.data, edges);
+        const mu = mean(g.data), sg = std(g.data);
+        const curve = bc.map(x => normPDF(x, mu, sg) * g.data.length * bw);
+        const barCol = g.color.replace(/[\d.]+\)$/, '0.45)');
+        return [
+          { type:'bar', x:bc, y:cnts, name:g.name, width:bw*0.92,
+            marker:{color:barCol}, hovertemplate:'%{x:.4g}: %{y}<extra>' + escHtml(g.name) + '</extra>' },
+          { type:'scatter', mode:'lines', x:bc, y:curve, name:g.name+' 曲線',
+            line:{color:g.color,width:2,shape:'spline'}, showlegend:false,
+            hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' }
+        ];
+      });
+      Plotly.newPlot(id, traces, {
+        title:{text:`${escHtml(item)} — 疊加比較`,font:{size:11}},
+        barmode:'overlay', margin:{t:46,b:34,l:44,r:10}, bargap:0,
+        xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
+        yaxis:{ title:{text:'Count',font:{size:10}},
+                range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
+        height:320
+      }, {responsive:true, displayModeBar:'hover'});
+    } else {
+      const groups = _getSplitGroupsFor(item, S.cntSplitSteps, S.cntSplitMode);
+      groups.forEach(g => {
+        _renderCntHistCard(grid, g.name, g.data, item, g.color, hasXOvr, xMinV, xMaxV, hasYOvr, yMinV, yMaxV, null);
+      });
+    }
+    return;
+  }
+
+  // Default: per-lot mode
+  const selLot = document.getElementById('cntLot').value;
   const lots = selLot === 'all' ? S.lots : [selLot];
   lots.forEach(lot => {
     const data = validData(lot, item);
     if (data.length < 3) return;
-    const mu = mean(data), sg = std(data);
-    const edges = hasXOvr
-      ? linspace(parseFloat(xMinV), parseFloat(xMaxV), N_BINS + 1)
-      : linspace(Math.min(...data), Math.max(...data), N_BINS + 1);
-    const bw    = edges[1] - edges[0];
-    const bc    = binCenters(edges);
-    const cnts  = makeHist(data, edges);
-    const curve = bc.map(x => normPDF(x, mu, sg) * data.length * bw);
-
-    const id = uid('cnt', lot + item);
-    grid.insertAdjacentHTML('beforeend',
-      `<div class="chart-card"><div id="${id}" style="height:250px"></div></div>`);
-    Plotly.newPlot(id, [
-      { type:'bar', x:bc, y:cnts, name:'Count', width:bw*0.98,
-        marker:{color:'rgba(66,153,225,0.65)',line:{color:'rgba(66,153,225,1)',width:0.5}},
-        hovertemplate:'%{x:.4g}: %{y}<extra></extra>' },
-      { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
-        line:{color:'#e53e3e',width:2,shape:'spline'},
-        hovertemplate:'%{x:.4g}: %{y:.2f}<extra></extra>' }
-    ], {
-      title:{text:`${lot} — ${item}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
-      margin:{t:54,b:34,l:44,r:10}, showlegend:false, bargap:0,
-      xaxis:{ range: hasXOvr ? [parseFloat(xMinV), parseFloat(xMaxV)] : undefined },
-      yaxis:{ title:{text:'Count',font:{size:10}},
-              range: hasYOvr ? [parseFloat(yMinV), parseFloat(yMaxV)] : undefined },
-      height:250
-    }, {responsive:true, displayModeBar:false});
+    _renderCntHistCard(grid, lot, data, item, null, hasXOvr, xMinV, xMaxV, hasYOvr, yMinV, yMaxV, null);
   });
 }
 
 // ══════════════════════════════════════════════════
 // PERCENTAGE DISTRIBUTION
 // ══════════════════════════════════════════════════
+function _renderPctHistCard(grid, name, data, item, edges, color, xRange, yMin, yMax) {
+  const bw    = edges[1] - edges[0];
+  const bc    = binCenters(edges);
+  const mu    = mean(data), sg = std(data);
+  const cnts  = makeHist(data, edges);
+  const pct   = cnts.map(c => c / data.length * 100);
+  const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+  const barCol = color || 'rgba(72,187,120,0.65)';
+  const lineCol = color ? color.replace('0.65','1').replace('0.85','1') : 'rgba(72,187,120,1)';
+  const id = uid('pct', name + item);
+  grid.insertAdjacentHTML('beforeend',
+    `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
+  Plotly.newPlot(id, [
+    { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
+      marker:{color:barCol, line:{color:lineCol, width:0.5}},
+      hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
+    { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
+      line:{color:'#e53e3e',width:2,shape:'spline'},
+      hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
+  ], {
+    title:{text:`${escHtml(name)}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
+    margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
+    yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
+    xaxis:{range: xRange}, height:230
+  }, {responsive:true, displayModeBar:'hover'});
+}
+
 function renderPct() {
   const selItem = document.getElementById('pctItem').value;
-  const selLot  = document.getElementById('pctLot').value;
   const n       = getCols('pct');
   const area    = document.getElementById('pctArea');
   area.innerHTML = '';
@@ -2415,7 +2559,6 @@ function renderPct() {
   const yMin = yMinV !== '' ? parseFloat(yMinV) : 0;
   const yMax = yMaxV !== '' ? parseFloat(yMaxV) : 100;
 
-  const lots  = (selLot === 'all') ? S.lots : [selLot];
   const items = (selItem === 'all')
     ? S.items.filter(i => S.globalBins[i])
     : (S.globalBins[selItem] ? [selItem] : []);
@@ -2429,38 +2572,64 @@ function renderPct() {
       : [edges[0], edges[edges.length - 1]];
 
     const sec = document.createElement('div');
-    sec.style.cssText = 'margin-bottom:18px;background:white;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)';
-    sec.innerHTML = `<div class="section-hd">${item}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
+    sec.style.cssText = 'margin-bottom:18px;background:var(--bg-2);border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)';
+
+    // SPLIT mode
+    if (S.pctSplitSteps.length > 0) {
+      if (S.pctSplitMode === 'overlay') {
+        sec.innerHTML = `<div class="section-hd">${escHtml(item)}（% 分布 ｜ 疊加比較）</div>`;
+        const innerGrid = document.createElement('div');
+        innerGrid.style.cssText = 'padding:10px';
+        sec.appendChild(innerGrid);
+        area.appendChild(sec);
+        const groups = _getSplitGroupsFor(item, S.pctSplitSteps, 'combined');
+        if (!groups.length) return;
+        const id = uid('pct', 'overlay' + item);
+        innerGrid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:300px"></div></div>`);
+        const traces = groups.flatMap(g => {
+          const cnts  = makeHist(g.data, edges);
+          const pct   = cnts.map(c => c / g.data.length * 100);
+          const mu = mean(g.data), sg = std(g.data);
+          const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
+          const barCol = g.color.replace(/[\d.]+\)$/, '0.45)');
+          return [
+            { type:'bar', x:bc, y:pct, name:g.name, width:bw*0.92,
+              marker:{color:barCol}, hovertemplate:'%{x:.4g}: %{y:.1f}%<extra>' + escHtml(g.name) + '</extra>' },
+            { type:'scatter', mode:'lines', x:bc, y:curve, name:g.name+' 曲線',
+              line:{color:g.color,width:2,shape:'spline'}, showlegend:false }
+          ];
+        });
+        Plotly.newPlot(id, traces, {
+          title:{text:`${escHtml(item)} — 疊加比較`,font:{size:11}},
+          barmode:'overlay', margin:{t:46,b:34,l:44,r:10}, bargap:0,
+          yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
+          xaxis:{range: xRange}, height:300
+        }, {responsive:true, displayModeBar:'hover'});
+      } else {
+        const groups = _getSplitGroupsFor(item, S.pctSplitSteps, S.pctSplitMode);
+        sec.innerHTML = `<div class="section-hd">${escHtml(item)}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
+        const innerGrid = document.createElement('div');
+        innerGrid.style.cssText = `display:grid;gap:14px;grid-template-columns:repeat(${n},1fr);padding:10px`;
+        sec.appendChild(innerGrid);
+        area.appendChild(sec);
+        groups.forEach(g => _renderPctHistCard(innerGrid, g.name, g.data, item, edges, g.color, xRange, yMin, yMax));
+      }
+      return;
+    }
+
+    // Default: per-lot mode
+    const selLot = document.getElementById('pctLot').value;
+    const lots = (selLot === 'all') ? S.lots : [selLot];
+    sec.innerHTML = `<div class="section-hd">${escHtml(item)}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
     const grid = document.createElement('div');
     grid.style.cssText = `display:grid;gap:14px;grid-template-columns:repeat(${n},1fr);padding:10px`;
     sec.appendChild(grid);
     area.appendChild(sec);
-
     lots.forEach(lot => {
       const data = validData(lot, item);
       if (data.length < 3) return;
-      const mu   = mean(data), sg = std(data);
-      const cnts = makeHist(data, edges);
-      const pct  = cnts.map(c => c / data.length * 100);
-      const curve = bc.map(x => normPDF(x, mu, sg) * bw * 100);
-
-      const id = uid('pct', lot + item);
-      grid.insertAdjacentHTML('beforeend',
-        `<div class="chart-card"><div id="${id}" style="height:230px"></div></div>`);
-      Plotly.newPlot(id, [
-        { type:'bar', x:bc, y:pct, name:'%', width:bw*0.98,
-          marker:{color:'rgba(72,187,120,0.65)',line:{color:'rgba(72,187,120,1)',width:0.5}},
-          hovertemplate:'%{x:.4g}: %{y:.1f}%<extra></extra>' },
-        { type:'scatter', mode:'lines', x:bc, y:curve, name:'Normal',
-          line:{color:'#e53e3e',width:2,shape:'spline'},
-          hovertemplate:'%{x:.4g}: %{y:.2f}%<extra></extra>' }
-      ], {
-        title:{text:`${lot}<br><sup>n=${data.length}  mean=${rd(mu,4)}  std=${rd(sg,4)}</sup>`,font:{size:10}},
-        margin:{t:50,b:34,l:44,r:10}, showlegend:false, bargap:0,
-        yaxis:{title:{text:'%',font:{size:10}}, range:[yMin, yMax]},
-        xaxis:{range: xRange},
-        height:230
-      }, {responsive:true, displayModeBar:false});
+      _renderPctHistCard(grid, lot, data, item, edges, null, xRange, yMin, yMax);
     });
   });
 }
@@ -2503,6 +2672,10 @@ function buildItemStatsBlock(item) {
                      style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
                             color:white;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer">
                ↩ 還原隱藏列（${removed.size}）</button>` : ''}
+        <button onclick="copyStatsTable('${esc_item}')"
+                style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
+                       color:white;border-radius:4px;padding:2px 8px;font-size:11px;cursor:pointer"
+                title="複製統計表到剪貼簿">📋 複製</button>
       </span>
     </div>
     <div class="stats-block-scroll">
@@ -2571,6 +2744,28 @@ function buildItemStatsBlock(item) {
   const wrap = document.createElement('div');
   wrap.innerHTML = h;
   return wrap.firstChild;
+}
+
+function copyStatsTable(item) {
+  const allFns  = getAllStatFns();
+  const removed = S.itemRemovedStats[item] || new Set();
+  const visKeys = S.activeStats.filter(k => !removed.has(k));
+  const header  = ['統計項目', ...S.lots].join('\t');
+  const rows    = visKeys.map(key => {
+    const fn = allFns[key]; if (!fn) return null;
+    const spec = (S.statSpecs[item] || {})[key] || {};
+    const vals = S.lots.map(lot => {
+      const d = validData(lot, item);
+      if (!d.length) return '—';
+      return formatStatVal(key, fn(d, spec));
+    });
+    return [key, ...vals].join('\t');
+  }).filter(Boolean);
+  const text = [header, ...rows].join('\n');
+  navigator.clipboard.writeText(text).then(
+    () => Toast.success(`${item} 統計表已複製`),
+    () => Toast.error('複製失敗，請手動選取')
+  );
 }
 
 // ══════════════════════════════════════════════════
@@ -3665,6 +3860,33 @@ function caCorr(items, grid) {
 }
 
 // ══════════════════════════════════════════════════
+// SPEC TEMPLATE EXPORT / IMPORT
+// ══════════════════════════════════════════════════
+function exportSpecTemplate() {
+  const blob = new Blob([JSON.stringify({statSpecs: S.statSpecs, chartSpecs: S.chartSpecs}, null, 2)], {type:'application/json'});
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob),
+    download: `spec_template_${new Date().toISOString().slice(0,10)}.json`
+  });
+  a.click(); URL.revokeObjectURL(a.href);
+  Toast.success('SPEC 範本已匯出');
+}
+function importSpecTemplate(inp) {
+  const f = inp.files[0]; if (!f) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const o = JSON.parse(e.target.result);
+      if (o.statSpecs)  S.statSpecs  = o.statSpecs;
+      if (o.chartSpecs) S.chartSpecs = o.chartSpecs;
+      renderStats(); debounceSave();
+      Toast.success('SPEC 範本已載入');
+    } catch(err) { Toast.error('JSON 格式錯誤：' + err.message); }
+  };
+  reader.readAsText(f);
+  inp.value = '';
+}
+
 // EXPORT EXCEL
 // ══════════════════════════════════════════════════
 function exportExcel() {
@@ -3737,6 +3959,10 @@ function saveSettings() {
       chartSplitStep:   S.chartSplitStep,
       chartSplitSteps:  S.chartSplitSteps,
       chartSplitMode:   S.chartSplitMode,
+      cntSplitSteps:    S.cntSplitSteps,
+      cntSplitMode:     S.cntSplitMode,
+      pctSplitSteps:    S.pctSplitSteps,
+      pctSplitMode:     S.pctSplitMode,
       activeStats:      S.activeStats,
       customStats:      S.customStats,
       headerIdx:        S._headerIdx,
@@ -3781,6 +4007,10 @@ function loadSettings() {
     S.chartSplitSteps = Array.isArray(o.chartSplitSteps) ? o.chartSplitSteps
                       : (o.chartSplitStep ? [o.chartSplitStep] : []);
     if (o.chartSplitMode)  S.chartSplitMode  = o.chartSplitMode;
+    if (Array.isArray(o.cntSplitSteps)) S.cntSplitSteps = o.cntSplitSteps;
+    if (o.cntSplitMode)  S.cntSplitMode  = o.cntSplitMode;
+    if (Array.isArray(o.pctSplitSteps)) S.pctSplitSteps = o.pctSplitSteps;
+    if (o.pctSplitMode)  S.pctSplitMode  = o.pctSplitMode;
     if (o.activeStats) S.activeStats = o.activeStats;
     if (o.customStats) S.customStats = o.customStats;
     if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
@@ -3790,7 +4020,7 @@ function loadSettings() {
 }
 
 function exportSession() {
-  if (!S.data.length) { alert('尚無量測資料，請先載入 Excel 檔案。'); return; }
+  if (!S.data.length) { Toast.info('尚無量測資料，請先載入 Excel 檔案。'); return; }
   const session = {
     version: 1, ts: new Date().toISOString(),
     data: S.data, lots: S.lots, items: S.items,
@@ -3866,7 +4096,7 @@ function importSession(file) {
       if (o.chartSplitMode) S.chartSplitMode = o.chartSplitMode;
       if (Object.keys(S.splitProfiles).length) {
         renderProfileSel();
-        renderSplitViews(); renderSplitMatchTable(); populateSplitStepSel(); populateChartSplitSel();
+        renderSplitViews(); renderSplitMatchTable(); populateSplitStepSel(); _populateAllSplitSels();
         document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
         document.getElementById('splitCtrlWrap').style.display = S.splitData ? '' : 'none';
       }
@@ -3947,7 +4177,7 @@ function promptCreateProfile(suggestName) {
   const name = prompt('請輸入新設定檔名稱：', dflt);
   if (!name || !name.trim()) return null;
   const n = name.trim();
-  if (S.splitProfiles[n]) { alert(`設定檔「${n}」已存在`); return null; }
+  if (S.splitProfiles[n]) { Toast.info(`設定檔「${n}」已存在`); return null; }
   S.splitProfiles[n] = { lots:[], rows:[], groups:{}, procNames:[] };
   S.splitLotMaps[n] = {};
   S.activeProfile = n;
@@ -3965,7 +4195,7 @@ function renameProfile() {
   const newName = prompt('請輸入新名稱：', S.activeProfile);
   if (!newName || !newName.trim() || newName.trim() === S.activeProfile) return;
   const n = newName.trim();
-  if (S.splitProfiles[n]) { alert(`設定檔「${n}」已存在`); return; }
+  if (S.splitProfiles[n]) { Toast.info(`設定檔「${n}」已存在`); return; }
   S.splitProfiles[n] = S.splitProfiles[S.activeProfile];
   S.splitLotMaps[n]  = S.splitLotMaps[S.activeProfile] || {};
   delete S.splitProfiles[S.activeProfile];
@@ -3973,7 +4203,7 @@ function renameProfile() {
   if (S.chartSplitProfile === S.activeProfile) S.chartSplitProfile = n;
   S.activeProfile = n;
   renderProfileSel();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -3990,7 +4220,7 @@ function confirmDeleteProfile() {
   renderSplitMatchTable();
   document.getElementById('splitMatchWrap').style.display = S.splitData ? '' : 'none';
   document.getElementById('splitFileStatus').textContent = S.activeProfile ? `當前設定檔：${S.activeProfile}` : '';
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -4094,7 +4324,7 @@ function rebuildSplitGroupsForProfile(pd) {
 function rebuildSplitGroups() {
   if (!S.splitData || !S.splitData.rows) return;
   rebuildSplitGroupsForProfile(S.splitData);
-  populateChartSplitSel();
+  _populateAllSplitSels();
 }
 
 function autoMatchOneLot(splitLot, loadedLots) {
@@ -4431,12 +4661,12 @@ function clearSplitData() {
   document.getElementById('splitCtrlWrap').style.display = 'none';
   document.getElementById('splitResultWrap').style.display = 'none';
   document.getElementById('splitFileStatus').textContent = '';
-  populateChartSplitSel();
+  _populateAllSplitSels();
   saveSettings();
 }
 
 function initSplitFromLoadedLots() {
-  if (!S.lots.length) { alert('請先在「資料載入」頁面載入量測資料。'); return; }
+  if (!S.lots.length) { Toast.info('請先在「資料載入」頁面載入量測資料。'); return; }
   if (!_ensureActiveProfile()) return;
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   let added = 0;
@@ -4484,7 +4714,7 @@ function insertSplitColBefore(li) {
   if (!S.splitData) S.splitData = { lots:[], rows:[], groups:{}, procNames:[] };
   const name = prompt('輸入新 Lot 批號名稱', '').trim();
   if (!name) return;
-  if (S.splitData.lots.includes(name)) { alert('此 Lot 名稱已存在'); return; }
+  if (S.splitData.lots.includes(name)) { Toast.info('此 Lot 名稱已存在'); return; }
   S.splitData.lots.splice(li, 0, name);
   S.splitData.rows.forEach(r => r.lotDone[name] = false);
   S.splitLotMap[name] = autoMatchOneLot(name, S.lots);
@@ -4516,7 +4746,7 @@ function renderTemplatesSel() {
 
 function saveAsTemplate() {
   if (!S.splitData || !S.splitData.rows || !S.splitData.rows.length) {
-    alert('請先建立 Split 條件後再儲存範本'); return;
+    Toast.info('請先建立 Split 條件後再儲存範本'); return;
   }
   const name = prompt('輸入範本名稱：', '').trim();
   if (!name) return;
@@ -4531,10 +4761,10 @@ function saveAsTemplate() {
 
 function loadSelectedTemplate() {
   const sel = document.getElementById('splitTemplateSel');
-  if (!sel || !sel.value) { alert('請先選擇一個範本'); return; }
+  if (!sel || !sel.value) { Toast.info('請先選擇一個範本'); return; }
   const tpls = _getTemplates();
   const tpl = tpls[sel.value];
-  if (!tpl) { alert('找不到此範本'); return; }
+  if (!tpl) { Toast.info('找不到此範本'); return; }
   S.splitData = tpl.splitData;
   S.splitLotMap = tpl.splitLotMap || {};
   rebuildSplitGroups();
@@ -4549,7 +4779,7 @@ function loadSelectedTemplate() {
 
 function deleteSelectedTemplate() {
   const sel = document.getElementById('splitTemplateSel');
-  if (!sel || !sel.value) { alert('請先選擇一個範本'); return; }
+  if (!sel || !sel.value) { Toast.info('請先選擇一個範本'); return; }
   const name = sel.value;
   if (!confirm(`確定刪除範本「${name}」？`)) return;
   const tpls = _getTemplates();
@@ -4855,7 +5085,7 @@ function renderTemplateDesigner() {
 function newTemplate() {
   const name = prompt('新模板名稱：', `模板 ${Object.keys(S.splitTemplates).length + 1}`)?.trim();
   if (!name) return;
-  if (S.splitTemplates[name]) { alert(`模板「${name}」已存在`); return; }
+  if (S.splitTemplates[name]) { Toast.info(`模板「${name}」已存在`); return; }
   S.splitTemplates[name] = { rows: [] };
   S.activeTemplate = name;
   renderTemplateDesigner();
@@ -4889,10 +5119,10 @@ function deleteTemplate() {
 }
 
 function renameTemplatePrompt() {
-  if (!S.activeTemplate) { alert('請先選擇一個模板'); return; }
+  if (!S.activeTemplate) { Toast.info('請先選擇一個模板'); return; }
   const n = prompt('新名稱：', S.activeTemplate)?.trim();
   if (!n || n === S.activeTemplate) return;
-  if (S.splitTemplates[n]) { alert('此名稱已存在'); return; }
+  if (S.splitTemplates[n]) { Toast.info('此名稱已存在'); return; }
   S.splitTemplates[n] = S.splitTemplates[S.activeTemplate];
   Object.keys(S.splitBatchTemplates).forEach(p => {
     if (S.splitBatchTemplates[p] === S.activeTemplate) S.splitBatchTemplates[p] = n;
@@ -4906,7 +5136,7 @@ function renameTemplatePrompt() {
 
 function addTemplateRow() {
   const tpl = S.splitTemplates[S.activeTemplate];
-  if (!tpl) { alert('請先選擇或建立模板'); return; }
+  if (!tpl) { Toast.info('請先選擇或建立模板'); return; }
   tpl.rows.push({ stepNo: '', procName: '', condition: '' });
   renderTemplateDesigner();
   debounceSave();
@@ -4914,8 +5144,8 @@ function addTemplateRow() {
 
 function exportTemplateAsXlsx() {
   const tpl = S.splitTemplates[S.activeTemplate];
-  if (!tpl || !tpl.rows.length) { alert('目前模板無資料'); return; }
-  if (typeof XLSX === 'undefined') { alert('XLSX 函式庫尚未載入'); return; }
+  if (!tpl || !tpl.rows.length) { Toast.info('目前模板無資料'); return; }
+  if (typeof XLSX === 'undefined') { Toast.info('XLSX 函式庫尚未載入'); return; }
   const wsData = [['Step No.', '製程名稱', '條件']];
   tpl.rows.forEach(r => wsData.push([r.stepNo || '', r.procName || '', r.condition || '']));
   const wb = XLSX.utils.book_new();
@@ -4926,7 +5156,7 @@ function exportTemplateAsXlsx() {
 
 function loadXlsxAsTemplate(file) {
   if (!file) return;
-  if (typeof XLSX === 'undefined') { alert('XLSX 函式庫尚未載入'); return; }
+  if (typeof XLSX === 'undefined') { Toast.info('XLSX 函式庫尚未載入'); return; }
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
@@ -4958,7 +5188,7 @@ function loadXlsxAsTemplate(file) {
       renderBatchList();
       debounceSave();
     } catch (err) {
-      alert('載入失敗：' + err.message);
+      Toast.info('載入失敗：' + err.message);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -5125,13 +5355,13 @@ function renderBatchCard(profName) {
 function promptCreateBatch() {
   const name = prompt('請輸入新批次名稱：', `批次 ${Object.keys(S.splitProfiles).length + 1}`)?.trim();
   if (!name) return;
-  if (S.splitProfiles[name]) { alert(`批次「${name}」已存在`); return; }
+  if (S.splitProfiles[name]) { Toast.info(`批次「${name}」已存在`); return; }
   S.splitProfiles[name] = { lots: [], rows: [], groups: {}, procNames: [] };
   S.splitLotMaps[name] = {};
   // Re-render full list so delegation works on new card
   renderBatchList();
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -5146,14 +5376,14 @@ function deleteBatch(profName) {
   if (S.chartSplitProfile === profName) { S.chartSplitProfile = ''; S.chartSplitStep = ''; }
   renderBatchList();
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
 function renameBatch(oldName, newName) {
   newName = (newName || '').trim();
   if (!newName || newName === oldName) return;
-  if (S.splitProfiles[newName]) { alert(`批次「${newName}」已存在`); return; }
+  if (S.splitProfiles[newName]) { Toast.info(`批次「${newName}」已存在`); return; }
   S.splitProfiles[newName] = S.splitProfiles[oldName];
   S.splitLotMaps[newName]  = S.splitLotMaps[oldName] || {};
   if (S.splitBatchTemplates[oldName]) {
@@ -5166,7 +5396,7 @@ function renameBatch(oldName, newName) {
   if (S.chartSplitProfile === oldName) S.chartSplitProfile = newName;
   renderBatchList();
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -5179,7 +5409,7 @@ function addBatchRow(profName) {
   rebuildSplitGroupsForProfile(pd);
   renderBatchCard(profName);
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -5190,7 +5420,7 @@ function deleteBatchRow(profName, ri) {
   rebuildSplitGroupsForProfile(pd);
   renderBatchCard(profName);
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
@@ -5202,7 +5432,7 @@ function promptAddBatchLot(profName) {
   const hint = candidates.length ? ` (已載入: ${candidates.slice(0,4).join(', ')}${candidates.length > 4 ? '…' : ''})` : '';
   const name = prompt(`輸入新 Lot 批號名稱${hint}`, candidates[0] || '')?.trim();
   if (!name) return;
-  if (existing.includes(name)) { alert('此 Lot 已存在'); return; }
+  if (existing.includes(name)) { Toast.info('此 Lot 已存在'); return; }
   pd.lots.push(name);
   pd.rows.forEach(r => { r.lotDone[name] = false; });
   if (!S.splitLotMaps[profName]) S.splitLotMaps[profName] = {};
@@ -5274,7 +5504,7 @@ function checkAllBatchRow(profName, ri, checked) {
 
 function autoMatchBatchLots(profName) {
   const pd = S.splitProfiles[profName];
-  if (!pd || !pd.lots.length) { alert('此批次尚無 Lot 欄，請先新增 Lot。'); return; }
+  if (!pd || !pd.lots.length) { Toast.info('此批次尚無 Lot 欄，請先新增 Lot。'); return; }
   S.splitLotMaps[profName] = autoMatchLots(pd.lots, S.lots);
   renderBatchCard(profName);
   renderUnifiedMatrix();
@@ -5282,7 +5512,7 @@ function autoMatchBatchLots(profName) {
 }
 
 function initBatchFromLoadedLots(profName) {
-  if (!S.lots.length) { alert('請先在「資料載入」頁面載入量測資料。'); return; }
+  if (!S.lots.length) { Toast.info('請先在「資料載入」頁面載入量測資料。'); return; }
   const pd = S.splitProfiles[profName];
   if (!pd) return;
   if (!S.splitLotMaps[profName]) S.splitLotMaps[profName] = {};
@@ -5298,13 +5528,13 @@ function initBatchFromLoadedLots(profName) {
   renderBatchCard(profName);
   renderUnifiedMatrix();
   debounceSave();
-  if (added === 0) alert('所有已載入 Lot 已存在於此批次。');
+  if (added === 0) Toast.info('所有已載入 Lot 已存在於此批次。');
 }
 
 function applyTemplateFromCard(profName) {
   const selEl = document.getElementById('bTplSel_' + profName);
   const tplName = selEl ? selEl.value : (S.splitBatchTemplates[profName] || '');
-  if (!tplName) { alert('請先選擇一個模板'); return; }
+  if (!tplName) { Toast.info('請先選擇一個模板'); return; }
   applyTemplateToBatch(profName, tplName);
 }
 
@@ -5325,13 +5555,13 @@ function applyTemplateToBatch(profName, tplName) {
   rebuildSplitGroupsForProfile(pd);
   renderBatchCard(profName);
   renderUnifiedMatrix();
-  populateChartSplitSel();
+  _populateAllSplitSels();
   debounceSave();
 }
 
 function loadSplitFileIntoBatch(profName, file) {
   if (!file || !profName) return;
-  if (typeof XLSX === 'undefined') { alert('XLSX 函式庫尚未載入'); return; }
+  if (typeof XLSX === 'undefined') { Toast.info('XLSX 函式庫尚未載入'); return; }
   const reader = new FileReader();
   reader.onload = function(e) {
     try {
@@ -5371,11 +5601,11 @@ function loadSplitFileIntoBatch(profName, file) {
         rebuildSplitGroupsForProfile(pd);
         renderBatchCard(profName);
         renderUnifiedMatrix();
-        populateChartSplitSel();
+        _populateAllSplitSels();
         debounceSave();
       }
     } catch (err) {
-      alert('載入失敗：' + err.message);
+      Toast.info('載入失敗：' + err.message);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -5451,7 +5681,7 @@ function _setupSplitListeners() {
       renderSplitViews();
       renderSplitMatchTable();
       populateSplitStepSel();
-      populateChartSplitSel();
+      _populateAllSplitSels();
       const pd = S.splitData;
       if (pd && pd.rows && pd.rows.length) {
         document.getElementById('splitMatchWrap').style.display = '';
