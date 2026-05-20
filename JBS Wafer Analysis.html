@@ -650,6 +650,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
   <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
+  <button class="tab-btn" id="tb-yield" onclick="switchTab('yield',this)" disabled>🎯 良率</button>
+  <button class="tab-btn" id="tb-filter" onclick="switchTab('filter',this)" disabled>🔍 篩選</button>
   <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
   <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
   <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
@@ -1108,6 +1110,43 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <div id="caStatsCompare" style="display:none;margin-top:14px"></div>
   </div>
 
+  <!-- ══ Yield ══ -->
+  <div id="panel-yield" class="tab-panel">
+    <div class="ctrl">
+      <label>良率判定依據：</label>
+      <select id="yieldSpecSrc" onchange="renderYield()" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="chartSpecs">圖表分析 SPEC</option>
+        <option value="statSpecs">統計表 SPEC</option>
+      </select>
+      <label style="margin-left:16px">顯示格式：</label>
+      <select id="yieldFmt" onchange="renderYield()" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="pct">百分比 %</option>
+        <option value="count">失敗數</option>
+      </select>
+    </div>
+    <div id="yieldArea"></div>
+  </div>
+
+  <!-- ══ Global Filter ══ -->
+  <div id="panel-filter" class="tab-panel">
+    <div class="ctrl" style="flex-wrap:wrap;gap:12px;align-items:flex-start">
+      <div>
+        <label style="font-weight:700;font-size:12px;display:block;margin-bottom:6px">Lot 顯示篩選：</label>
+        <div id="filterLotList" style="display:flex;flex-wrap:wrap;gap:6px;max-width:900px"></div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-gray" style="font-size:12px" onclick="filterSelectAllLots(true)">全選</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="filterSelectAllLots(false)">全清</button>
+          <button class="btn btn-blue" style="font-size:12px;margin-left:8px" onclick="applyLotFilter()">✓ 套用篩選</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="clearLotFilter()">↩ 清除篩選</button>
+        </div>
+      </div>
+    </div>
+    <div id="filterStatus" style="margin-top:12px;padding:10px 16px;border-radius:6px;font-size:13px;display:none"></div>
+    <div style="margin-top:16px;padding:12px 16px;background:var(--bg-3);border-radius:6px;font-size:12px;color:var(--text-3)">
+      💡 套用後，所有分頁（MAP / Count / % 分布 / 統計 / 圖表分析）都只會顯示勾選的 Lot。點「清除篩選」恢復顯示全部。
+    </div>
+  </div>
+
   <!-- ══ Split Association Analysis ══ -->
   <div id="panel-split" class="tab-panel">
 
@@ -1486,6 +1525,7 @@ const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 // ══════════════════════════════════════════════════
 const S = {
   files: [], data: [], lots: [], items: [], globalBins: {},
+  activeLots: null,   // null = show all; array = filtered subset
   loadMode: 'overwrite',     // 'overwrite' | 'append'
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
@@ -1586,6 +1626,7 @@ function switchTab(name, btn) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'yield') renderYield();
   setTimeout(() => {
     document.querySelectorAll('#panel-' + name + ' [id^="ch-"]').forEach(el => {
       if (el._fullLayout) Plotly.Plots.resize(el);
@@ -1990,8 +2031,9 @@ async function applyAndAnalyze() {
 
   populateSels();
 
-  ['map','count','pct','stats','chart','split'].forEach(t =>
-    document.getElementById('tb-' + t).disabled = false);
+  ['map','count','pct','stats','chart','split','yield','filter','dashboard'].forEach(t => {
+    const el = document.getElementById('tb-' + t); if (el) el.disabled = false;
+  });
 
   const errHtml = errs.length ? `<div class="status err">⚠️ ${errs.join('<br>')}</div>` : '';
   // Lot 顏色徽章
@@ -2666,6 +2708,90 @@ function renderPct() {
 }
 
 // ══════════════════════════════════════════════════
+// YIELD ANALYSIS
+// ══════════════════════════════════════════════════
+function renderYield() {
+  const area = document.getElementById('yieldArea');
+  if (!area) return;
+  area.innerHTML = '';
+
+  const specSrc = document.getElementById('yieldSpecSrc')?.value || 'chartSpecs';
+  const fmt     = document.getElementById('yieldFmt')?.value || 'pct';
+
+  // Collect items that have at least one SPEC entry
+  function getSpecForItem(item) {
+    if (specSrc === 'chartSpecs') {
+      const cs = S.chartSpecs[item];
+      if (cs && (cs.lsl != null || cs.usl != null)) return cs;
+    }
+    const ss = S.statSpecs[item] || {};
+    for (const k of Object.keys(ss)) {
+      const e = ss[k];
+      if (e && (e.lsl != null || e.usl != null)) return e;
+    }
+    return null;
+  }
+
+  const specItems = S.items.filter(i => getSpecForItem(i));
+
+  if (!specItems.length) {
+    area.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:14px">⚠️ 尚無 SPEC 設定，請先在「統計」或「圖表分析」分頁設定 LSL / USL。</div>';
+    return;
+  }
+
+  // Build matrix: lots × items
+  const matrix = S.lots.map(lot =>
+    specItems.map(item => {
+      const spec = getSpecForItem(item);
+      const lsl = spec?.lsl != null ? parseFloat(spec.lsl) : null;
+      const usl = spec?.usl != null ? parseFloat(spec.usl) : null;
+      const d = validData(lot, item);
+      if (!d.length) return null;
+      const pass = d.filter(v => (lsl == null || v >= lsl) && (usl == null || v <= usl)).length;
+      return { total: d.length, pass, fail: d.length - pass, pct: pass / d.length * 100 };
+    })
+  );
+
+  // Render heatmap using Plotly
+  const zVals = matrix.map(row => row.map(cell => cell ? (fmt === 'pct' ? cell.pct : cell.fail) : null));
+  const textVals = matrix.map(row => row.map(cell => {
+    if (!cell) return '—';
+    return fmt === 'pct' ? `${cell.pct.toFixed(1)}%` : `${cell.fail}`;
+  }));
+
+  const colorscale = fmt === 'pct'
+    ? [[0,'#c53030'],[0.6,'#ed8936'],[0.8,'#ecc94b'],[0.9,'#68d391'],[1,'#276749']]
+    : [[0,'#276749'],[0.1,'#68d391'],[0.3,'#ecc94b'],[0.6,'#ed8936'],[1,'#c53030']];
+
+  const plotId = uid('yield', 'matrix');
+  area.insertAdjacentHTML('beforeend',
+    `<div style="padding:10px"><div id="${plotId}" style="min-height:${Math.max(320, S.lots.length * 28 + 120)}px"></div></div>`);
+
+  Plotly.newPlot(plotId, [{
+    type: 'heatmap',
+    z: zVals,
+    x: specItems,
+    y: S.lots,
+    text: textVals,
+    texttemplate: '%{text}',
+    textfont: { size: 11 },
+    colorscale,
+    zmin: fmt === 'pct' ? 0 : undefined,
+    zmax: fmt === 'pct' ? 100 : undefined,
+    hoverongaps: false,
+    hovertemplate: fmt === 'pct'
+      ? 'Lot: %{y}<br>項目: %{x}<br>良率: %{text}<extra></extra>'
+      : 'Lot: %{y}<br>項目: %{x}<br>失敗數: %{text}<extra></extra>',
+  }], {
+    title: { text: fmt === 'pct' ? '良率矩陣（%）' : '失敗數矩陣', font: { size: 14 } },
+    margin: { t: 50, b: 120, l: 100, r: 20 },
+    xaxis: { tickangle: -40, tickfont: { size: 10 } },
+    yaxis: { tickfont: { size: 10 } },
+    colorbar: { title: { text: fmt === 'pct' ? '良率%' : '失敗數', side: 'right' }, tickfont: { size: 10 } },
+  }, { responsive: true, displayModeBar: 'hover' });
+}
+
+// ══════════════════════════════════════════════════
 // STATISTICS
 // ══════════════════════════════════════════════════
 const STAT_FNS={
@@ -2815,7 +2941,9 @@ const CHART_TYPES = [
   {key:'bar',    label:'📊 長條圖'},
   {key:'spc',    label:'🎯 SPC'},
   {key:'cdf',    label:'📈 CDF'},
-  {key:'corr',   label:'🔗 相關分析'},
+  {key:'corr',       label:'🔗 相關分析'},
+  {key:'qq',         label:'📐 QQ-Plot'},
+  {key:'corrMatrix', label:'🔢 相關矩陣'},
 ];
 
 const LOT_COLORS = [
@@ -3375,7 +3503,9 @@ function renderChart() {
     case 'bar':    caBar(items, grid);    break;
     case 'spc':    caSPC(items, grid);    break;
     case 'cdf':    caCDF(items, grid);    break;
-    case 'corr':   caCorr(items, grid);   break;
+    case 'corr':       caCorr(items, grid);             break;
+    case 'qq':         caQQ(items, grid);               break;
+    case 'corrMatrix': caCorrelationMatrix(items, grid); break;
   }
   _updateSplitStatsCompare(items);
 }
@@ -3894,6 +4024,146 @@ function caCorr(items, grid) {
   });
 }
 
+// ── QQ-Plot ──────────────────────────────────────
+function caQQ(items, grid) {
+  const groups = items.length ? items.flatMap(item => getChartGroups(item).map(g => ({...g, item}))) : [];
+  if (!groups.length) { grid.innerHTML = '<div style="padding:24px;color:var(--text-3)">請選擇量測項目</div>'; return; }
+
+  items.forEach(item => {
+    const gs = getChartGroups(item);
+    const id = uid('qq', item);
+    grid.insertAdjacentHTML('beforeend',
+      `<div class="chart-card"><div id="${id}" style="height:300px;min-height:300px"></div></div>`);
+
+    const traces = gs.map(g => {
+      if (g.data.length < 3) return null;
+      const sorted = [...g.data].sort((a, b) => a - b);
+      const n = sorted.length;
+      // Theoretical normal quantiles (Beasley-Springer-Moro approximation)
+      const theoretical = sorted.map((_, i) => {
+        const p = (i + 0.5) / n;
+        const pp = p < 0.5 ? p : 1 - p;
+        const t = Math.sqrt(-2 * Math.log(pp));
+        const c = [2.515517, 0.802853, 0.010328];
+        const d = [1.432788, 0.189269, 0.001308];
+        const approx = t - (c[0] + c[1]*t + c[2]*t*t) / (1 + d[0]*t + d[1]*t*t + d[2]*t*t*t);
+        return p < 0.5 ? -approx : approx;
+      });
+      const mu = mean(sorted), sg = std(sorted);
+      const theoryScaled = theoretical.map(z => mu + sg * z);
+      return {
+        type: 'scatter', mode: 'markers',
+        x: theoryScaled, y: sorted,
+        name: escHtml(g.name),
+        marker: { color: g.color, size: 5, opacity: 0.75 },
+        hovertemplate: `理論: %{x:.4g}<br>實際: %{y:.4g}<extra>${escHtml(g.name)}</extra>`
+      };
+    }).filter(Boolean);
+
+    if (!traces.length) return;
+
+    // Add y=x reference line
+    const allX = traces.flatMap(t => t.x);
+    const allY = traces.flatMap(t => t.y);
+    const lo = Math.min(...allX, ...allY), hi = Math.max(...allX, ...allY);
+    traces.push({
+      type: 'scatter', mode: 'lines',
+      x: [lo, hi], y: [lo, hi],
+      name: '參考線', line: { color: 'rgba(160,160,160,0.6)', width: 1.5, dash: 'dash' },
+      showlegend: false, hoverinfo: 'skip'
+    });
+
+    _lazyPlot(id, () => Plotly.newPlot(id, traces, {
+      title: { text: `QQ-Plot — ${escHtml(item)}`, font: { size: 11 } },
+      margin: { t: 40, b: 40, l: 50, r: 10 },
+      xaxis: { title: { text: '理論分位數', font: { size: 10 } } },
+      yaxis: { title: { text: '實際值', font: { size: 10 } } },
+      showlegend: gs.length > 1, height: 300
+    }, { responsive: true, displayModeBar: 'hover' }));
+  });
+}
+
+// ── Correlation Matrix ──────────────────────────
+function caCorrelationMatrix(items, grid) {
+  if (items.length < 2) {
+    grid.innerHTML = '<div style="padding:24px;color:var(--text-3)">請至少選擇 2 個量測項目</div>';
+    return;
+  }
+
+  // Pearson r
+  function pearsonR(a, b) {
+    if (a.length !== b.length || a.length < 2) return NaN;
+    const ma = mean(a), mb = mean(b);
+    const num = a.reduce((s, v, i) => s + (v - ma) * (b[i] - mb), 0);
+    const da  = Math.sqrt(a.reduce((s, v) => s + (v - ma) ** 2, 0));
+    const db  = Math.sqrt(b.reduce((s, v) => s + (v - mb) ** 2, 0));
+    return (da && db) ? num / (da * db) : NaN;
+  }
+
+  // Pair-wise — must align rows
+  const pairValues = (itemA, itemB) => {
+    const pairs = S.data.map(r => ({
+      a: parseFloat(r[itemA]), b: parseFloat(r[itemB])
+    })).filter(p => !isNaN(p.a) && !isNaN(p.b));
+    return { a: pairs.map(p => p.a), b: pairs.map(p => p.b) };
+  };
+
+  const z = items.map(rowItem =>
+    items.map(colItem => {
+      if (rowItem === colItem) return 1;
+      const { a, b } = pairValues(rowItem, colItem);
+      return a.length >= 3 ? rd(pearsonR(a, b), 3) : null;
+    })
+  );
+
+  const textVals = z.map(row => row.map(v => v != null ? v.toFixed(3) : '—'));
+
+  const id = uid('corrm', 'mat');
+  const sz = Math.max(380, items.length * 52 + 100);
+  grid.insertAdjacentHTML('beforeend',
+    `<div class="chart-card" style="grid-column:1/-1"><div id="${id}" style="height:${sz}px;min-height:${sz}px"></div></div>`);
+
+  _lazyPlot(id, () => {
+    Plotly.newPlot(id, [{
+      type: 'heatmap',
+      z, x: items, y: items,
+      text: textVals, texttemplate: '%{text}', textfont: { size: 11 },
+      colorscale: 'RdBu', zmid: 0, zmin: -1, zmax: 1,
+      hoverongaps: false,
+      hovertemplate: '%{y} × %{x}<br>r = %{text}<extra></extra>',
+    }], {
+      title: { text: '相關矩陣（Pearson r）', font: { size: 13 } },
+      margin: { t: 50, b: 120, l: 120, r: 20 },
+      xaxis: { tickangle: -40, tickfont: { size: 10 } },
+      yaxis: { tickfont: { size: 10 } },
+      height: sz
+    }, { responsive: true, displayModeBar: 'hover' });
+
+    // Click on a cell → jump to Correlation scatter with those two items
+    const el = document.getElementById(id);
+    if (el) el.on('plotly_click', data => {
+      const pt = data.points[0];
+      if (!pt || pt.x === pt.y) return;
+      const xItem = pt.x, yItem = pt.y;
+      // Switch to corr chart type
+      S.chartType = 'corr';
+      const corrBtn = [...document.querySelectorAll('#caTypeButtons button')]
+        .find(b => b.dataset.key === 'corr');
+      if (corrBtn) {
+        document.querySelectorAll('#caTypeButtons button').forEach(b => b.classList.remove('active'));
+        corrBtn.classList.add('active');
+      }
+      // Pre-select Y item
+      const yEl = document.getElementById('caCorrY');
+      if (yEl) yEl.value = yItem;
+      // Switch to chart tab if not already
+      const chartBtn = document.getElementById('tb-chart');
+      if (chartBtn && !chartBtn.classList.contains('active')) switchTab('chart', chartBtn);
+      renderChart();
+    });
+  });
+}
+
 // ══════════════════════════════════════════════════
 // SPEC TEMPLATE EXPORT / IMPORT
 // ══════════════════════════════════════════════════
@@ -3920,6 +4190,72 @@ function importSpecTemplate(inp) {
   };
   reader.readAsText(f);
   inp.value = '';
+}
+
+// ══════════════════════════════════════════════════
+// GLOBAL LOT FILTER
+// ══════════════════════════════════════════════════
+function getActiveLots() {
+  return S.activeLots || S.lots;
+}
+
+function renderFilterPanel() {
+  const list = document.getElementById('filterLotList');
+  if (!list) return;
+  const active = new Set(S.activeLots || S.lots);
+  list.innerHTML = S.lots.map(lot => {
+    const on = active.has(lot);
+    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;
+                   border-radius:4px;cursor:pointer;font-size:12px;
+                   background:${on ? 'rgba(49,130,206,0.15)' : 'var(--bg-3)'};
+                   border:1px solid ${on ? '#3182ce' : 'var(--border)'}">
+      <input type="checkbox" data-lot="${escHtml(lot)}" ${on ? 'checked' : ''}
+             style="cursor:pointer"> ${escHtml(lot)}
+    </label>`;
+  }).join('');
+}
+
+function filterSelectAllLots(checked) {
+  document.querySelectorAll('#filterLotList input[data-lot]')
+    .forEach(cb => cb.checked = checked);
+}
+
+function applyLotFilter() {
+  const selected = [...document.querySelectorAll('#filterLotList input[data-lot]:checked')]
+    .map(cb => cb.dataset.lot);
+  if (selected.length === 0) { Toast.warn('請至少勾選一個 Lot'); return; }
+  S.activeLots = selected.length === S.lots.length ? null : selected;
+  _refreshAllPanels();
+  const st = document.getElementById('filterStatus');
+  if (st) {
+    st.style.display = '';
+    st.style.background = S.activeLots ? 'rgba(49,130,206,0.12)' : 'rgba(39,103,73,0.12)';
+    st.textContent = S.activeLots
+      ? `篩選已套用：顯示 ${S.activeLots.length} / ${S.lots.length} 個 Lot`
+      : '篩選已清除：顯示全部 Lot';
+  }
+  debounceSave();
+}
+
+function clearLotFilter() {
+  S.activeLots = null;
+  renderFilterPanel();
+  _refreshAllPanels();
+  const st = document.getElementById('filterStatus');
+  if (st) { st.style.display = ''; st.style.background = 'rgba(39,103,73,0.12)'; st.textContent = '篩選已清除：顯示全部 Lot'; }
+  debounceSave();
+}
+
+function _refreshAllPanels() {
+  const active = document.querySelector('.tab-panel.active');
+  if (!active) return;
+  const id = active.id;
+  if (id === 'panel-map')   renderMap();
+  if (id === 'panel-count') renderCount();
+  if (id === 'panel-pct')   renderPct();
+  if (id === 'panel-stats') renderStats();
+  if (id === 'panel-chart') renderChart();
+  if (id === 'panel-yield') { if (typeof renderYield === 'function') renderYield(); }
 }
 
 // EXPORT EXCEL
@@ -4041,6 +4377,7 @@ function saveSettings() {
       cntSplitMode:     S.cntSplitMode,
       pctSplitSteps:    S.pctSplitSteps,
       pctSplitMode:     S.pctSplitMode,
+      activeLots:       S.activeLots,
       activeStats:      S.activeStats,
       customStats:      S.customStats,
       headerIdx:        S._headerIdx,
@@ -4161,7 +4498,7 @@ function importSession(file) {
       if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
       if (o.dataStartIdx != null) S._dataStartIdx = o.dataStartIdx;
 
-      ['map','count','pct','stats','chart','split'].forEach(t =>
+      ['map','count','pct','stats','chart','split','yield'].forEach(t =>
         document.getElementById('tb-' + t).disabled = false);
       document.getElementById('btnExp').disabled = false;
       document.getElementById('btnExpSession').disabled = false;
