@@ -792,9 +792,26 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
   <!-- ══ Count Dist ══ -->
   <div id="panel-count" class="tab-panel">
+    <div id="cntSplitRow" class="ctrl" style="display:none">
+      <label>SPLIT 分組：</label>
+      <span style="position:relative;display:inline-block">
+        <button id="cntGrpBtn" class="btn btn-gray" style="font-size:12px;min-width:140px;display:flex;align-items:center;gap:6px"
+                onclick="toggleNsDropdown('cnt')">
+          <span id="cntGrpLabel">— 不使用 —</span>
+          <span style="margin-left:auto;font-size:10px">▾</span>
+        </button>
+        <div id="cntGrpMenu" style="display:none;position:absolute;top:100%;left:0;z-index:200;min-width:180px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:4px 0"></div>
+      </span>
+      <select id="cntGrpMode" style="display:none;margin-left:8px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+              onchange="S.cntSplitMode=this.value;renderCount()">
+        <option value="combined">合併同組計算</option>
+        <option value="individual">個別 Lot（同組同色）</option>
+        <option value="overlay">疊加同圖比較</option>
+      </select>
+    </div>
     <div class="ctrl">
-      <label>Lot 篩選：</label>
-      <select id="cntLot" onchange="renderCount()"><option value="all">全部</option></select>
+      <span id="cntLotWrap"><label>Lot 篩選：</label>
+      <select id="cntLot" onchange="renderCount()"><option value="all">全部</option></select></span>
       <label style="margin-left:12px">量測項目：</label>
       <select id="cntItem" onchange="renderCount()"></select>
       <label style="margin-left:12px">每列欄數：</label>
@@ -831,9 +848,26 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
   <!-- ══ % Dist ══ -->
   <div id="panel-pct" class="tab-panel">
+    <div id="pctSplitRow" class="ctrl" style="display:none">
+      <label>SPLIT 分組：</label>
+      <span style="position:relative;display:inline-block">
+        <button id="pctGrpBtn" class="btn btn-gray" style="font-size:12px;min-width:140px;display:flex;align-items:center;gap:6px"
+                onclick="toggleNsDropdown('pct')">
+          <span id="pctGrpLabel">— 不使用 —</span>
+          <span style="margin-left:auto;font-size:10px">▾</span>
+        </button>
+        <div id="pctGrpMenu" style="display:none;position:absolute;top:100%;left:0;z-index:200;min-width:180px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.2);padding:4px 0"></div>
+      </span>
+      <select id="pctGrpMode" style="display:none;margin-left:8px;padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"
+              onchange="S.pctSplitMode=this.value;renderPct()">
+        <option value="combined">合併同組計算</option>
+        <option value="individual">個別 Lot（同組同色）</option>
+        <option value="overlay">疊加同圖比較</option>
+      </select>
+    </div>
     <div class="ctrl">
-      <label>Lot 篩選：</label>
-      <select id="pctLot" onchange="renderPct()"><option value="all">全部</option></select>
+      <span id="pctLotWrap"><label>Lot 篩選：</label>
+      <select id="pctLot" onchange="renderPct()"><option value="all">全部</option></select></span>
       <label style="margin-left:12px">量測項目：</label>
       <select id="pctItem" onchange="renderPct()"><option value="all">全部項目</option></select>
       <label style="margin-left:12px">每列欄數：</label>
@@ -1450,6 +1484,11 @@ const S = {
   chartSplitStep:   '',               // legacy single-step (kept for compat)
   chartSplitSteps:  [],               // multi-step selection for combined grouping
   chartSplitMode:   'individual',     // 'individual' | 'combined'
+  // Count/Pct Distribution Split
+  cntSplitSteps:    [],               // selected split steps for Count dist
+  cntSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
+  pctSplitSteps:    [],               // selected split steps for Pct dist
+  pctSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
   // Split Association Analysis
   splitProfiles:    {},               // { profileName: { lots, rows, groups, procNames } }
   splitLotMaps:     {},               // { profileName: { splitLotId: loadedLotName } }
@@ -2602,8 +2641,139 @@ function _findLotCondIdx(lot, stepName) {
 }
 
 // Returns "A / X" style key for a lot given the selected steps array.
+function _getLotComboKeyFor(lot, steps) {
+  return steps.map(s => _findLotCondLabel(lot, s) || '—').join(' / ');
+}
 function _getLotComboKey(lot) {
-  return S.chartSplitSteps.map(s => _findLotCondLabel(lot, s) || '—').join(' / ');
+  return _getLotComboKeyFor(lot, S.chartSplitSteps);
+}
+
+// Build combo→color map for any steps array
+function _buildComboColorMapFor(steps) {
+  const map = {};
+  S.lots.forEach(lot => {
+    const key = _getLotComboKeyFor(lot, steps);
+    if (!(key in map)) map[key] = SPLIT_COLORS[Object.keys(map).length % SPLIT_COLORS.length];
+  });
+  return map;
+}
+
+// Get split groups for cnt/pct rendering
+// Returns [{ name, color, fg, data }]
+function _getSplitGroupsFor(item, splitSteps, mode) {
+  const colorMap = _buildComboColorMapFor(splitSteps);
+  if (mode === 'combined') {
+    const grouped = {};
+    S.lots.forEach(lot => {
+      const key = _getLotComboKeyFor(lot, splitSteps);
+      const d = validData(lot, item);
+      if (!grouped[key]) grouped[key] = { name: key, col: colorMap[key], data: [] };
+      grouped[key].data.push(...d);
+    });
+    return Object.values(grouped).filter(g => g.data.length >= 3)
+      .map(g => ({ name: g.name, color: g.col.mk, fg: g.col.fg, data: g.data }));
+  }
+  // individual: one group per lot, colored by condition
+  return S.lots.map((lot, li) => {
+    const key = _getLotComboKeyFor(lot, splitSteps);
+    const col = colorMap[key] || { mk: getColor(li), fg: getColor(li) };
+    return { name: lot, color: col.mk, fg: col.fg, data: validData(lot, item) };
+  }).filter(g => g.data.length >= 3);
+}
+
+// ── Cnt/Pct SPLIT Dropdown helpers (ns = 'cnt' | 'pct') ──
+
+function populateNsSplitSel(ns) {
+  const splitRow = document.getElementById(`${ns}SplitRow`);
+  const lotWrap  = document.getElementById(`${ns}LotWrap`);
+  if (!splitRow) return;
+  const steps = _getAllSplitSteps();
+  splitRow.style.display = steps.length ? '' : 'none';
+  const arr = ns === 'cnt' ? S.cntSplitSteps : S.pctSplitSteps;
+  // Prune steps that no longer exist
+  const valid = arr.filter(s => steps.includes(s));
+  if (ns === 'cnt') S.cntSplitSteps = valid; else S.pctSplitSteps = valid;
+  _updateNsBtnLabel(ns);
+  const modeEl = document.getElementById(`${ns}GrpMode`);
+  if (modeEl) {
+    modeEl.style.display = valid.length ? '' : 'none';
+    modeEl.value = ns === 'cnt' ? S.cntSplitMode : S.pctSplitMode;
+  }
+  if (lotWrap) lotWrap.style.display = valid.length ? 'none' : '';
+}
+
+function _updateNsBtnLabel(ns) {
+  const lbl = document.getElementById(`${ns}GrpLabel`);
+  if (!lbl) return;
+  const arr = ns === 'cnt' ? S.cntSplitSteps : S.pctSplitSteps;
+  lbl.textContent = arr.length === 0 ? '— 不使用 —' : arr.join(', ');
+}
+
+function toggleNsDropdown(ns) {
+  const menu = document.getElementById(`${ns}GrpMenu`);
+  if (!menu) return;
+  if (menu.style.display === 'none') _openNsDropdown(ns); else _closeNsDropdown(ns);
+}
+
+function _closeNsDropdown(ns) {
+  const m = document.getElementById(`${ns}GrpMenu`); if (m) m.style.display = 'none';
+}
+
+function _openNsDropdown(ns) {
+  const menu = document.getElementById(`${ns}GrpMenu`); if (!menu) return;
+  const steps = _getAllSplitSteps();
+  const arr = ns === 'cnt' ? S.cntSplitSteps : S.pctSplitSteps;
+  if (!steps.length) {
+    menu.innerHTML = '<div style="padding:10px 14px;font-size:11px;color:var(--text-3)">尚無 Split 步驟資料</div>';
+  } else {
+    const allChecked = steps.every(s => arr.includes(s));
+    menu.innerHTML =
+      `<label style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:11px;color:var(--text-3);border-bottom:1px solid var(--border)">
+         <input type="checkbox" ${allChecked ? 'checked' : ''} onchange="_toggleAllNsSteps('${ns}',this.checked)"> 全選 / 取消
+       </label>` +
+      steps.map(s => {
+        const on = arr.includes(s);
+        return `<label style="display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--bg-3)'" onmouseleave="this.style.background=''">
+          <input type="checkbox" value="${escHtml(s)}" ${on ? 'checked' : ''}
+                 onchange="_onNsStepToggle('${ns}','${escHtml(s)}',this.checked)"
+                 onclick="event.stopPropagation()">
+          ${escHtml(s)}
+        </label>`;
+      }).join('');
+  }
+  menu.style.display = '';
+  setTimeout(() => document.addEventListener('click', function _nsOutside(e) {
+    const menu2 = document.getElementById(`${ns}GrpMenu`);
+    const btn   = document.getElementById(`${ns}GrpBtn`);
+    if (menu2 && btn && !btn.contains(e.target) && !menu2.contains(e.target)) {
+      menu2.style.display = 'none';
+    }
+  }, { once: true }), 0);
+}
+
+function _onNsStepToggle(ns, step, checked) {
+  const arr = ns === 'cnt' ? S.cntSplitSteps : S.pctSplitSteps;
+  if (checked && !arr.includes(step)) arr.push(step);
+  else if (!checked) { const i = arr.indexOf(step); if (i !== -1) arr.splice(i, 1); }
+  populateNsSplitSel(ns);
+  if (ns === 'cnt') renderCount(); else renderPct();
+  debounceSave();
+}
+
+function _toggleAllNsSteps(ns, checked) {
+  const steps = _getAllSplitSteps();
+  if (ns === 'cnt') S.cntSplitSteps = checked ? [...steps] : [];
+  else S.pctSplitSteps = checked ? [...steps] : [];
+  _closeNsDropdown(ns);
+  populateNsSplitSel(ns);
+  if (ns === 'cnt') renderCount(); else renderPct();
+  debounceSave();
+}
+
+function _populateAllSplitSels() {
+  populateChartSplitSel();
+  populateNsSplitSel('cnt');
+  populateNsSplitSel('pct');
 }
 
 // Build combo→color map from the current S.lots order (first encountered = teal, etc.)
