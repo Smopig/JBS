@@ -2268,7 +2268,7 @@ function resetStats() {
 function renderStatChips() {
   const el = document.getElementById('stChips');
   if (!el) return;
-  const allKeys   = [...DEFAULT_STATS, ...S.customStats.map(cs => cs.label)];
+  const allKeys   = [...Object.keys(STAT_FNS), ...S.customStats.map(cs => cs.label)];
   const activeSet = new Set(S.activeStats);
   el.innerHTML = allKeys.map(key => {
     const on = activeSet.has(key);
@@ -3939,16 +3939,22 @@ function exportExcel() {
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(statRows),'統計');
 
   // 能力指標 sheet: Cpk / Cp / Cpu / Cpl per item per lot
+  // Helper: find the best available SPEC for an item.
+  // Priority: chartSpecs (flat) → any statSpecs row with lsl or usl
+  function _getItemSpec(item) {
+    const cs = S.chartSpecs[item];
+    if (cs && (cs.lsl != null || cs.usl != null)) return cs;
+    const ss = S.statSpecs[item] || {};
+    for (const k of Object.keys(ss)) {
+      const e = ss[k];
+      if (e && (e.lsl != null || e.usl != null)) return e;
+    }
+    return {};
+  }
+
   const cpkRows = [];
   S.items.forEach(item => {
-    const spec = S.statSpecs[item] || {};
-    Object.keys(spec).forEach(statKey => {
-      // Use SPEC from first statKey that has lsl/usl (typically all share same spec)
-    });
-    // Gather the merged spec (statSpecs stores per-stat, but SPEC inputs are per-item in the UI)
-    // Use 'Mean' spec entry as the canonical one, or fallback to any entry
-    const allSpecKeys = Object.keys(spec);
-    const canonSpec = (spec['Mean'] || spec[allSpecKeys[0]] || {});
+    const canonSpec = _getItemSpec(item);
     const lsl = canonSpec.lsl != null ? parseFloat(canonSpec.lsl) : null;
     const usl = canonSpec.usl != null ? parseFloat(canonSpec.usl) : null;
     const typ = canonSpec.typical != null ? parseFloat(canonSpec.typical) : null;
