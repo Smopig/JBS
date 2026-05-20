@@ -621,6 +621,16 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 .toast-confirm-btns .btn-no{background:#4a5568;color:#e6edf3}
 @keyframes toastIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 
+/* ── Print / PDF ── */
+@media print {
+  .tab-nav,.ctrl,.btn,#toast-container,#filterStatus,.lib-error{display:none!important}
+  .tab-panel{display:none!important}
+  .tab-panel.active{display:block!important}
+  .chart-card{break-inside:avoid;page-break-inside:avoid}
+  body{background:white!important}
+  .chart-grid{grid-template-columns:repeat(2,1fr)!important}
+}
+
 </style>
 </head>
 <body>
@@ -646,6 +656,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
 <div class="tab-nav">
   <button class="tab-btn active"  onclick="switchTab('upload',this)">📂 資料載入</button>
+  <button class="tab-btn" id="tb-dashboard" onclick="switchTab('dashboard',this)" disabled>🏠 總覽</button>
   <button class="tab-btn" id="tb-map"   onclick="switchTab('map',this)"   disabled>🗺 Wafer MAP</button>
   <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
   <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
@@ -699,6 +710,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <div class="sg">
         <label>&nbsp;</label>
         <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
+        <button class="btn btn-gray" onclick="window.print()" style="font-size:12px">🖨 列印/PDF</button>
       </div>
       <div class="sg" style="margin-left:auto">
         <label style="font-size:11px;color:var(--text-3)">工作階段</label>
@@ -756,6 +768,11 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <span style="font-size:11px; color:#718096">名稱不改也可以直接分析</span>
       </div>
     </div>
+  </div>
+
+  <!-- ══ Dashboard ══ -->
+  <div id="panel-dashboard" class="tab-panel">
+    <div id="dashGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;padding:4px"></div>
   </div>
 
   <!-- ══ Wafer MAP ══ -->
@@ -1627,6 +1644,8 @@ function switchTab(name, btn) {
   btn.classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'yield') renderYield();
+  if (name === 'filter') renderFilterPanel();
+  if (name === 'dashboard') renderDashboard();
   setTimeout(() => {
     document.querySelectorAll('#panel-' + name + ' [id^="ch-"]').forEach(el => {
       if (el._fullLayout) Plotly.Plots.resize(el);
@@ -2432,7 +2451,7 @@ function renderMap() {
   setGridCols(grid, getCols('map'));
   grid.innerHTML = '';
 
-  S.lots.forEach(lot => {
+  getActiveLots().forEach(lot => {
     const rows = S.data.filter(r => r.Lot === lot);
     const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
     const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
@@ -2580,7 +2599,7 @@ function renderCount() {
 
   // Default: per-lot mode
   const selLot = document.getElementById('cntLot').value;
-  const lots = selLot === 'all' ? S.lots : [selLot];
+  const lots = selLot === 'all' ? getActiveLots() : [selLot];
   lots.forEach(lot => {
     const data = validData(lot, item);
     if (data.length < 3) return;
@@ -2693,7 +2712,7 @@ function renderPct() {
 
     // Default: per-lot mode
     const selLot = document.getElementById('pctLot').value;
-    const lots = (selLot === 'all') ? S.lots : [selLot];
+    const lots = (selLot === 'all') ? getActiveLots() : [selLot];
     sec.innerHTML = `<div class="section-hd">${escHtml(item)}（% 分布 ｜ X 軸統一 ｜ Y 軸 ${yMin}–${yMax}%）</div>`;
     const grid = document.createElement('div');
     grid.style.cssText = `display:grid;gap:14px;grid-template-columns:repeat(${n},1fr);padding:10px`;
@@ -2842,7 +2861,7 @@ function buildItemStatsBlock(item) {
     <div class="stats-block-scroll">
     <table class="stats"><thead><tr>
       <th class="row-label" style="min-width:90px">統計項目</th>`;
-  S.lots.forEach(l => { h += `<th>${escHtml(l)}</th>`; });
+  getActiveLots().forEach(l => { h += `<th>${escHtml(l)}</th>`; });
   h += `<th style="background:#744210;min-width:72px">LSL</th>
         <th style="background:#744210;min-width:72px">Typical</th>
         <th style="background:#744210;min-width:72px">USL</th>
@@ -2859,7 +2878,7 @@ function buildItemStatsBlock(item) {
     const esc_key = escHtml(key);
 
     h += `<tr><td class="row-label">${esc_key}</td>`;
-    S.lots.forEach(lot => {
+    getActiveLots().forEach(lot => {
       const d = validData(lot, item);
       if (!d.length) { h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}">—</td>`; return; }
       const rawVal  = fn(d, spec);
@@ -4193,6 +4212,91 @@ function importSpecTemplate(inp) {
 }
 
 // ══════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════
+function renderDashboard() {
+  const grid = document.getElementById('dashGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  const activeLots = getActiveLots();
+
+  function card(icon, title, value, sub, onclick, isAlert) {
+    const div = document.createElement('div');
+    div.style.cssText = `background:var(--bg-2);border-radius:10px;padding:20px 22px;
+      box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:${onclick?'pointer':'default'};
+      transition:transform .15s,box-shadow .15s;border-left:4px solid ${isAlert?'#c53030':'var(--accent)'}`;
+    if (onclick) {
+      div.onmouseenter=()=>{div.style.transform='translateY(-2px)';div.style.boxShadow='0 6px 18px rgba(0,0,0,.2)'};
+      div.onmouseleave=()=>{div.style.transform='';div.style.boxShadow='0 2px 8px rgba(0,0,0,.12)'};
+      div.onclick=onclick;
+    }
+    div.innerHTML=`<div style="font-size:28px;margin-bottom:6px">${icon}</div>
+      <div style="font-size:13px;color:var(--text-3);margin-bottom:4px">${title}</div>
+      <div style="font-size:32px;font-weight:700;color:var(--text)">${value}</div>
+      ${sub?`<div style="font-size:11px;color:var(--text-3);margin-top:6px">${sub}</div>`:''}`;
+    return div;
+  }
+
+  grid.appendChild(card('🗂','載入 Lot 數',activeLots.length,
+    S.activeLots?`（篩選後，共 ${S.lots.length} 個）`:`共 ${S.lots.length} 個 Lot`,
+    ()=>{const b=document.getElementById('tb-filter');if(b)switchTab('filter',b)}));
+
+  grid.appendChild(card('📐','量測項目數',S.items.length,`${S.items.length} 個有效項目`,
+    ()=>{const b=document.getElementById('tb-stats');if(b&&!b.disabled)switchTab('stats',b)}));
+
+  const totalRows=S.data.filter(r=>activeLots.includes(r.Lot)).length;
+  grid.appendChild(card('🔬','資料列數',totalRows.toLocaleString(),
+    `平均每 Lot ${activeLots.length?Math.round(totalRows/activeLots.length):0} 列`));
+
+  function hasAnySpec(item){
+    const cs=S.chartSpecs[item];if(cs&&(cs.lsl!=null||cs.usl!=null))return true;
+    return Object.values(S.statSpecs[item]||{}).some(e=>e&&(e.lsl!=null||e.usl!=null));
+  }
+  const specCount=S.items.filter(hasAnySpec).length;
+  grid.appendChild(card('📋','SPEC 已設定項目',specCount,
+    `${S.items.length?Math.round(specCount/S.items.length*100):0}% 覆蓋率`,
+    ()=>{const b=document.getElementById('tb-stats');if(b&&!b.disabled)switchTab('stats',b)}));
+
+  const specItems=S.items.filter(hasAnySpec);
+  if(specItems.length){
+    function getSpec(item){
+      const cs=S.chartSpecs[item];if(cs&&(cs.lsl!=null||cs.usl!=null))return cs;
+      const ss=S.statSpecs[item]||{};
+      for(const k of Object.keys(ss)){const e=ss[k];if(e&&(e.lsl!=null||e.usl!=null))return e;}
+      return{};
+    }
+    let totalPass=0,totalMeasure=0,worstItem='',worstYield=101;
+    const warnings=[];
+    specItems.forEach(item=>{
+      const sp=getSpec(item);
+      const lsl=sp.lsl!=null?parseFloat(sp.lsl):null;
+      const usl=sp.usl!=null?parseFloat(sp.usl):null;
+      activeLots.forEach(lot=>{
+        const d=validData(lot,item);if(!d.length)return;
+        const pass=d.filter(v=>(lsl==null||v>=lsl)&&(usl==null||v<=usl)).length;
+        totalPass+=pass;totalMeasure+=d.length;
+        const y=pass/d.length*100;
+        if(y<worstYield){worstYield=y;worstItem=item;}
+        if(y<90)warnings.push({lot,item,y:y.toFixed(1)});
+      });
+    });
+    const oy=totalMeasure?(totalPass/totalMeasure*100):100;
+    grid.appendChild(card(oy<90?'⚠️':'✅','整體良率',`${oy.toFixed(1)}%`,
+      worstItem?`最低：${escHtml(worstItem)} ${worstYield.toFixed(1)}%`:'',
+      ()=>{const b=document.getElementById('tb-yield');if(b&&!b.disabled)switchTab('yield',b)},
+      oy<90));
+    if(warnings.length){
+      const wDiv=document.createElement('div');
+      wDiv.style.cssText='grid-column:1/-1;background:rgba(197,48,48,0.08);border:1px solid rgba(197,48,48,0.3);border-radius:8px;padding:16px';
+      wDiv.innerHTML=`<div style="font-weight:700;margin-bottom:8px;color:#c53030">⚠️ 低良率警示（${warnings.length} 項 < 90%）</div>`+
+        warnings.slice(0,12).map(w=>`<span style="display:inline-block;margin:3px 6px 3px 0;padding:2px 8px;background:rgba(197,48,48,0.15);border-radius:4px;font-size:11px">${escHtml(w.lot)} / ${escHtml(w.item)}: ${w.y}%</span>`).join('')+
+        (warnings.length>12?`<div style="font-size:11px;color:var(--text-3);margin-top:6px">…另外 ${warnings.length-12} 項</div>`:'');
+      grid.appendChild(wDiv);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════
 // GLOBAL LOT FILTER
 // ══════════════════════════════════════════════════
 function getActiveLots() {
@@ -4256,6 +4360,126 @@ function _refreshAllPanels() {
   if (id === 'panel-stats') renderStats();
   if (id === 'panel-chart') renderChart();
   if (id === 'panel-yield') { if (typeof renderYield === 'function') renderYield(); }
+}
+
+// ══════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════
+function renderDashboard() {
+  const grid = document.getElementById('dashGrid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const activeLots = getActiveLots();
+
+  // Card helper
+  function card(icon, title, value, sub, onclick, alert) {
+    const div = document.createElement('div');
+    div.style.cssText = `background:var(--bg-2);border-radius:10px;padding:20px 22px;
+      box-shadow:0 2px 8px rgba(0,0,0,.12);cursor:${onclick ? 'pointer' : 'default'};
+      transition:transform .15s,box-shadow .15s;border-left:4px solid ${alert ? '#c53030' : 'var(--accent)'}`;
+    if (onclick) { div.onmouseenter = () => { div.style.transform = 'translateY(-2px)'; div.style.boxShadow = '0 6px 18px rgba(0,0,0,.2)'; };
+                   div.onmouseleave = () => { div.style.transform = ''; div.style.boxShadow = '0 2px 8px rgba(0,0,0,.12)'; };
+                   div.onclick = onclick; }
+    div.innerHTML = `<div style="font-size:28px;margin-bottom:6px">${icon}</div>
+      <div style="font-size:13px;color:var(--text-3);margin-bottom:4px">${title}</div>
+      <div style="font-size:32px;font-weight:700;color:var(--text)">${value}</div>
+      ${sub ? `<div style="font-size:11px;color:var(--text-3);margin-top:6px">${sub}</div>` : ''}`;
+    return div;
+  }
+
+  // 1. Lots count card
+  grid.appendChild(card('🗂', '載入 Lot 數', activeLots.length,
+    S.activeLots ? `（篩選後，共 ${S.lots.length} 個）` : `共 ${S.lots.length} 個 Lot`,
+    () => { const b = document.getElementById('tb-filter'); if (b) switchTab('filter', b); }));
+
+  // 2. Items count card
+  grid.appendChild(card('📐', '量測項目數', S.items.length,
+    `${S.items.length} 個有效項目`,
+    () => { const b = document.getElementById('tb-stats'); if (b && !b.disabled) switchTab('stats', b); }));
+
+  // 3. Total wafers
+  const totalRows = S.data.filter(r => activeLots.includes(r.Lot)).length;
+  grid.appendChild(card('🔬', '資料列數', totalRows.toLocaleString(),
+    `平均每 Lot ${activeLots.length ? Math.round(totalRows / activeLots.length) : 0} 列`));
+
+  // 4. SPEC覆蓋率
+  function anySpec(item) {
+    const cs = S.chartSpecs[item];
+    if (cs && (cs.lsl != null || cs.usl != null)) return true;
+    const ss = S.statSpecs[item] || {};
+    return Object.values(ss).some(e => e && (e.lsl != null || e.usl != null));
+  }
+  const specCount = S.items.filter(anySpec).length;
+  grid.appendChild(card('📋', 'SPEC 已設定項目', specCount,
+    `${S.items.length ? Math.round(specCount / S.items.length * 100) : 0}% 覆蓋率`,
+    () => { const b = document.getElementById('tb-stats'); if (b && !b.disabled) switchTab('stats', b); }));
+
+  // 5. Yield summary (if SPEC exists)
+  const specItems = S.items.filter(anySpec);
+  if (specItems.length) {
+    let totalPass = 0, totalMeasure = 0, worstItem = '', worstYield = 101;
+    specItems.forEach(item => {
+      function getSpec(item) {
+        const cs = S.chartSpecs[item];
+        if (cs && (cs.lsl != null || cs.usl != null)) return cs;
+        const ss = S.statSpecs[item] || {};
+        for (const k of Object.keys(ss)) { const e = ss[k]; if (e && (e.lsl != null || e.usl != null)) return e; }
+        return {};
+      }
+      const spec = getSpec(item);
+      const lsl = spec.lsl != null ? parseFloat(spec.lsl) : null;
+      const usl = spec.usl != null ? parseFloat(spec.usl) : null;
+      activeLots.forEach(lot => {
+        const d = validData(lot, item);
+        const pass = d.filter(v => (lsl == null || v >= lsl) && (usl == null || v <= usl)).length;
+        totalPass += pass; totalMeasure += d.length;
+        const y = d.length ? pass / d.length * 100 : 100;
+        if (y < worstYield) { worstYield = y; worstItem = item; }
+      });
+    });
+    const overallYield = totalMeasure ? (totalPass / totalMeasure * 100) : 100;
+    const isAlert = overallYield < 90;
+    grid.appendChild(card(isAlert ? '⚠️' : '✅', '整體良率', `${overallYield.toFixed(1)}%`,
+      worstItem ? `最低：${worstItem} ${worstYield.toFixed(1)}%` : '',
+      () => { const b = document.getElementById('tb-yield'); if (b && !b.disabled) switchTab('yield', b); },
+      isAlert));
+  }
+
+  // 6. 低良率警示
+  if (specItems.length) {
+    function getSpec2(item) {
+      const cs = S.chartSpecs[item];
+      if (cs && (cs.lsl != null || cs.usl != null)) return cs;
+      const ss = S.statSpecs[item] || {};
+      for (const k of Object.keys(ss)) { const e = ss[k]; if (e && (e.lsl != null || e.usl != null)) return e; }
+      return {};
+    }
+    const warnings = [];
+    specItems.forEach(item => {
+      const spec = getSpec2(item);
+      const lsl = spec.lsl != null ? parseFloat(spec.lsl) : null;
+      const usl = spec.usl != null ? parseFloat(spec.usl) : null;
+      activeLots.forEach(lot => {
+        const d = validData(lot, item);
+        if (!d.length) return;
+        const pass = d.filter(v => (lsl == null || v >= lsl) && (usl == null || v <= usl)).length;
+        const y = pass / d.length * 100;
+        if (y < 90) warnings.push({ lot, item, y: y.toFixed(1) });
+      });
+    });
+    if (warnings.length) {
+      const warnDiv = document.createElement('div');
+      warnDiv.style.cssText = 'grid-column:1/-1;background:rgba(197,48,48,0.08);border:1px solid rgba(197,48,48,0.3);border-radius:8px;padding:16px';
+      warnDiv.innerHTML = `<div style="font-weight:700;margin-bottom:8px;color:#c53030">⚠️ 低良率警示（${warnings.length} 項 < 90%）</div>` +
+        warnings.slice(0, 10).map(w =>
+          `<span style="display:inline-block;margin:3px 6px 3px 0;padding:2px 8px;background:rgba(197,48,48,0.15);border-radius:4px;font-size:11px">
+            ${escHtml(w.lot)} / ${escHtml(w.item)}: ${w.y}%</span>`
+        ).join('') +
+        (warnings.length > 10 ? `<div style="font-size:11px;color:var(--text-3);margin-top:6px">…以及另外 ${warnings.length - 10} 項</div>` : '');
+      grid.appendChild(warnDiv);
+    }
+  }
 }
 
 // EXPORT EXCEL
@@ -4373,11 +4597,11 @@ function saveSettings() {
       chartSplitStep:   S.chartSplitStep,
       chartSplitSteps:  S.chartSplitSteps,
       chartSplitMode:   S.chartSplitMode,
+      activeLots:       S.activeLots,
       cntSplitSteps:    S.cntSplitSteps,
       cntSplitMode:     S.cntSplitMode,
       pctSplitSteps:    S.pctSplitSteps,
       pctSplitMode:     S.pctSplitMode,
-      activeLots:       S.activeLots,
       activeStats:      S.activeStats,
       customStats:      S.customStats,
       headerIdx:        S._headerIdx,
@@ -4426,6 +4650,7 @@ function loadSettings() {
     if (o.cntSplitMode)  S.cntSplitMode  = o.cntSplitMode;
     if (Array.isArray(o.pctSplitSteps)) S.pctSplitSteps = o.pctSplitSteps;
     if (o.pctSplitMode)  S.pctSplitMode  = o.pctSplitMode;
+    if (o.activeLots !== undefined) S.activeLots = o.activeLots;
     if (o.activeStats) S.activeStats = o.activeStats;
     if (o.customStats) S.customStats = o.customStats;
     if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
@@ -4498,8 +4723,9 @@ function importSession(file) {
       if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
       if (o.dataStartIdx != null) S._dataStartIdx = o.dataStartIdx;
 
-      ['map','count','pct','stats','chart','split','yield'].forEach(t =>
-        document.getElementById('tb-' + t).disabled = false);
+      ['map','count','pct','stats','chart','split','yield','filter','dashboard'].forEach(t => {
+        const el = document.getElementById('tb-' + t); if (el) el.disabled = false;
+      });
       document.getElementById('btnExp').disabled = false;
       document.getElementById('btnExpSession').disabled = false;
       populateSels();
