@@ -666,6 +666,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
   <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
   <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
+  <button class="tab-btn" onclick="window.print()" title="列印目前分頁或另存為 PDF" style="padding:0 12px;font-size:13px">🖨</button>
 </div>
 
 <div class="content">
@@ -710,7 +711,6 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <div class="sg">
         <label>&nbsp;</label>
         <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
-        <button class="btn btn-gray" onclick="window.print()" style="font-size:12px">🖨 列印/PDF</button>
       </div>
       <div class="sg" style="margin-left:auto">
         <label style="font-size:11px;color:var(--text-3)">工作階段</label>
