@@ -1201,6 +1201,41 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <div id="caSpecInputs" style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;width:100%"></div>
     </div>
 
+    <!-- Row 4: Chart style preset / custom palette / line dash cycling -->
+    <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center;padding-top:6px;border-top:1px dashed var(--border-2);margin-top:4px">
+      <label style="font-size:12px;font-weight:700;white-space:nowrap">圖表樣式：</label>
+      <select id="caStyleSel" onchange="onChartStyleSelChange()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;min-width:160px"></select>
+
+      <label style="font-size:12px;white-space:nowrap;color:var(--text-2);margin-left:8px">色盤：</label>
+      <select id="caPaletteSel" onchange="updateChartStyle('palette', this.value)"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="default">預設 (12 色)</option>
+        <option value="pastel">柔和粉彩</option>
+        <option value="cb">色盲友善</option>
+        <option value="mono">藍色系漸層</option>
+        <option value="warm">暖色系</option>
+        <option value="custom">自訂…</option>
+      </select>
+      <input id="caCustomColors" type="text" placeholder="自訂色碼（用逗號分隔，例：#3182ce,#38a169）"
+             oninput="updateChartStyle('customColors', this.value)"
+             style="display:none;flex:1;min-width:240px;padding:4px 8px;font-size:11px;
+                    border:1px solid var(--border-2);border-radius:4px;background:var(--bg-2);color:var(--text)">
+
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);margin-left:8px;cursor:pointer">
+        <input type="checkbox" id="caDashCycle" onchange="updateChartStyle('dashCycle', this.checked)">
+        <span>線型循環（實線/虛線/點線/長線/Dash-dot）</span>
+      </label>
+
+      <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+        <input id="caStyleName" type="text" placeholder="樣式名稱"
+               style="padding:4px 8px;font-size:11px;border:1px solid var(--border-2);border-radius:4px;background:var(--bg-2);color:var(--text);width:140px">
+        <button class="btn btn-blue" style="font-size:11px" onclick="saveChartStyle()">💾 儲存樣式</button>
+        <button class="btn btn-gray" style="font-size:11px" onclick="deleteChartStyle()">🗑 刪除</button>
+        <button class="btn btn-gray" style="font-size:11px" onclick="resetChartStyle()">↩ 還原預設</button>
+      </div>
+    </div>
+
     <!-- Chart output grid -->
     <div id="caGrid" class="chart-grid"></div>
 
@@ -3183,6 +3218,7 @@ async function applyAndAnalyze() {
   });
 
   populateSels();
+  if (typeof refreshChartStyleUI === 'function') refreshChartStyleUI();
 
   ['map','count','pct','stats','chart','split','yield','filter','dashboard'].forEach(t => {
     const el = document.getElementById('tb-' + t); if (el) el.disabled = false;
@@ -4200,7 +4236,172 @@ const LOT_COLORS = [
   '#805ad5','#dd6b20','#319795','#d53f8c',
   '#2b6cb0','#276749','#b7791f','#c53030'
 ];
-function getColor(i) { return LOT_COLORS[i % LOT_COLORS.length]; }
+
+// ── 圖表分析：可自訂色盤 + 線型循環 ────────────────────
+const CHART_PALETTES = {
+  default: LOT_COLORS,
+  pastel:  ['#90cdf4','#9ae6b4','#fbd38d','#fc8181','#d6bcfa','#fbb6ce','#9decf9','#feb2b2'],
+  cb:      ['#0072B2','#E69F00','#009E73','#CC79A7','#56B4E9','#D55E00','#F0E442','#000000'],
+  mono:    ['#1a365d','#2c5282','#3182ce','#4299e1','#63b3ed','#90cdf4','#bee3f8','#a3bffa'],
+  warm:    ['#c53030','#dd6b20','#d69e2e','#b7791f','#9b2c2c','#c05621','#a52a2a','#92400e'],
+};
+const DASH_CYCLE = ['solid','dash','dot','longdash','dashdot'];
+
+function _defaultChartStyle() {
+  return { palette:'default', customColors:[], dashCycle:false };
+}
+function _chartStyle() {
+  if (!S.chartStyle) S.chartStyle = _defaultChartStyle();
+  return S.chartStyle;
+}
+function effectiveChartPalette() {
+  const cs = _chartStyle();
+  if (cs.palette === 'custom' && Array.isArray(cs.customColors) && cs.customColors.length)
+    return cs.customColors;
+  return CHART_PALETTES[cs.palette] || CHART_PALETTES.default;
+}
+function chartDash(i) {
+  return _chartStyle().dashCycle ? DASH_CYCLE[i % DASH_CYCLE.length] : 'solid';
+}
+function getColor(i) {
+  const pal = effectiveChartPalette();
+  return pal[i % pal.length];
+}
+
+// localStorage CRUD for user-defined style presets
+function loadChartStylePresets() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('jbs_chart_styles') || '[]');
+    return Array.isArray(arr) ? arr.filter(p => p && p.id && p.style) : [];
+  } catch(e) { return []; }
+}
+function saveChartStylePresets(arr) { localStorage.setItem('jbs_chart_styles', JSON.stringify(arr || [])); }
+function getAllChartStylePresets() {
+  return [{ id:'__default__', name:'預設樣式', builtin:true, style:_defaultChartStyle() }, ...loadChartStylePresets()];
+}
+
+function refreshChartStyleUI() {
+  const sel = document.getElementById('caStyleSel');
+  if (sel) {
+    const cur = sel.value || '__default__';
+    sel.innerHTML = getAllChartStylePresets().map(p =>
+      `<option value="${escHtml(p.id)}"${p.id === cur ? ' selected' : ''}>${escHtml(p.name)}${p.builtin ? ' (內建)' : ''}</option>`
+    ).join('');
+  }
+  const palSel = document.getElementById('caPaletteSel');
+  const dash   = document.getElementById('caDashCycle');
+  const cc     = document.getElementById('caCustomColors');
+  const cs     = _chartStyle();
+  if (palSel) palSel.value = cs.palette || 'default';
+  if (dash)   dash.checked = !!cs.dashCycle;
+  if (cc) {
+    cc.style.display = cs.palette === 'custom' ? 'inline-block' : 'none';
+    cc.value = Array.isArray(cs.customColors) ? cs.customColors.join(',') : '';
+  }
+}
+
+function updateChartStyle(field, value) {
+  const cs = _chartStyle();
+  if (field === 'customColors') {
+    cs.customColors = String(value).split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+  } else if (field === 'dashCycle') {
+    cs.dashCycle = !!value;
+  } else if (field === 'palette') {
+    cs.palette = value;
+    const cc = document.getElementById('caCustomColors');
+    if (cc) cc.style.display = value === 'custom' ? 'inline-block' : 'none';
+  }
+  if (typeof renderChart === 'function') renderChart();
+}
+
+function onChartStyleSelChange() {
+  const sel = document.getElementById('caStyleSel');
+  const id  = sel ? sel.value : '__default__';
+  const p = getAllChartStylePresets().find(x => x.id === id);
+  if (p) {
+    S.chartStyle = JSON.parse(JSON.stringify(p.style));
+    refreshChartStyleUI();
+    if (typeof renderChart === 'function') renderChart();
+  }
+}
+
+function saveChartStyle() {
+  const nameInp = document.getElementById('caStyleName');
+  const name = nameInp && nameInp.value.trim();
+  if (!name) { alert('請輸入樣式名稱'); return; }
+  const presets = loadChartStylePresets();
+  const newId = 'user_' + Date.now();
+  presets.push({ id:newId, name, style: JSON.parse(JSON.stringify(_chartStyle())) });
+  saveChartStylePresets(presets);
+  if (nameInp) nameInp.value = '';
+  const sel = document.getElementById('caStyleSel');
+  if (sel) sel.value = newId;
+  refreshChartStyleUI();
+  alert('已儲存樣式：' + name);
+}
+function deleteChartStyle() {
+  const sel = document.getElementById('caStyleSel');
+  const id  = sel ? sel.value : '';
+  if (!id || id === '__default__') { alert('內建樣式無法刪除'); return; }
+  if (!confirm('確定刪除此樣式？')) return;
+  saveChartStylePresets(loadChartStylePresets().filter(p => p.id !== id));
+  if (sel) sel.value = '__default__';
+  S.chartStyle = _defaultChartStyle();
+  refreshChartStyleUI();
+  if (typeof renderChart === 'function') renderChart();
+}
+function resetChartStyle() {
+  S.chartStyle = _defaultChartStyle();
+  const sel = document.getElementById('caStyleSel');
+  if (sel) sel.value = '__default__';
+  refreshChartStyleUI();
+  if (typeof renderChart === 'function') renderChart();
+}
+
+// 為每張圖表卡片加入 PNG / JPG / SVG 下載工具列；並套用線型循環設定
+function _applyChartCardEnhancements(grid) {
+  if (!grid) return;
+  const dashOn = _chartStyle().dashCycle;
+  grid.querySelectorAll('.chart-card').forEach(card => {
+    // 1) 下載工具列（避免重複加）
+    let plotDiv = card.querySelector('.js-plotly-plot');
+    if (!plotDiv) {
+      // 容器內第一個有 id 的 div
+      plotDiv = card.querySelector('div[id]');
+    }
+    if (plotDiv && !card.querySelector('.chart-dl-toolbar')) {
+      const tb = document.createElement('div');
+      tb.className = 'chart-dl-toolbar';
+      tb.style.cssText = 'display:flex;justify-content:flex-end;gap:4px;padding:2px 6px 0;';
+      const mk = (fmt, label) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.title = '下載為 ' + fmt.toUpperCase();
+        b.style.cssText = 'font-size:10px;padding:1px 8px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:3px;cursor:pointer';
+        b.onclick = () => {
+          try {
+            Plotly.downloadImage(plotDiv, { format: fmt, filename: 'chart_' + Date.now(), scale: 2 });
+          } catch(e) { alert('匯出失敗：' + (e && e.message || e)); }
+        };
+        return b;
+      };
+      tb.appendChild(mk('png',  '📷 PNG'));
+      tb.appendChild(mk('jpeg', '📷 JPG'));
+      tb.appendChild(mk('svg',  '📐 SVG'));
+      card.insertBefore(tb, card.firstChild);
+    }
+    // 2) 線型循環：只對 scatter+lines 模式的 trace 套用 dash
+    if (dashOn && plotDiv && plotDiv.data && plotDiv.data.length) {
+      plotDiv.data.forEach((trace, i) => {
+        const isScatter = !trace.type || trace.type === 'scatter' || trace.type === 'scattergl';
+        const hasLine   = isScatter && (!trace.mode || /lines/.test(trace.mode));
+        if (!hasLine) return;
+        const dash = chartDash(i);
+        try { Plotly.restyle(plotDiv, { 'line.dash': dash }, [i]); } catch(e) {}
+      });
+    }
+  });
+}
 
 // ── Split-group chart helpers ──
 
@@ -4757,6 +4958,8 @@ function renderChart() {
     case 'corrMatrix': caCorrelationMatrix(items, grid); break;
   }
   _updateSplitStatsCompare(items);
+  // 為每張卡片加入 PNG/JPG/SVG 下載按鈕；套用「線型循環」設定
+  setTimeout(() => _applyChartCardEnhancements(grid), 0);
 }
 
 // Render Split group comparison stats table below the chart grid.
@@ -5798,7 +6001,7 @@ function _refreshAllPanels() {
   if (id === 'panel-count') renderCount();
   if (id === 'panel-pct')   renderPct();
   if (id === 'panel-stats') renderStats();
-  if (id === 'panel-chart') renderChart();
+  if (id === 'panel-chart') { refreshChartStyleUI(); renderChart(); }
   if (id === 'panel-yield') { if (typeof renderYield === 'function') renderYield(); }
 }
 
