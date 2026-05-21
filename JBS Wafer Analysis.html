@@ -5532,21 +5532,40 @@ function renderDashboard() {
       S._lowYieldWarnings = [];
     }
 
-    // 計算各「量測項目」整體良率（跨所有 active lots 彙整）
-    const overall = specItems.map(item => {
+    // 計算每片 Wafer (Lot) 的整體良率：一個 die 同時通過所有有 SPEC 項目才算 pass
+    const specMeta = specItems.map(item => {
       const sp = getSpec(item);
-      const lsl = sp.lsl != null ? parseFloat(sp.lsl) : null;
-      const usl = sp.usl != null ? parseFloat(sp.usl) : null;
-      let pass = 0, total = 0, affected = 0, lotsWithData = 0;
-      activeLots.forEach(lot => {
-        const d = validData(lot, item); if (!d.length) return;
-        lotsWithData++;
-        const p = d.filter(v => (lsl==null||v>=lsl)&&(usl==null||v<=usl)).length;
-        pass += p; total += d.length;
-        if (p < d.length) affected++;
-      });
-      const y = total ? (pass / total * 100) : 100;
-      return { item, pass, total, fail: total - pass, y, lotsAffected: affected, lotsTotal: lotsWithData, lsl, usl };
+      return {
+        item,
+        lsl: sp.lsl != null ? parseFloat(sp.lsl) : null,
+        usl: sp.usl != null ? parseFloat(sp.usl) : null,
+      };
+    });
+    const overall = activeLots.map(lot => {
+      const lotRows = S.data.filter(r => r.Lot === lot);
+      const total = lotRows.length;
+      let pass = 0;
+      const failByItem = {};
+      for (const r of lotRows) {
+        let ok = true;
+        for (const m of specMeta) {
+          const v = parseFloat(r[m.item]);
+          if (isNaN(v)) continue;
+          if ((m.lsl != null && v < m.lsl) || (m.usl != null && v > m.usl)) {
+            ok = false;
+            failByItem[m.item] = (failByItem[m.item] || 0) + 1;
+          }
+        }
+        if (ok) pass++;
+      }
+      const fail = total - pass;
+      const y = total ? (pass / total * 100) : 0;
+      // 找出最主要的失敗項目
+      let worstItem = '', worstCount = 0;
+      for (const [it, c] of Object.entries(failByItem)) {
+        if (c > worstCount) { worstCount = c; worstItem = it; }
+      }
+      return { lot, pass, fail, total, y, worstItem, worstCount };
     }).filter(r => r.total > 0);
     S._overallYield = overall;
 
@@ -5575,10 +5594,15 @@ function _buildYieldPanel(which) {
 
   // 欄位定義：{ key, label, align, render(row) }
   const cols = [];
-  if (isLow) cols.push({ key:'lot', label:'Lot', align:'left',
-    render: r => `<span class="lot-tag l-${getLotColorIdx(r.lot)}">${escHtml(r.lot)}</span>` });
-  cols.push({ key:'item', label:'量測項目', align:'left',
-    render: r => escHtml(r.item) });
+  if (isLow) {
+    cols.push({ key:'lot', label:'Lot', align:'left',
+      render: r => `<span class="lot-tag l-${getLotColorIdx(r.lot)}">${escHtml(r.lot)}</span>` });
+    cols.push({ key:'item', label:'量測項目', align:'left',
+      render: r => escHtml(r.item) });
+  } else {
+    cols.push({ key:'lot', label:'Wafer / Lot', align:'left',
+      render: r => `<span class="lot-tag l-${getLotColorIdx(r.lot)}">${escHtml(r.lot)}</span>` });
+  }
   cols.push({ key:'y', label:'Yield', align:'left',
     render: r => {
       const y = parseFloat(r.y), c = yieldColor(y);
@@ -5593,12 +5617,17 @@ function _buildYieldPanel(which) {
     render: r => `<span style="font-variant-numeric:tabular-nums">${r.pass} / ${r.total}</span>` });
   cols.push({ key:'fail', label:'Fail', align:'right',
     render: r => `<span style="color:${yieldColor(parseFloat(r.y))};font-weight:600;font-variant-numeric:tabular-nums">${r.fail}</span>` });
-  if (!isLow) cols.push({ key:'lotsAffected', label:'影響 Lot', align:'right',
-    render: r => `<span style="font-variant-numeric:tabular-nums">${r.lotsAffected} / ${r.lotsTotal}</span>` });
-  cols.push({ key:'lsl', label:'LSL', align:'right',
-    render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.lsl)}</span>` });
-  cols.push({ key:'usl', label:'USL', align:'right',
-    render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.usl)}</span>` });
+  if (isLow) {
+    cols.push({ key:'lsl', label:'LSL', align:'right',
+      render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.lsl)}</span>` });
+    cols.push({ key:'usl', label:'USL', align:'right',
+      render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.usl)}</span>` });
+  } else {
+    cols.push({ key:'worstCount', label:'主要失敗項目', align:'left',
+      render: r => r.worstItem
+        ? `<span style="color:var(--text-2)">${escHtml(r.worstItem)} <span style="color:var(--text-3)">(${r.worstCount})</span></span>`
+        : '<span style="color:var(--text-3)">—</span>' });
+  }
 
   const ind = key => sort.col === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
   const ths = cols.map(c => `<th onclick="setYieldSort('${which}','${c.key}')"
@@ -5615,7 +5644,7 @@ function _buildYieldPanel(which) {
     ';border-radius:8px;padding:14px 16px';
   const title = isLow
     ? `<span style="color:#e53e3e">⚠️ 低良率警示（${rows.length} 項 < 90%）</span>`
-    : `<span>📊 各量測項目整體良率（${rows.length} 項）</span>`;
+    : `<span>📊 各 Wafer 整體良率（${rows.length} 片）</span>`;
   wDiv.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
       <div style="font-weight:700;font-size:14px">${title}</div>
@@ -5668,14 +5697,14 @@ function exportYieldExcel(which) {
     header = ['Lot','量測項目','Pass','Fail','Total','Yield(%)','LSL','USL'];
     data = sorted.map(w => [w.lot, w.item, w.pass, w.fail, w.total, parseFloat(w.y.toFixed(2)), w.lsl, w.usl]);
   } else {
-    header = ['量測項目','Pass','Fail','Total','Yield(%)','影響Lot','總Lot','LSL','USL'];
-    data = sorted.map(r => [r.item, r.pass, r.fail, r.total, parseFloat(r.y.toFixed(2)), r.lotsAffected, r.lotsTotal, r.lsl, r.usl]);
+    header = ['Wafer/Lot','Pass','Fail','Total','Yield(%)','主要失敗項目','失敗數'];
+    data = sorted.map(r => [r.lot, r.pass, r.fail, r.total, parseFloat(r.y.toFixed(2)), r.worstItem || '', r.worstCount || 0]);
   }
   const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
   ws['!cols'] = header.map(h => ({ wch: Math.max(10, h.length + 4) }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, isLow ? '低良率警示' : '各項目整體良率');
-  const tag = isLow ? '低良率警示' : '各項目整體良率';
+  XLSX.utils.book_append_sheet(wb, ws, isLow ? '低良率警示' : '各Wafer整體良率');
+  const tag = isLow ? '低良率警示' : '各Wafer整體良率';
   XLSX.writeFile(wb, `${tag}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
