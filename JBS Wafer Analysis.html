@@ -5517,7 +5517,6 @@ function renderDashboard() {
       oy<90));
     if(warnings.length){
       // 補齊 pass/total/fail/spec 給匯出與表格使用
-      warnings.sort((a,b) => parseFloat(a.y) - parseFloat(b.y));
       warnings.forEach(w => {
         const d = validData(w.lot, w.item);
         const sp = getSpec(w.item);
@@ -5525,111 +5524,188 @@ function renderDashboard() {
         const usl = sp.usl != null ? parseFloat(sp.usl) : null;
         const pass = d.filter(v => (lsl==null||v>=lsl) && (usl==null||v<=usl)).length;
         w.total = d.length; w.pass = pass; w.fail = d.length - pass;
+        w.y = parseFloat(w.y);  // 統一為 number 方便排序
         w.lsl = lsl; w.usl = usl;
       });
       S._lowYieldWarnings = warnings;
-
-      const wDiv = document.createElement('div');
-      wDiv.id = 'lowYieldPanel';
-      wDiv.style.cssText = 'grid-column:1/-1;background:var(--bg-2);border:1px solid rgba(197,48,48,0.35);border-radius:8px;padding:14px 16px';
-      const yieldColor = y =>
-        y < 50 ? '#e53e3e' :
-        y < 70 ? '#dd6b20' :
-        y < 80 ? '#d69e2e' :
-                 '#ecc94b';
-      const fmtNum = v => v == null ? '—' : (Number.isInteger(v) ? v : parseFloat(v.toPrecision(6)));
-      const rowsHtml = warnings.map(w => {
-        const y = parseFloat(w.y);
-        const c = yieldColor(y);
-        return `<tr style="border-top:1px solid var(--border-2)">
-          <td style="padding:6px 8px;white-space:nowrap"><span class="lot-tag l-${getLotColorIdx(w.lot)}">${escHtml(w.lot)}</span></td>
-          <td style="padding:6px 8px">${escHtml(w.item)}</td>
-          <td style="padding:6px 8px;min-width:170px">
-            <div style="display:flex;align-items:center;gap:8px">
-              <div style="flex:1;min-width:60px;height:8px;background:var(--bg-3);border-radius:4px;overflow:hidden">
-                <div style="width:${y}%;height:100%;background:${c}"></div>
-              </div>
-              <span style="font-weight:700;color:${c};font-variant-numeric:tabular-nums;min-width:46px;text-align:right">${w.y}%</span>
-            </div>
-          </td>
-          <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">${w.pass} / ${w.total}</td>
-          <td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:${c};font-weight:600">${w.fail}</td>
-          <td style="padding:6px 8px;text-align:right;color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(w.lsl)}</td>
-          <td style="padding:6px 8px;text-align:right;color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(w.usl)}</td>
-        </tr>`;
-      }).join('');
-
-      wDiv.innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-          <div style="font-weight:700;color:#e53e3e;font-size:14px">⚠️ 低良率警示（${warnings.length} 項 < 90%）</div>
-          <div style="font-size:11px;color:var(--text-3)">已依良率由低至高排序</div>
-          <div style="margin-left:auto;display:flex;gap:6px" class="lyp-actions">
-            <button class="btn btn-gray" style="font-size:11px" onclick="exportLowYieldExcel()">📤 匯出 Excel</button>
-            <button class="btn btn-gray" style="font-size:11px" onclick="exportLowYieldImage()">🖼 匯出圖片</button>
-          </div>
-        </div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead>
-              <tr style="background:var(--bg-3);color:var(--text-2);text-align:left">
-                <th style="padding:6px 8px">Lot</th>
-                <th style="padding:6px 8px">量測項目</th>
-                <th style="padding:6px 8px">Yield</th>
-                <th style="padding:6px 8px;text-align:right">Pass / Total</th>
-                <th style="padding:6px 8px;text-align:right">Fail</th>
-                <th style="padding:6px 8px;text-align:right">LSL</th>
-                <th style="padding:6px 8px;text-align:right">USL</th>
-              </tr>
-            </thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>`;
-      grid.appendChild(wDiv);
+    } else {
+      S._lowYieldWarnings = [];
     }
+
+    // 計算各「量測項目」整體良率（跨所有 active lots 彙整）
+    const overall = specItems.map(item => {
+      const sp = getSpec(item);
+      const lsl = sp.lsl != null ? parseFloat(sp.lsl) : null;
+      const usl = sp.usl != null ? parseFloat(sp.usl) : null;
+      let pass = 0, total = 0, affected = 0, lotsWithData = 0;
+      activeLots.forEach(lot => {
+        const d = validData(lot, item); if (!d.length) return;
+        lotsWithData++;
+        const p = d.filter(v => (lsl==null||v>=lsl)&&(usl==null||v<=usl)).length;
+        pass += p; total += d.length;
+        if (p < d.length) affected++;
+      });
+      const y = total ? (pass / total * 100) : 100;
+      return { item, pass, total, fail: total - pass, y, lotsAffected: affected, lotsTotal: lotsWithData, lsl, usl };
+    }).filter(r => r.total > 0);
+    S._overallYield = overall;
+
+    // 排序狀態
+    if (!S._yieldSort) S._yieldSort = { low:{col:'y',dir:'asc'}, overall:{col:'y',dir:'asc'} };
+
+    if (overall.length)         grid.appendChild(_buildYieldPanel('overall'));
+    if (warnings.length)        grid.appendChild(_buildYieldPanel('low'));
   }
 }
 
-// 匯出低良率警示為 Excel
-function exportLowYieldExcel() {
-  const arr = S._lowYieldWarnings || [];
-  if (!arr.length) { alert('沒有低良率資料可匯出'); return; }
-  const rows = [['Lot','量測項目','Pass','Fail','Total','Yield(%)','LSL','USL']];
-  for (const w of arr) {
-    rows.push([w.lot, w.item, w.pass, w.fail, w.total, parseFloat(w.y), w.lsl, w.usl]);
+// ── 共用：建構良率表格面板（low / overall） ──
+function _buildYieldPanel(which) {
+  const isLow = which === 'low';
+  const rows  = isLow ? (S._lowYieldWarnings || []) : (S._overallYield || []);
+  const sort  = (S._yieldSort && S._yieldSort[which]) || { col:'y', dir:'asc' };
+  const sorted = _sortYieldRows(rows, sort);
+
+  const yieldColor = y =>
+    y < 50 ? '#e53e3e' :
+    y < 70 ? '#dd6b20' :
+    y < 80 ? '#d69e2e' :
+    y < 90 ? '#ecc94b' :
+             '#48bb78';
+  const fmtNum = v => v == null ? '—' : (Number.isInteger(v) ? v : parseFloat(v.toPrecision(6)));
+
+  // 欄位定義：{ key, label, align, render(row) }
+  const cols = [];
+  if (isLow) cols.push({ key:'lot', label:'Lot', align:'left',
+    render: r => `<span class="lot-tag l-${getLotColorIdx(r.lot)}">${escHtml(r.lot)}</span>` });
+  cols.push({ key:'item', label:'量測項目', align:'left',
+    render: r => escHtml(r.item) });
+  cols.push({ key:'y', label:'Yield', align:'left',
+    render: r => {
+      const y = parseFloat(r.y), c = yieldColor(y);
+      return `<div style="display:flex;align-items:center;gap:8px;min-width:170px">
+        <div style="flex:1;min-width:60px;height:8px;background:var(--bg-3);border-radius:4px;overflow:hidden">
+          <div style="width:${y}%;height:100%;background:${c}"></div>
+        </div>
+        <span style="font-weight:700;color:${c};font-variant-numeric:tabular-nums;min-width:46px;text-align:right">${y.toFixed(1)}%</span>
+      </div>`;
+    }});
+  cols.push({ key:'total', label:'Pass / Total', align:'right',
+    render: r => `<span style="font-variant-numeric:tabular-nums">${r.pass} / ${r.total}</span>` });
+  cols.push({ key:'fail', label:'Fail', align:'right',
+    render: r => `<span style="color:${yieldColor(parseFloat(r.y))};font-weight:600;font-variant-numeric:tabular-nums">${r.fail}</span>` });
+  if (!isLow) cols.push({ key:'lotsAffected', label:'影響 Lot', align:'right',
+    render: r => `<span style="font-variant-numeric:tabular-nums">${r.lotsAffected} / ${r.lotsTotal}</span>` });
+  cols.push({ key:'lsl', label:'LSL', align:'right',
+    render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.lsl)}</span>` });
+  cols.push({ key:'usl', label:'USL', align:'right',
+    render: r => `<span style="color:var(--text-3);font-variant-numeric:tabular-nums">${fmtNum(r.usl)}</span>` });
+
+  const ind = key => sort.col === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const ths = cols.map(c => `<th onclick="setYieldSort('${which}','${c.key}')"
+      style="padding:6px 8px;cursor:pointer;user-select:none;text-align:${c.align==='right'?'right':'left'}"
+      title="點擊排序">${escHtml(c.label)}<span style="color:var(--accent)">${ind(c.key)}</span></th>`).join('');
+  const trs = sorted.map(r => `<tr style="border-top:1px solid var(--border-2)">${cols.map(c =>
+      `<td style="padding:6px 8px;text-align:${c.align==='right'?'right':'left'}">${c.render(r)}</td>`
+    ).join('')}</tr>`).join('');
+
+  const wDiv = document.createElement('div');
+  wDiv.id = isLow ? 'lowYieldPanel' : 'overallYieldPanel';
+  wDiv.style.cssText = 'grid-column:1/-1;background:var(--bg-2);border:1px solid ' +
+    (isLow ? 'rgba(197,48,48,0.35)' : 'var(--border-2)') +
+    ';border-radius:8px;padding:14px 16px';
+  const title = isLow
+    ? `<span style="color:#e53e3e">⚠️ 低良率警示（${rows.length} 項 < 90%）</span>`
+    : `<span>📊 各量測項目整體良率（${rows.length} 項）</span>`;
+  wDiv.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <div style="font-weight:700;font-size:14px">${title}</div>
+      <div style="font-size:11px;color:var(--text-3)">點欄位標題可切換排序方向</div>
+      <div style="margin-left:auto;display:flex;gap:6px" class="lyp-actions">
+        <button class="btn btn-gray" style="font-size:11px" onclick="exportYieldExcel('${which}')">📤 匯出 Excel</button>
+        <button class="btn btn-gray" style="font-size:11px" onclick="exportYieldImage('${which}')">🖼 匯出圖片</button>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--bg-3);color:var(--text-2)">${ths}</tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    </div>`;
+  return wDiv;
+}
+
+function _sortYieldRows(rows, sort) {
+  const dir = sort.dir === 'desc' ? -1 : 1;
+  const k = sort.col;
+  return [...rows].sort((a,b) => {
+    const va = a[k], vb = b[k];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
+    return String(va).localeCompare(String(vb)) * dir;
+  });
+}
+
+function setYieldSort(which, col) {
+  if (!S._yieldSort) S._yieldSort = { low:{col:'y',dir:'asc'}, overall:{col:'y',dir:'asc'} };
+  const cur = S._yieldSort[which] || { col:'y', dir:'asc' };
+  if (cur.col === col) cur.dir = cur.dir === 'asc' ? 'desc' : 'asc';
+  else                 { cur.col = col; cur.dir = col === 'item' || col === 'lot' ? 'asc' : 'asc'; }
+  S._yieldSort[which] = cur;
+  renderDashboard();
+}
+
+// 匯出良率表格為 Excel
+function exportYieldExcel(which) {
+  const isLow = which === 'low';
+  const rows  = isLow ? (S._lowYieldWarnings || []) : (S._overallYield || []);
+  if (!rows.length) { alert('沒有資料可匯出'); return; }
+  const sort = (S._yieldSort && S._yieldSort[which]) || { col:'y', dir:'asc' };
+  const sorted = _sortYieldRows(rows, sort);
+  let header, data;
+  if (isLow) {
+    header = ['Lot','量測項目','Pass','Fail','Total','Yield(%)','LSL','USL'];
+    data = sorted.map(w => [w.lot, w.item, w.pass, w.fail, w.total, parseFloat(w.y.toFixed(2)), w.lsl, w.usl]);
+  } else {
+    header = ['量測項目','Pass','Fail','Total','Yield(%)','影響Lot','總Lot','LSL','USL'];
+    data = sorted.map(r => [r.item, r.pass, r.fail, r.total, parseFloat(r.y.toFixed(2)), r.lotsAffected, r.lotsTotal, r.lsl, r.usl]);
   }
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:16},{wch:32},{wch:8},{wch:8},{wch:8},{wch:10},{wch:12},{wch:12}];
+  const ws = XLSX.utils.aoa_to_sheet([header, ...data]);
+  ws['!cols'] = header.map(h => ({ wch: Math.max(10, h.length + 4) }));
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '低良率警示');
-  XLSX.writeFile(wb, `低良率警示_${new Date().toISOString().slice(0,10)}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, isLow ? '低良率警示' : '各項目整體良率');
+  const tag = isLow ? '低良率警示' : '各項目整體良率';
+  XLSX.writeFile(wb, `${tag}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-// 匯出低良率警示為 PNG 圖片
-function exportLowYieldImage() {
-  const el = document.getElementById('lowYieldPanel');
-  if (!el) { alert('沒有低良率面板可匯出'); return; }
-  if (typeof html2canvas === 'undefined') { alert('圖片匯出工具尚未載入（html2canvas）'); return; }
-  // 暫時隱藏按鈕，避免出現在截圖中
+// 匯出良率表格為 PNG 圖片
+function exportYieldImage(which) {
+  const id = which === 'low' ? 'lowYieldPanel' : 'overallYieldPanel';
+  const el = document.getElementById(id);
+  if (!el) { alert('沒有面板可匯出'); return; }
+  if (typeof html2canvas === 'undefined') { alert('圖片匯出工具尚未載入'); return; }
   const actions = el.querySelector('.lyp-actions');
   const prevDisp = actions ? actions.style.display : '';
   if (actions) actions.style.display = 'none';
   const bgIsLight = document.body.classList.contains('theme-light');
-  html2canvas(el, {
-    backgroundColor: bgIsLight ? '#ffffff' : '#161b22',
-    scale: 2,
-    useCORS: true,
-    logging: false,
-  }).then(canvas => {
-    if (actions) actions.style.display = prevDisp;
-    const a = document.createElement('a');
-    a.download = `低良率警示_${new Date().toISOString().slice(0,10)}.png`;
-    a.href = canvas.toDataURL('image/png');
-    a.click();
-  }).catch(e => {
-    if (actions) actions.style.display = prevDisp;
-    alert('圖片匯出失敗：' + (e && e.message || e));
-  });
+  html2canvas(el, { backgroundColor: bgIsLight ? '#ffffff' : '#161b22', scale: 2, useCORS: true, logging: false })
+    .then(canvas => {
+      if (actions) actions.style.display = prevDisp;
+      const a = document.createElement('a');
+      const tag = which === 'low' ? '低良率警示' : '各項目整體良率';
+      a.download = `${tag}_${new Date().toISOString().slice(0,10)}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }).catch(e => {
+      if (actions) actions.style.display = prevDisp;
+      alert('圖片匯出失敗：' + (e && e.message || e));
+    });
 }
+
+// 舊函式名相容
+function exportLowYieldExcel() { exportYieldExcel('low'); }
+function exportLowYieldImage() { exportYieldImage('low'); }
 
 // ══════════════════════════════════════════════════
 // GLOBAL LOT FILTER
