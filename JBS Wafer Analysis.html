@@ -677,8 +677,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
     <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
       <div class="upload-icon">📁</div>
-      <div class="upload-text">點擊或拖曳上傳 Excel 檔案</div>
-      <div class="upload-hint">支援 .xls / .xlsx，可同時選取多個 wafer 檔案</div>
+      <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
+      <div class="upload-hint">支援 .xls / .xlsx / .csv ｜ 自動辨識多種 CP 格式（JUNO XLS、POWORLD CSV、dlogTDO 等）</div>
     </div>
     <input type="file" id="fi" multiple accept=".xls,.xlsx,.csv" style="display:none"
            onchange="handleFiles(this.files)">
@@ -695,12 +695,19 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
     <div class="settings-row">
       <div class="sg">
-        <label>標題列號（第幾列是欄位名稱）</label>
-        <input type="number" id="headerRow" value="13" min="1" max="100" style="width:80px">
+        <label>格式偵測</label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);cursor:pointer">
+          <input type="checkbox" id="autoDetectChk" checked onchange="onAutoDetectChange(this)">
+          <span>自動偵測（依檔案內容判別 Template）</span>
+        </label>
+      </div>
+      <div class="sg">
+        <label>標題列號 <span style="color:var(--text-3);font-size:10px">（自動模式下會被覆寫）</span></label>
+        <input type="number" id="headerRow" value="13" min="1" max="200" style="width:80px">
       </div>
       <div class="sg">
         <label>資料起始列號</label>
-        <input type="number" id="dataStart" value="30" min="1" max="200" style="width:80px">
+        <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
       </div>
       <div class="sg">
         <label>&nbsp;</label>
@@ -727,6 +734,23 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
     <div id="fileList" class="file-list"></div>
     <div id="upStatus"></div>
+
+    <!-- ── Template detection panel (shown after step 1) ── -->
+    <div id="detectSection" style="display:none;margin-top:10px;padding:10px 12px;
+         background:var(--bg-2);border:1px solid var(--border-2);border-radius:6px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <div style="font-weight:600;font-size:13px">📋 偵測到的 CP 格式</div>
+        <span style="font-size:11px;color:var(--text-3)">每個檔案可手動切換 Template，再次按「載入欄位」會重新解析</span>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          <button class="btn btn-gray" style="font-size:11px" onclick="exportTemplatesJSON()">📤 匯出 Template JSON</button>
+          <label class="btn btn-gray" style="font-size:11px;cursor:pointer">📥 匯入
+            <input type="file" id="tplImportInput" accept=".json" style="display:none"
+                   onchange="importTemplatesJSON(this.files[0]);this.value=''">
+          </label>
+        </div>
+      </div>
+      <div id="detectList" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
 
     <!-- ── Rename section (shown after step 1) ── -->
     <div id="renameSection" class="rename-section" style="display:none">
@@ -1543,7 +1567,9 @@ const STD_RENAME = {
   '18 VFBC4':'VF_1A(V)',   '19 VFBCH':'VF_10A(V)'
 };
 
-const META_COLS     = new Set(['Lot','Serial','Bin','Xpos','Ypos','YY,XX']);
+// 內部正規化後的非量測欄位 — 不論來源檔案命名為何，這些都會被視為 meta
+const META_COLS     = new Set(['Lot','Wafer','Serial','Site','Bin','SBin','Xpos','Ypos','XAdr','YAdr','YY,XX','_batch']);
+const CANONICAL_META = ['Lot','Wafer','Serial','Site','Bin','SBin','Xpos','Ypos'];
 const N_BINS        = 25;
 const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 
@@ -1557,6 +1583,9 @@ const S = {
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
+  _parsed: [],                  // per-file parse result cache (see parseUploadedFiles)
+  _activeTemplates: {},         // { fileIdx → templateId } user override
+  _autoDetect: true,            // 自動偵測 CP 格式；false = 手動指定 headerRow/dataStart
   _excludedCols:    new Set(),   // original col names to skip in analysis
   _colConvOverrides: {},         // origColName → {type, factor?}
   activeStats:      [...DEFAULT_STATS],
@@ -1608,6 +1637,526 @@ const S = {
     configurable: true, enumerable: true
   });
 })();
+
+// ══════════════════════════════════════════════════
+// MULTI-FORMAT CP PARSER — Template / Rule-based / Regex
+//
+// 每個 CP 檔案格式 = 一份 Template (JSON-like)。
+// 新增廠牌/機台時，僅需在 BUILTIN_TEMPLATES 末尾追加一筆，
+// 或透過 UI 匯入 JSON、或於 localStorage 客製，
+// 無需修改 loadColumns / applyAndAnalyze 等核心程式。
+// ══════════════════════════════════════════════════
+const BUILTIN_TEMPLATES = [
+  {
+    id: 'xls_legacy',
+    name: 'Legacy XLS (JUNO -Data.xls)',
+    description: '舊版單列 header (Serial / Bin / Xpos / Ypos / YY,XX)',
+    match: {
+      ext: ['xls','xlsx'],
+      filename: '-Data\\.(xls|xlsx)$',
+      contentMarkers: [
+        { row: [8,16], regex: '^Serial$',  col: 0 },
+        { row: [8,16], regex: '^YY,XX$',   col: 4 },
+        { row: [0,12], regex: '^Lot Number' },
+      ],
+      minScore: 2,
+    },
+    layout: {
+      metaCols: 5,
+      header:      { row: 'auto', anchorRegex: '^Serial$', anchorCol: 0 },
+      paramHeader: { mode: 'sameRow' },
+      data:        { row: 'auto' },
+      skipRowsRegex: '^(Bias\\d?|LowLimit|UpLimit|Unit|avg|std|Min|Max)\\s*$',
+    },
+    metadata: {
+      lotId:   { keyRegex: '^Lot Number$', valueCol: 6, row: [0,12] },
+      waferId: { keyRegex: '^WaferId$',    valueCol: 6, row: [0,12] },
+    },
+    columnMap: {},
+    lotIdFallback: {
+      source: 'filename',
+      // AAA001Y-N63S11A_01-Data.xls → N63S11A_01
+      regex: '^[A-Za-z0-9]+-([A-Za-z0-9_]+)-',
+      group: 1,
+    },
+    paramRules: { excludeRegex: 'SOT_SOT' },
+  },
+  {
+    id: 'csv_n64',
+    name: 'POWORLD CSV (Step 格式)',
+    description: 'UTF-8 BOM CSV，含 Step 步驟標記與 "Test Item" 行',
+    match: {
+      ext: ['csv'],
+      filename: '_L_[\\d.]+C_\\d+_\\d+\\.csv$',
+      contentMarkers: [
+        { row: [25,35], regex: '\\[Step\\d+\\]' },
+        { row: [25,35], regex: '^Test Item$', col: 5 },
+        { row: [0,15],  regex: '^Lot ID' },
+      ],
+      minScore: 2,
+    },
+    layout: {
+      metaCols: 6,
+      header:      { row: 'auto', anchorRegex: '^Serial#?$', anchorCol: 0 },
+      paramHeader: { anchorRegex: '^Test Item$', anchorCol: 5 },
+      data:        { row: 'header+1' },
+    },
+    metadata: {
+      lotId:   { keyRegex: '^Lot ID',   row: [0,18] },
+      waferId: { keyRegex: '^Wafer ID', row: [0,18] },
+    },
+    columnMap: {
+      'Serial#':'Serial', 'Site#':'Site', 'Bin#':'Bin', 'SBin#':'SBin',
+      'XAdr':'Xpos', 'YAdr':'Ypos',
+    },
+    lotIdFallback: {
+      source: 'filename',
+      regex: '^([A-Za-z0-9]+)_',
+      group: 1,
+    },
+    paramRules: { excludeRegex: 'SOT_SOT' },
+  },
+  {
+    id: 'csv_dlogTDO',
+    name: 'dlogTDO CSV',
+    description: 'ATE dlogTDO 輸出 (Contact / V_Force / VZ 等步驟描述)',
+    match: {
+      ext: ['csv'],
+      filename: '_dlogTDO\\.csv$',
+      contentMarkers: [
+        { row: [25,40], regex: '^Serial#', col: 0 },
+        { row: [25,40], regex: 'V_Force|Ohm_Force|VZ\\d+\\(V\\)' },
+      ],
+      minScore: 2,
+    },
+    layout: {
+      metaCols: 6,
+      header:      { row: 'auto', anchorRegex: '^Serial#?$', anchorCol: 0 },
+      paramHeader: { mode: 'scanUp', validateCol: 6, maxScan: 12 },
+      data:        { row: 'header+1' },
+    },
+    metadata: {
+      lotId:   { keyRegex: '^Lot ID',   row: [0,18] },
+      waferId: { keyRegex: '^Wafer ID', row: [0,18] },
+    },
+    columnMap: {
+      'Serial#':'Serial', 'Site#':'Site', 'Bin#':'Bin', 'SBin#':'SBin',
+      'XAdr':'Xpos', 'YAdr':'Ypos',
+    },
+    lotIdFallback: {
+      source: 'filename',
+      regex: '^([A-Za-z0-9]+)-',
+      group: 1,
+    },
+    paramRules: { excludeRegex: 'SOT_SOT' },
+  },
+];
+
+function loadUserTemplates() {
+  try { return JSON.parse(localStorage.getItem('jbs_cp_templates') || '[]'); }
+  catch(e) { return []; }
+}
+function saveUserTemplates(arr) {
+  localStorage.setItem('jbs_cp_templates', JSON.stringify(arr || []));
+}
+function getAllTemplates() {
+  return [...BUILTIN_TEMPLATES, ...loadUserTemplates()];
+}
+function findTemplate(id) {
+  return getAllTemplates().find(t => t.id === id) || null;
+}
+
+function _safeRe(pattern, flags) {
+  try { return new RegExp(pattern, flags); } catch(e) { return null; }
+}
+
+function detectTemplate(filename, rows) {
+  const maxScan = Math.min(rows.length, 64);
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const candidates = [];
+  for (const tpl of getAllTemplates()) {
+    let score = 0; const evidence = [];
+    const m = tpl.match || {};
+    if (m.ext && m.ext.includes(ext)) { score += 1; evidence.push('ext'); }
+    if (m.filename) {
+      const re = _safeRe(m.filename, 'i');
+      if (re && re.test(filename)) { score += 2; evidence.push('filename'); }
+    }
+    for (const mk of (m.contentMarkers || [])) {
+      const re = _safeRe(mk.regex, 'i'); if (!re) continue;
+      const r0 = Math.max(0, mk.row?.[0] ?? 0);
+      const r1 = Math.min(maxScan, mk.row?.[1] ?? maxScan);
+      let hit = false;
+      for (let i = r0; i < r1 && !hit; i++) {
+        const cells = rows[i] || [];
+        if (mk.col != null) {
+          const v = cells[mk.col];
+          if (v != null && re.test(String(v))) hit = true;
+        } else {
+          for (const c of cells) {
+            if (c != null && re.test(String(c))) { hit = true; break; }
+          }
+        }
+      }
+      if (hit) { score += 1; evidence.push('marker:' + mk.regex.slice(0,18)); }
+    }
+    candidates.push({ template: tpl, score, evidence });
+  }
+  candidates.sort((a,b) => b.score - a.score);
+  const best = candidates[0];
+  const minScore = best?.template.match?.minScore ?? 2;
+  const ok = best && best.score >= minScore;
+  return {
+    template: ok ? best.template : null,
+    score:    best?.score || 0,
+    evidence: best?.evidence || [],
+    candidates,
+  };
+}
+
+function _findRowByAnchor(rows, anchorRegex, anchorCol, fromIdx, dir, maxScan) {
+  const re = _safeRe(anchorRegex, 'i'); if (!re) return -1;
+  const limit = dir > 0 ? Math.min(rows.length, fromIdx + maxScan) : Math.max(-1, fromIdx - maxScan);
+  for (let i = fromIdx; dir > 0 ? i < limit : i > limit; i += dir) {
+    const cells = rows[i] || [];
+    if (anchorCol != null) {
+      const v = cells[anchorCol];
+      if (v != null && re.test(String(v).trim())) return i;
+    } else {
+      for (const c of cells) {
+        if (c != null && re.test(String(c).trim())) return i;
+      }
+    }
+  }
+  return -1;
+}
+
+function _looksLikeDataRow(row, metaCols) {
+  if (!row) return false;
+  // 至少在 meta 區之後要有一個數字
+  let numCount = 0;
+  for (let i = metaCols; i < row.length; i++) {
+    const v = row[i];
+    if (v == null || v === '') continue;
+    if (!isNaN(parseFloat(v))) numCount++;
+  }
+  return numCount >= 2;
+}
+
+function _extractMetadata(filename, rows, template) {
+  const out = {};
+  const md = template.metadata || {};
+  for (const key of Object.keys(md)) {
+    const spec = md[key];
+    if (spec.source === 'filename' && spec.regex) {
+      const re = _safeRe(spec.regex);
+      if (re) {
+        const m = filename.match(re);
+        if (m) out[key] = spec.group != null ? m[spec.group] : m[0];
+      }
+      continue;
+    }
+    if (spec.keyRegex) {
+      const re = _safeRe(spec.keyRegex, 'i'); if (!re) continue;
+      const r0 = spec.row?.[0] ?? 0;
+      const r1 = Math.min(rows.length, spec.row?.[1] ?? 30);
+      for (let r = r0; r < r1; r++) {
+        const cells = rows[r] || [];
+        let captured = false;
+        for (let c = 0; c < cells.length; c++) {
+          const cell = cells[c]; if (cell == null) continue;
+          const s = String(cell);
+          if (!re.test(s)) continue;
+          if (spec.valueCol != null && cells[spec.valueCol] != null && cells[spec.valueCol] !== '') {
+            out[key] = String(cells[spec.valueCol]).trim();
+            captured = true; break;
+          }
+          // 同格內以 ":" 分隔
+          const m = s.match(/[:：]\s*(.+)$/);
+          if (m) { out[key] = m[1].trim(); captured = true; break; }
+          // 取右側下一個非空 cell
+          for (let cc = c + 1; cc < cells.length; cc++) {
+            if (cells[cc] != null && cells[cc] !== '') {
+              out[key] = String(cells[cc]).trim();
+              captured = true; break;
+            }
+          }
+          if (captured) break;
+        }
+        if (captured) break;
+      }
+    }
+  }
+  return out;
+}
+
+function resolveLotId(filename, template, metadata) {
+  if (metadata?.lotId) return String(metadata.lotId).trim();
+  const fb = template?.lotIdFallback;
+  if (fb?.source === 'filename' && fb.regex) {
+    const re = _safeRe(fb.regex);
+    if (re) {
+      const m = filename.match(re);
+      if (m) return fb.group != null ? m[fb.group] : m[0];
+    }
+  }
+  // ultimate legacy fallback
+  const base = filename.replace(/\.(xls|xlsx|csv)$/i, '');
+  const parts = base.split('-');
+  return parts.length >= 2 ? parts[1] : base;
+}
+
+function parseWithTemplate(filename, rows, template, opts) {
+  opts = opts || {};
+  const L = template.layout || {};
+  const metaCols = L.metaCols || 0;
+
+  // header row
+  let headerIdx;
+  if (opts.headerIdxOverride != null && opts.headerIdxOverride >= 0) {
+    headerIdx = opts.headerIdxOverride;
+  } else if (L.header && L.header.row === 'auto' && L.header.anchorRegex) {
+    headerIdx = _findRowByAnchor(rows, L.header.anchorRegex, L.header.anchorCol, 0, 1, 80);
+  } else if (L.header && typeof L.header.row === 'number') {
+    headerIdx = L.header.row;
+  } else {
+    headerIdx = -1;
+  }
+  if (headerIdx < 0) return { error: '無法定位欄位標題列' };
+
+  // param-name row
+  let paramIdx = headerIdx;
+  const ph = L.paramHeader;
+  if (ph) {
+    if (ph.mode === 'sameRow') {
+      paramIdx = headerIdx;
+    } else if (ph.anchorRegex) {
+      const found = _findRowByAnchor(rows, ph.anchorRegex, ph.anchorCol, headerIdx, -1, 30);
+      if (found >= 0) paramIdx = found;
+    } else if (ph.mode === 'scanUp') {
+      const vc = ph.validateCol != null ? ph.validateCol : metaCols;
+      const skip = /^(Min|Max|Bias|Force|Fail|Spec|Sample|Pass|Range|Test Item|Contact\(|Step|Low ?Limit|Up ?Limit|Unit|avg|std|YY,XX)/i;
+      const maxScan = ph.maxScan || 20;
+      for (let i = headerIdx - 1, k = 0; i >= 0 && k < maxScan; i--, k++) {
+        const v = (rows[i] || [])[vc];
+        if (v == null || v === '') continue;
+        const s = String(v).trim();
+        if (!/[A-Za-z]/.test(s)) continue;
+        if (skip.test(s)) continue;
+        paramIdx = i;
+        break;
+      }
+    } else if (typeof ph.row === 'number') {
+      paramIdx = ph.row;
+    }
+  }
+
+  // merge headers
+  const headerRow = rows[headerIdx] || [];
+  const paramRow  = rows[paramIdx]  || [];
+  const ncols = Math.max(headerRow.length, paramRow.length);
+  const rawHeaders = [];
+  for (let i = 0; i < ncols; i++) {
+    let v;
+    if (i < metaCols)               v = headerRow[i];
+    else if (paramIdx !== headerIdx) v = paramRow[i];
+    else                             v = headerRow[i];
+    rawHeaders.push(v != null ? String(v).trim() : '');
+  }
+  const cmap = template.columnMap || {};
+  const headers = rawHeaders.map(h => cmap[h] || h);
+
+  // data start
+  let dataStartIdx;
+  if (opts.dataStartOverride != null && opts.dataStartOverride >= 0) {
+    dataStartIdx = opts.dataStartOverride;
+  } else if (L.data && typeof L.data.row === 'number') {
+    dataStartIdx = L.data.row;
+  } else if (L.data && L.data.row === 'header+1') {
+    dataStartIdx = headerIdx + 1;
+  } else {
+    dataStartIdx = headerIdx + 1;
+  }
+  // skip blank / spec rows until a row that looks like data
+  const skipRe = L.skipRowsRegex ? _safeRe(L.skipRowsRegex, 'i') : null;
+  while (dataStartIdx < rows.length) {
+    const r = rows[dataStartIdx];
+    if (!r || r.every(v => v == null || v === '')) { dataStartIdx++; continue; }
+    const first = r[0] == null ? '' : String(r[0]).trim();
+    if (skipRe && first && skipRe.test(first)) { dataStartIdx++; continue; }
+    if (!_looksLikeDataRow(r, metaCols)) { dataStartIdx++; continue; }
+    break;
+  }
+
+  const metadata = _extractMetadata(filename, rows, template);
+  return { headerIdx, paramIdx, dataStartIdx, rawHeaders, headers, metadata };
+}
+
+// 讀取所有上傳檔案 → 偵測 template → 解析 → 快取到 S._parsed
+async function parseUploadedFiles() {
+  const parsed = [];
+  for (let fi = 0; fi < S.files.length; fi++) {
+    const file = S.files[fi];
+    const entry = { file, rows: null, detection: null, template: null, parsed: null, error: null };
+    try {
+      const isCsv = file.name.toLowerCase().endsWith('.csv');
+      let wb;
+      if (isCsv) {
+        const text = await file.text();
+        wb = XLSX.read(text, { type:'string' });
+      } else {
+        const buf = await file.arrayBuffer();
+        wb = XLSX.read(buf, { type:'array' });
+      }
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      entry.rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
+      entry.detection = detectTemplate(file.name, entry.rows);
+      // 使用者已手動指定的 template 優先
+      const userPick = S._activeTemplates[fi];
+      entry.template = userPick ? findTemplate(userPick) : entry.detection.template;
+      if (entry.template) {
+        const opts = {};
+        if (!S._autoDetect) {
+          opts.headerIdxOverride   = parseInt(document.getElementById('headerRow').value) - 1;
+          opts.dataStartOverride   = parseInt(document.getElementById('dataStart').value) - 1;
+        }
+        entry.parsed = parseWithTemplate(file.name, entry.rows, entry.template, opts);
+        if (entry.parsed.error) entry.error = entry.parsed.error;
+      } else {
+        entry.error = '無法自動辨識格式（請手動指定 Template）';
+      }
+    } catch (e) {
+      entry.error = String(e && e.message || e);
+    }
+    parsed.push(entry);
+  }
+  S._parsed = parsed;
+  return parsed;
+}
+
+// 將某個 entry 的資料列轉成 record 陣列（含 Lot / Wafer / 並套用 columnMap）
+function buildRecordsFromEntry(entry, renameMap, excludedNewNames) {
+  if (!entry || !entry.parsed || entry.error) return { records: [], errs: [entry?.error || '解析失敗'] };
+  const errs = [];
+  const { headers, dataStartIdx } = entry.parsed;
+  const lot = resolveLotId(entry.file.name, entry.template, entry.parsed.metadata);
+  const wafer = entry.parsed.metadata.waferId || '';
+  const excludeRe = entry.template.paramRules && entry.template.paramRules.excludeRegex
+    ? _safeRe(entry.template.paramRules.excludeRegex) : null;
+
+  const rows = entry.rows;
+  const dataRows = rows.slice(dataStartIdx).filter(r => r && r.some(v => v !== null && v !== undefined && v !== ''));
+  if (!dataRows.length) errs.push(`${entry.file.name}：無資料`);
+
+  const records = [];
+  for (const row of dataRows) {
+    const obj = { Lot: lot };
+    if (wafer) obj.Wafer = wafer;
+    for (let i = 0; i < headers.length; i++) {
+      let h = headers[i]; if (!h) continue;
+      // canonical meta 不經過 rename 流程，直接寫入
+      if (CANONICAL_META.includes(h)) {
+        if (h === 'Lot' || h === 'Wafer') continue;
+        obj[h] = row[i] != null ? row[i] : null;
+        continue;
+      }
+      if (excludeRe && excludeRe.test(h)) continue;
+      const newName = renameMap[h] != null ? renameMap[h] : h;
+      if (excludedNewNames && excludedNewNames.has(newName)) continue;
+      obj[newName] = row[i] != null ? row[i] : null;
+    }
+    records.push(obj);
+  }
+  return { records, errs };
+}
+
+function onAutoDetectChange(chk) {
+  S._autoDetect = !!chk.checked;
+  const hi = document.getElementById('headerRow');
+  const di = document.getElementById('dataStart');
+  if (hi) hi.disabled = S._autoDetect;
+  if (di) di.disabled = S._autoDetect;
+}
+
+function renderDetectionPanel() {
+  const sec  = document.getElementById('detectSection');
+  const list = document.getElementById('detectList');
+  if (!sec || !list) return;
+  if (!S._parsed || !S._parsed.length) { sec.style.display = 'none'; return; }
+  const tpls = getAllTemplates();
+  const opts = tpls.map(t => `<option value="${escHtml(t.id)}">${escHtml(t.name)}</option>`).join('');
+
+  list.innerHTML = S._parsed.map((entry, fi) => {
+    const tplId  = entry.template ? entry.template.id : '';
+    const ok     = !!entry.parsed && !entry.error;
+    const score  = entry.detection ? entry.detection.score : 0;
+    const ev     = entry.detection ? entry.detection.evidence.join(', ') : '';
+    const lot    = ok ? resolveLotId(entry.file.name, entry.template, entry.parsed.metadata) : '—';
+    const wafer  = ok ? (entry.parsed.metadata.waferId || '') : '';
+    const hdr    = ok ? (entry.parsed.headerIdx + 1) : '—';
+    const dst    = ok ? (entry.parsed.dataStartIdx + 1) : '—';
+    const statusIcon = ok ? '✅' : '⚠️';
+    const statusColor = ok ? '#68d391' : '#fc8181';
+    const errMsg = entry.error ? `<div style="color:#fc8181;font-size:11px;margin-top:3px">${escHtml(entry.error)}</div>` : '';
+    const sel = tpls.map(t =>
+      `<option value="${escHtml(t.id)}"${t.id === tplId ? ' selected' : ''}>${escHtml(t.name)}</option>`
+    ).join('');
+    return `
+      <div style="display:grid;grid-template-columns:24px 2fr 2fr 3fr auto;gap:8px;align-items:center;
+                  padding:6px 8px;background:var(--bg);border:1px solid var(--border-2);border-radius:4px">
+        <span style="font-size:14px;color:${statusColor}">${statusIcon}</span>
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
+             title="${escHtml(entry.file.name)}">${escHtml(entry.file.name)}</div>
+        <div style="font-size:11px;color:var(--text-2)">
+          Lot: <b>${escHtml(lot)}</b>${wafer ? ` ｜ Wafer: ${escHtml(wafer)}` : ''}
+          <br>列 ${hdr}→${dst} ｜ score=${score}${ev ? ' · ' + escHtml(ev) : ''}
+        </div>
+        <select onchange="setActiveTemplate(${fi}, this.value)"
+                style="font-size:11px;padding:3px 6px;background:var(--bg-2);color:var(--text);
+                       border:1px solid var(--border-2);border-radius:3px">
+          <option value="">— 自動偵測 —</option>
+          ${sel}
+        </select>
+        <span style="font-size:11px;color:var(--text-3)"></span>
+        ${errMsg}
+      </div>`;
+  }).join('');
+  sec.style.display = 'block';
+}
+
+async function setActiveTemplate(fileIdx, tplId) {
+  if (tplId) S._activeTemplates[fileIdx] = tplId;
+  else delete S._activeTemplates[fileIdx];
+  // 重新跑一次 loadColumns 流程（含解析 + UI 重繪）
+  await loadColumns();
+}
+
+function exportTemplatesJSON() {
+  const all = getAllTemplates();
+  const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `jbs_cp_templates_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function importTemplatesJSON(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const arr = JSON.parse(text);
+    if (!Array.isArray(arr)) throw new Error('JSON 必須是 Template 陣列');
+    // 過濾掉與內建 id 重複的，避免覆蓋；其餘存進 user templates
+    const builtinIds = new Set(BUILTIN_TEMPLATES.map(t => t.id));
+    const user = arr.filter(t => t && t.id && !builtinIds.has(t.id));
+    saveUserTemplates(user);
+    alert(`已匯入 ${user.length} 筆使用者 Template`);
+    if (S._parsed && S._parsed.length) await loadColumns();
+  } catch (e) {
+    alert('匯入失敗：' + (e && e.message || e));
+  }
+}
 
 // ══════════════════════════════════════════════════
 // PLOTLY THEME — auto-inject dark/light layout defaults
@@ -1679,8 +2228,15 @@ dz.addEventListener('drop', e => {
 // ══════════════════════════════════════════════════
 // FILE HANDLING
 // ══════════════════════════════════════════════════
+// 給 UI 預覽用的 Lot 估算（在實際 parse 前先顯示一個合理名稱）。
+// 真正寫入資料時，會以 parseWithTemplate 取得的 metadata.lotId / template.lotIdFallback 為準。
 function getLotName(fname) {
-  const base  = fname.replace(/\.(xls|xlsx)$/i, '');
+  // 若已 parse 過，回傳 template-aware 結果
+  const entry = (S._parsed || []).find(e => e && e.file && e.file.name === fname);
+  if (entry && entry.parsed) {
+    return resolveLotId(fname, entry.template, entry.parsed.metadata);
+  }
+  const base  = fname.replace(/\.(xls|xlsx|csv)$/i, '');
   const parts = base.split('-');
   return parts.length >= 2 ? parts[1] : base;
 }
@@ -1741,13 +2297,19 @@ function renderFileList() {
 
 function handleFiles(files) {
   S.files = Array.from(files);
+  S._parsed = [];
+  S._activeTemplates = {};
   document.getElementById('renameSection').style.display = 'none';
+  const dp = document.getElementById('detectSection'); if (dp) dp.style.display = 'none';
   renderFileList();
 }
 
 function removeFile(i) {
   S.files.splice(i, 1);
+  S._parsed = [];
+  S._activeTemplates = {};
   document.getElementById('renameSection').style.display = 'none';
+  const dp = document.getElementById('detectSection'); if (dp) dp.style.display = 'none';
   renderFileList();
 }
 
@@ -1755,59 +2317,67 @@ function removeFile(i) {
 // STEP 1：LOAD COLUMNS → SHOW RENAME TABLE
 // ══════════════════════════════════════════════════
 async function loadColumns() {
-  S._headerIdx   = parseInt(document.getElementById('headerRow').value) - 1;
-  S._dataStartIdx = parseInt(document.getElementById('dataStart').value) - 1;
-
-  document.getElementById('upStatus').innerHTML =
-    '<div class="status">⏳ 讀取欄位中...</div>';
+  document.getElementById('upStatus').innerHTML = '<div class="status">⏳ 讀取欄位中...</div>';
   await tick();
 
+  // 1) 讀檔 + 偵測 template + 解析 header / dataStart
+  await parseUploadedFiles();
+
+  // 2) 收集所有檔案的 canonical param 欄位 + sample 值
   const allCols    = new Set();
-  const colSamples = {};  // colName → string[]
+  const colSamples = {};
   const errs = [];
 
-  for (const file of S.files) {
-    try {
-      const isCsv = file.name.toLowerCase().endsWith('.csv');
-      let wb;
-      if (isCsv) {
-        const text = await file.text();
-        wb = XLSX.read(text, { type:'string' });
-      } else {
-        const buf = await file.arrayBuffer();
-        wb = XLSX.read(buf, { type:'array' });
+  for (const entry of S._parsed) {
+    if (!entry.parsed || entry.error) {
+      errs.push(`${entry.file.name}：${entry.error || '解析失敗'}`);
+      continue;
+    }
+    const { headers, dataStartIdx } = entry.parsed;
+    const sampleRows = entry.rows.slice(dataStartIdx, dataStartIdx + 6);
+    const excludeRe  = entry.template.paramRules && entry.template.paramRules.excludeRegex
+                       ? _safeRe(entry.template.paramRules.excludeRegex) : null;
+    headers.forEach((h, ci) => {
+      if (!h) return;
+      const s = String(h).trim();
+      if (!s) return;
+      if (META_COLS.has(s)) return;
+      if (excludeRe && excludeRe.test(s)) return;
+      allCols.add(s);
+      if (!colSamples[s]) {
+        colSamples[s] = sampleRows
+          .map(r => (r && r[ci] != null) ? String(r[ci]).trim() : '')
+          .filter(v => v !== '')
+          .slice(0, 6);
       }
-      const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
-      if (rows.length <= S._headerIdx) { errs.push(file.name); continue; }
-      const headerRow  = rows[S._headerIdx];
-      const sampleRows = rows.slice(S._headerIdx + 1, S._headerIdx + 7); // 6 rows below header
-      headerRow.forEach((h, ci) => {
-        if (h != null) {
-          const s = String(h).trim();
-          if (s && !META_COLS.has(s) && !s.includes('SOT_SOT')) {
-            allCols.add(s);
-            if (!colSamples[s]) {
-              colSamples[s] = sampleRows
-                .map(r => (r && r[ci] != null) ? String(r[ci]).trim() : '')
-                .filter(v => v !== '');
-            }
-          }
-        }
-      });
-    } catch(e) { errs.push(file.name); }
+    });
+  }
+
+  // 3) 也把 _headerIdx / _dataStartIdx 同步成「第一個檔案的偵測結果」（供其他舊邏輯參考）
+  const first = S._parsed.find(e => e.parsed && !e.error);
+  if (first) {
+    S._headerIdx    = first.parsed.headerIdx;
+    S._dataStartIdx = first.parsed.dataStartIdx;
+    // 反向回填到 UI input，讓使用者看見實際使用的列號
+    const hi = document.getElementById('headerRow');
+    const di = document.getElementById('dataStart');
+    if (hi && S._autoDetect) hi.value = first.parsed.headerIdx + 1;
+    if (di && S._autoDetect) di.value = first.parsed.dataStartIdx + 1;
   }
 
   S._rawCols          = [...allCols];
   S._colSamples       = colSamples;
-  S._excludedCols     = new Set();   // reset on new file load
+  S._excludedCols     = new Set();
   S._colConvOverrides = {};
   buildRenameTable(S._rawCols);
   document.getElementById('renameSection').style.display = 'block';
 
-  const errMsg = errs.length ? `（${errs.length} 個檔案讀取失敗）` : '';
+  renderDetectionPanel();
+  renderFileList();   // 重繪以反映 template-aware lot 名稱
+
+  const errMsg = errs.length ? `<br><span style="color:#fc8181">⚠ ${errs.join('；')}</span>` : '';
   document.getElementById('upStatus').innerHTML =
-    `<div class="status ok">✅ 偵測到 ${S._rawCols.length} 個量測欄位${errMsg}，請確認或修改命名後執行步驟 3</div>`;
+    `<div class="status ok">✅ 偵測到 ${S._rawCols.length} 個量測欄位${errMsg}<br>請確認下方 Template 偵測結果與欄位命名，無誤後執行步驟 3</div>`;
 }
 
 // ══════════════════════════════════════════════════
@@ -1990,45 +2560,27 @@ async function applyAndAnalyze() {
   const batchId = S.batchCounter;
   const errs = [];
 
-  for (const file of S.files) {
-    try {
-      const lot  = getLotName(file.name);
-      const isCsv = file.name.toLowerCase().endsWith('.csv');
-      let wb;
-      if (isCsv) {
-        const text = await file.text();
-        wb = XLSX.read(text, { type:'string' });
-      } else {
-        const buf = await file.arrayBuffer();
-        wb = XLSX.read(buf, { type:'array' });
-      }
-      const ws   = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
-      if (rows.length <= S._headerIdx) { errs.push(`${file.name}：列數不足`); continue; }
+  // Build excluded set of RENAMED names (to skip them when inserting data)
+  const excludedNewNames = new Set();
+  if (S._excludedCols && S._excludedCols.size) {
+    S._excludedCols.forEach(orig => {
+      excludedNewNames.add(renameMap[orig] != null ? renameMap[orig] : orig);
+    });
+  }
 
-      const rawH  = rows[S._headerIdx].map(h => h != null ? String(h).trim() : '');
-      const heads = rawH.map(h => renameMap[h] ?? h);  // apply rename
+  // 如果使用者重新整理過設定 / 切換 template，重新 parse 一次
+  if (!S._parsed || S._parsed.length !== S.files.length) {
+    await parseUploadedFiles();
+  }
 
-      const dataRows = rows.slice(S._dataStartIdx)
-        .filter(r => r && r.some(v => v !== null && v !== undefined && v !== ''));
-      if (!dataRows.length) { errs.push(`${file.name}：無資料`); continue; }
-
-      // Build excluded set of RENAMED names (to skip them when inserting data)
-      const excludedNewNames = new Set();
-      if (S._excludedCols && S._excludedCols.size) {
-        S._excludedCols.forEach(orig => {
-          excludedNewNames.add(renameMap[orig] ?? orig);
-        });
-      }
-      dataRows.forEach(row => {
-        const obj = { Lot: lot, _batch: batchId };
-        heads.forEach((h, i) => {
-          if (!h || h.includes('SOT_SOT') || excludedNewNames.has(h)) return;
-          obj[h] = row[i] ?? null;
-        });
-        S.data.push(obj);
-      });
-    } catch(e) { errs.push(`${file.name}：${e.message}`); }
+  for (const entry of S._parsed) {
+    if (!entry.parsed || entry.error) {
+      errs.push(`${entry.file.name}：${entry.error || '解析失敗'}`);
+      continue;
+    }
+    const { records, errs: e2 } = buildRecordsFromEntry(entry, renameMap, excludedNewNames);
+    for (const r of records) { r._batch = batchId; S.data.push(r); }
+    if (e2 && e2.length) errs.push(...e2);
   }
 
   // Unit conversion — only on rows from THIS batch (avoid double-converting in append mode)
