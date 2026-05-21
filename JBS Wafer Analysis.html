@@ -821,6 +821,16 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="autoZRange()">自動填入</button>
       <button class="btn btn-gray" style="font-size:12px;margin-left:4px" onclick="clearZRange()">清除</button>
     </div>
+    <div class="ctrl" id="mapMaskRow" style="display:none">
+      <button id="mapMaskToggle" class="btn btn-gray" onclick="toggleMaskMode()"
+              style="font-size:12px;min-width:130px">✋ 點擊遮罩：關</button>
+      <label style="margin-left:12px">圓形遮罩（排除距中心 &gt; R）：</label>
+      <input id="mapMaskRadius" type="number" min="1" step="0.5" placeholder="半徑 R"
+             style="width:80px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+      <button class="btn btn-gray" onclick="applyCircleMask()" style="font-size:12px;margin-left:4px">套用</button>
+      <button class="btn btn-red" onclick="clearAllMasks()" style="font-size:12px;margin-left:8px">清除全部遮罩</button>
+      <span id="mapMaskCount" style="font-size:12px;color:#718096;margin-left:12px"></span>
+    </div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
 
@@ -1579,6 +1589,9 @@ const S = {
   activeTemplate:      '',            // currently selected template in designer
   splitBatchTemplates: {},            // { profName: templateName } — links batches to templates
   splitBatchLocked:    {},            // { profName: bool } — lock display mode per batch
+  // Wafer coordinate mask
+  maskSet:     {},     // { [lot]: Set<"x,y"> } masked die positions per lot
+  maskModeOn:  false,  // whether click-to-mask mode is active
 };
 
 // Make S.splitData / S.splitLotMap transparently proxy to the active profile
@@ -2093,6 +2106,8 @@ function populateSels() {
   renderSplitItemSelects();
   populateNsSplitSel('cnt');
   populateNsSplitSel('pct');
+  const mmr = document.getElementById('mapMaskRow');
+  if (mmr) mmr.style.display = '';
 }
 
 // ══════════════════════════════════════════════════
@@ -2136,6 +2151,7 @@ function makeHist(data,edges) {
 function binCenters(edges) { return edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2); }
 function validData(lot,item) {
   return (lot ? S.data.filter(r=>r.Lot===lot) : S.data)
+    .filter(r => !_isMasked(r.Lot, r.Xpos, r.Ypos))
     .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
 }
 // ── Lazy plot (IntersectionObserver-based deferred Plotly rendering) ──
@@ -2143,17 +2159,21 @@ const _lazyObs = new IntersectionObserver(entries => {
   entries.forEach(entry => {
     if (entry.isIntersecting && entry.target._lazyBuilder) {
       const fn = entry.target._lazyBuilder;
+      const cb = entry.target._lazyCallback;
       delete entry.target._lazyBuilder;
+      delete entry.target._lazyCallback;
       _lazyObs.unobserve(entry.target);
-      fn();
+      const res = fn();
+      if (cb) Promise.resolve(res).then(cb);
     }
   });
 }, { rootMargin: '200px' });
 
-function _lazyPlot(elOrId, builderFn) {
+function _lazyPlot(elOrId, builderFn, afterRender) {
   const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
   if (!el) return;
   el._lazyBuilder = builderFn;
+  if (afterRender) el._lazyCallback = afterRender;
   _lazyObs.observe(el);
 }
 
@@ -2434,6 +2454,70 @@ function saveStatFormat(key, field, val) {
 
 
 // ══════════════════════════════════════════════════
+// WAFER MAP — MASK HELPERS
+// ══════════════════════════════════════════════════
+function _maskedKey(x, y) { return `${x},${y}`; }
+function _isMasked(lot, x, y) { return !!(S.maskSet[lot]?.has(_maskedKey(x, y))); }
+
+function _updateMaskCount() {
+  const total = Object.values(S.maskSet).reduce((s, st) => s + st.size, 0);
+  const el = document.getElementById('mapMaskCount');
+  if (el) el.textContent = total ? `已遮罩 ${total} 個 Die` : '';
+}
+
+function toggleMaskMode() {
+  S.maskModeOn = !S.maskModeOn;
+  const btn = document.getElementById('mapMaskToggle');
+  if (btn) {
+    btn.textContent = S.maskModeOn ? '✋ 點擊遮罩：開' : '✋ 點擊遮罩：關';
+    btn.style.background = S.maskModeOn ? '#fed7d7' : '';
+  }
+}
+
+function toggleMaskCell(lot, x, y) {
+  if (!S.maskSet[lot]) S.maskSet[lot] = new Set();
+  const key = _maskedKey(x, y);
+  if (S.maskSet[lot].has(key)) S.maskSet[lot].delete(key);
+  else S.maskSet[lot].add(key);
+  renderMap();
+  renderCount(); renderPct(); renderStats();
+  if (typeof renderYield === 'function') renderYield();
+  _updateMaskCount();
+}
+
+function applyCircleMask() {
+  const radius = parseFloat(document.getElementById('mapMaskRadius').value);
+  if (isNaN(radius) || radius <= 0) { Toast.warn('請輸入有效半徑'); return; }
+  getActiveLots().forEach(lot => {
+    const rows = S.data.filter(r => r.Lot === lot);
+    const xs = rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v));
+    const ys = rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v));
+    if (!xs.length) return;
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    if (!S.maskSet[lot]) S.maskSet[lot] = new Set();
+    rows.forEach(r => {
+      const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+      if (isNaN(x) || isNaN(y)) return;
+      if (Math.sqrt((x - cx) ** 2 + (y - cy) ** 2) > radius)
+        S.maskSet[lot].add(_maskedKey(x, y));
+    });
+  });
+  renderMap(); renderCount(); renderPct(); renderStats();
+  if (typeof renderYield === 'function') renderYield();
+  _updateMaskCount();
+  Toast.success(`已套用圓形遮罩，半徑 ${radius}`);
+}
+
+function clearAllMasks() {
+  S.maskSet = {};
+  renderMap(); renderCount(); renderPct(); renderStats();
+  if (typeof renderYield === 'function') renderYield();
+  _updateMaskCount();
+  Toast.info('已清除所有遮罩');
+}
+
+// ══════════════════════════════════════════════════
 // WAFER MAP
 // ══════════════════════════════════════════════════
 function renderMap() {
@@ -2455,14 +2539,28 @@ function renderMap() {
     const rows = S.data.filter(r => r.Lot === lot);
     const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
     const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
+
+    // z-matrix: masked cells → null
     const z = ySet.map(y => xSet.map(x => {
+      if (_isMasked(lot, x, y)) return null;
       const m = rows.find(r => parseFloat(r.Xpos)===x && parseFloat(r.Ypos)===y);
       return m ? (parseFloat(m[item]) ?? null) : null;
     }));
+
     const xMin = xSet[0], xMax = xSet[xSet.length-1];
     const yMin = ySet[0], yMax = ySet[ySet.length-1];
     const xPad = (xMax-xMin)*0.03 || 0.5;
     const yPad = (yMax-yMin)*0.03 || 0.5;
+
+    // X marker scatter trace for masked cells
+    const mskSet = S.maskSet[lot] || new Set();
+    const mkX = [], mkY = [];
+    mskSet.forEach(k => { const [a, b] = k.split(',').map(Number); mkX.push(a); mkY.push(b); });
+    const maskTrace = mkX.length ? [{
+      type: 'scatter', mode: 'markers', x: mkX, y: mkY,
+      marker: { symbol: 'x', size: 10, color: '#888', line: { width: 2, color: '#555' } },
+      hoverinfo: 'skip', showlegend: false
+    }] : [];
 
     // X: desc → reversed (大在左)；asc → 正常 (小在左)
     const xAxis = { title:{text:'Xpos',font:{size:10}},
@@ -2477,22 +2575,33 @@ function renderMap() {
       : `N=0`;
 
     const id = uid('map', lot);
+    const capturedLot = lot;
     grid.insertAdjacentHTML('beforeend',
       `<div class="chart-card"><div id="${id}" style="height:290px;min-height:290px"></div></div>`);
-    _lazyPlot(id, () => Plotly.newPlot(id, [{
-      type:'heatmap', z, x:xSet, y:ySet,
-      colorscale,
-      zmin: zmin !== undefined ? zmin : undefined,
-      zmax: zmax !== undefined ? zmax : undefined,
-      hoverongaps:false,
-      hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
-    }], {
-      title:{text:`${escHtml(lot)} — ${escHtml(item)}<br><sup>${statSup}</sup>`,font:{size:11}},
-      margin:{t:50,b:36,l:44,r:10},
-      xaxis: xAxis,
-      yaxis: yAxis,
-      height:290
-    }, {responsive:true, displayModeBar:'hover'}));
+    _lazyPlot(id,
+      () => Plotly.newPlot(id, [{
+        type:'heatmap', z, x:xSet, y:ySet,
+        colorscale,
+        zmin: zmin !== undefined ? zmin : undefined,
+        zmax: zmax !== undefined ? zmax : undefined,
+        hoverongaps:false,
+        hovertemplate:'X=%{x}<br>Y=%{y}<br>值=%{z}<extra></extra>'
+      }, ...maskTrace], {
+        title:{text:`${escHtml(capturedLot)} — ${escHtml(item)}<br><sup>${statSup}</sup>`,font:{size:11}},
+        margin:{t:50,b:36,l:44,r:10},
+        xaxis: xAxis,
+        yaxis: yAxis,
+        height:290
+      }, {responsive:true, displayModeBar:'hover'}),
+      () => {
+        const el = document.getElementById(id);
+        if (el) el.on('plotly_click', ev => {
+          if (!S.maskModeOn) return;
+          const pt = ev.points?.[0];
+          if (pt && pt.curveNumber === 0) toggleMaskCell(capturedLot, pt.x, pt.y);
+        });
+      }
+    );
   });
 }
 
@@ -4486,6 +4595,9 @@ function saveSettings() {
       customStats:      S.customStats,
       headerIdx:        S._headerIdx,
       dataStartIdx:     S._dataStartIdx,
+      maskSet: Object.fromEntries(
+        Object.entries(S.maskSet).map(([k, v]) => [k, [...v]])
+      ),
     }));
   } catch(e) { console.warn('saveSettings failed', e); }
 }
@@ -4535,6 +4647,10 @@ function loadSettings() {
     if (o.customStats) S.customStats = o.customStats;
     if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
     if (o.dataStartIdx != null) S._dataStartIdx = o.dataStartIdx;
+    if (o.maskSet) {
+      S.maskSet = {};
+      Object.entries(o.maskSet).forEach(([k, v]) => { S.maskSet[k] = new Set(v); });
+    }
     return true;
   } catch(e) { return false; }
 }
