@@ -710,6 +710,14 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
       </div>
       <div class="sg">
+        <label>USL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+        <input type="number" id="uslRow" placeholder="auto" min="1" max="500" style="width:80px">
+      </div>
+      <div class="sg">
+        <label>LSL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+        <input type="number" id="lslRow" placeholder="auto" min="1" max="500" style="width:80px">
+      </div>
+      <div class="sg">
         <label>&nbsp;</label>
         <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
           <span class="step-badge">1</span> 載入欄位
@@ -764,10 +772,46 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
             ｜ 自訂模式可輸入任意倍數
           </div>
         </div>
-        <div class="btns">
-          <button class="btn btn-gray" style="font-size:12px" onclick="autoFillRename()">🔄 自動命名（VFBC/BVCBO/ICBO）</button>
+        <div class="btns" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:11px;color:var(--text-3)">命名規則</label>
+          <select id="namingTplSel" onchange="onNamingTplChange()"
+                  style="font-size:12px;padding:3px 6px;border-radius:3px;
+                         background:var(--bg-2);color:var(--text);border:1px solid var(--border-2)"></select>
+          <button class="btn btn-gray" style="font-size:12px" onclick="applyCurrentNamingTemplate()">🔄 套用命名</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="toggleNamingEditor()">✏️ 編輯規則</button>
           <button class="btn btn-gray" style="font-size:12px" onclick="restoreRenameDefaults()">↩ 還原預設</button>
         </div>
+      </div>
+
+      <!-- Naming rule editor (toggle) -->
+      <div id="namingEditor" style="display:none;margin:6px 0 10px;padding:10px;
+           background:var(--bg-2);border:1px solid var(--border-2);border-radius:6px">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+          <input id="namingTplName" type="text" placeholder="模板名稱"
+                 style="font-size:12px;padding:3px 6px;background:var(--bg);color:var(--text);
+                        border:1px solid var(--border-2);border-radius:3px;flex:1;min-width:140px">
+          <button class="btn btn-blue"  style="font-size:11px" onclick="saveNamingTemplate()">💾 儲存模板</button>
+          <button class="btn btn-gray"  style="font-size:11px" onclick="addNamingRule()">＋ 新增規則</button>
+          <button class="btn btn-gray"  style="font-size:11px" onclick="deleteNamingTemplate()">🗑 刪除目前模板</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">
+          規則順序由上而下執行，第一條符合的會生效。
+          名稱模板可用 <code>{cond}</code> 代入第一個樣本值解析後的條件（例：<code>21V</code>、<code>5mA</code>）。
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:var(--bg);color:var(--text-2)">
+              <th style="padding:4px 6px;text-align:left;width:20%">關鍵字 / Regex</th>
+              <th style="padding:4px 6px;text-align:left;width:24%">新名稱模板</th>
+              <th style="padding:4px 6px;text-align:left;width:14%">數值換算</th>
+              <th style="padding:4px 6px;text-align:left;width:10%">自訂倍數</th>
+              <th style="padding:4px 6px;text-align:left;width:11%">LSL</th>
+              <th style="padding:4px 6px;text-align:left;width:11%">USL</th>
+              <th style="padding:4px 6px;width:6%"></th>
+            </tr>
+          </thead>
+          <tbody id="namingRulesBody"></tbody>
+        </table>
       </div>
 
       <div class="rename-table-wrap">
@@ -2078,25 +2122,25 @@ function parseWithTemplate(filename, rows, template, opts) {
 
   const metadata = _extractMetadata(filename, rows, template);
 
-  // 抽取 SPEC 上下限（依 template.specLimits 設定）
+  // 抽取 SPEC 上下限（依 template.specLimits 設定；opts 可手動覆寫列號）
   const specLimits = {};
   const sl = template.specLimits || L.specLimits;
-  if (sl) {
+  if (sl || opts.uslRowOverride != null || opts.lslRowOverride != null) {
     const findRow = (cfg) => {
       if (!cfg) return -1;
       if (cfg.rowOffset != null) return headerIdx + cfg.rowOffset;
       if (typeof cfg.row === 'number') return cfg.row;
       if (cfg.anchorRegex) {
-        // 先往下找（spec 在 header 之後，例如 xls_legacy 的 UpLimit/LowLimit），
-        // 再往上找（spec 在 header 之前，例如 csv 的兩列 USL/LSL）。
         let r = _findRowByAnchor(rows, cfg.anchorRegex, cfg.anchorCol, headerIdx, 1, 30);
         if (r < 0) r = _findRowByAnchor(rows, cfg.anchorRegex, cfg.anchorCol, headerIdx, -1, 30);
         return r;
       }
       return -1;
     };
-    const uIdx = findRow(sl.usl);
-    const lIdx = findRow(sl.lsl);
+    const uIdx = (opts.uslRowOverride != null && opts.uslRowOverride >= 0)
+      ? opts.uslRowOverride : findRow(sl && sl.usl);
+    const lIdx = (opts.lslRowOverride != null && opts.lslRowOverride >= 0)
+      ? opts.lslRowOverride : findRow(sl && sl.lsl);
     const uslRow = (uIdx >= 0 && uIdx < rows.length) ? rows[uIdx] : null;
     const lslRow = (lIdx >= 0 && lIdx < rows.length) ? rows[lIdx] : null;
     for (let i = 0; i < headers.length; i++) {
@@ -2138,6 +2182,11 @@ async function parseUploadedFiles() {
           opts.headerIdxOverride   = parseInt(document.getElementById('headerRow').value) - 1;
           opts.dataStartOverride   = parseInt(document.getElementById('dataStart').value) - 1;
         }
+        // USL/LSL 列號覆寫（不論自動偵測與否都允許）
+        const uslIn = document.getElementById('uslRow');
+        const lslIn = document.getElementById('lslRow');
+        if (uslIn && uslIn.value !== '') opts.uslRowOverride = parseInt(uslIn.value) - 1;
+        if (lslIn && lslIn.value !== '') opts.lslRowOverride = parseInt(lslIn.value) - 1;
         entry.parsed = parseWithTemplate(file.name, entry.rows, entry.template, opts);
         if (entry.parsed.error) entry.error = entry.parsed.error;
       } else {
@@ -2502,6 +2551,7 @@ async function loadColumns() {
   S._colConvOverrides = {};
   buildRenameTable(S._rawCols);
   document.getElementById('renameSection').style.display = 'block';
+  refreshNamingUI();
 
   renderDetectionPanel();
   renderFileList();   // 重繪以反映 template-aware lot 名稱
@@ -2740,6 +2790,240 @@ function parseConditionLabel(raw) {
   // 整數值去掉小數點（21.0 → 21，1.5 保留）
   const numStr = (num === Math.floor(num)) ? String(Math.floor(num)) : String(num);
   return numStr + unit;
+}
+
+// ══════════════════════════════════════════════════
+// 自動命名規則模板 — Naming Templates
+//   一份 naming template = 一組規則陣列
+//   每條規則：{ pattern, nameTemplate, convType, convFactor, lsl, usl }
+//     pattern       — 子字串或 regex（區分大小寫）
+//     nameTemplate  — 新名稱，可用 {cond} 代入第一個樣本解析後的條件
+//     convType      — 'auto' | 'none' | 'ir' | 'vr' | 'vf' | 'custom'
+//     convFactor    — convType=custom 時的倍數
+//     lsl / usl     — 套用後寫入 S._colSpecsUser（顯示單位）
+// ══════════════════════════════════════════════════
+const BUILTIN_NAMING_TEMPLATE = {
+  id: 'jbs_default',
+  name: 'JBS 預設規則（VFBC/BVCBO/ICBO）',
+  builtin: true,
+  rules: [
+    { pattern:'VFBC',  nameTemplate:'VF_{cond}', convType:'auto', convFactor:1, lsl:'', usl:'' },
+    { pattern:'BVCBO', nameTemplate:'VR_{cond}', convType:'auto', convFactor:1, lsl:'', usl:'' },
+    { pattern:'ICBO',  nameTemplate:'IR_{cond}', convType:'auto', convFactor:1, lsl:'', usl:'' },
+  ],
+};
+
+function loadNamingTemplates() {
+  try {
+    const arr = JSON.parse(localStorage.getItem('jbs_naming_templates') || '[]');
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(t => t && t.id && Array.isArray(t.rules));
+  } catch(e) { return []; }
+}
+function saveNamingTemplates(arr) {
+  localStorage.setItem('jbs_naming_templates', JSON.stringify(arr || []));
+}
+function getAllNamingTemplates() {
+  return [BUILTIN_NAMING_TEMPLATE, ...loadNamingTemplates()];
+}
+function getActiveNamingTemplate() {
+  const sel = document.getElementById('namingTplSel');
+  const id  = sel ? sel.value : 'jbs_default';
+  return getAllNamingTemplates().find(t => t.id === id) || BUILTIN_NAMING_TEMPLATE;
+}
+function _cloneRules(rules) { return JSON.parse(JSON.stringify(rules || [])); }
+
+// 重繪命名模板下拉與規則編輯表
+function refreshNamingUI(selectId) {
+  const sel = document.getElementById('namingTplSel');
+  if (sel) {
+    const all = getAllNamingTemplates();
+    const cur = selectId || sel.value || 'jbs_default';
+    sel.innerHTML = all.map(t =>
+      `<option value="${escHtml(t.id)}"${t.id === cur ? ' selected' : ''}>${escHtml(t.name)}${t.builtin ? ' (內建)' : ''}</option>`
+    ).join('');
+  }
+  renderNamingRulesEditor();
+}
+
+function renderNamingRulesEditor() {
+  const tbody = document.getElementById('namingRulesBody');
+  if (!tbody) return;
+  const tpl = getActiveNamingTemplate();
+  // 編輯緩衝區（若為內建模板，複製一份讓使用者可基於它編輯後另存）
+  if (!S._namingEditBuf || S._namingEditBufId !== tpl.id) {
+    S._namingEditBuf   = _cloneRules(tpl.rules);
+    S._namingEditBufId = tpl.id;
+  }
+  const nameInp = document.getElementById('namingTplName');
+  if (nameInp && document.activeElement !== nameInp) {
+    nameInp.value = tpl.builtin ? '' : tpl.name;
+    nameInp.placeholder = tpl.builtin ? '輸入名稱後按 💾 另存為新模板' : '模板名稱';
+  }
+  const opts = [
+    ['auto','自動（依新名前綴）'],['none','不換算'],
+    ['ir','× 1,000,000 → uA'],['vr','round 0.1'],['vf','round 0.001'],['custom','自訂倍數']
+  ];
+  tbody.innerHTML = S._namingEditBuf.map((r, idx) => `
+    <tr>
+      <td style="padding:3px 4px"><input value="${escHtml(r.pattern||'')}" oninput="updNamingRule(${idx},'pattern',this.value)"
+            style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px"></td>
+      <td style="padding:3px 4px"><input value="${escHtml(r.nameTemplate||'')}" oninput="updNamingRule(${idx},'nameTemplate',this.value)" placeholder="例：VF_{cond}"
+            style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px"></td>
+      <td style="padding:3px 4px">
+        <select onchange="updNamingRule(${idx},'convType',this.value)"
+                style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px">
+          ${opts.map(o => `<option value="${o[0]}"${(r.convType||'auto') === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:3px 4px"><input type="number" step="any" value="${r.convFactor != null ? r.convFactor : 1}" oninput="updNamingRule(${idx},'convFactor',this.value)"
+            style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px"></td>
+      <td style="padding:3px 4px"><input type="number" step="any" value="${r.lsl != null ? r.lsl : ''}" placeholder="—" oninput="updNamingRule(${idx},'lsl',this.value)"
+            style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px"></td>
+      <td style="padding:3px 4px"><input type="number" step="any" value="${r.usl != null ? r.usl : ''}" placeholder="—" oninput="updNamingRule(${idx},'usl',this.value)"
+            style="width:100%;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border-2);border-radius:3px"></td>
+      <td style="padding:3px 4px;text-align:center">
+        <button onclick="removeNamingRule(${idx})" title="刪除規則"
+                style="border:none;background:transparent;color:#e53e3e;cursor:pointer;font-size:14px">×</button>
+      </td>
+    </tr>
+  `).join('') || `<tr><td colspan="7" style="padding:8px;text-align:center;color:var(--text-3)">尚無規則，點「＋ 新增規則」開始</td></tr>`;
+}
+
+function updNamingRule(idx, field, value) {
+  if (!S._namingEditBuf || !S._namingEditBuf[idx]) return;
+  if (field === 'convFactor' || field === 'lsl' || field === 'usl') {
+    S._namingEditBuf[idx][field] = value === '' ? '' : parseFloat(value);
+  } else {
+    S._namingEditBuf[idx][field] = value;
+  }
+}
+function addNamingRule() {
+  if (!S._namingEditBuf) S._namingEditBuf = [];
+  S._namingEditBuf.push({ pattern:'', nameTemplate:'', convType:'auto', convFactor:1, lsl:'', usl:'' });
+  renderNamingRulesEditor();
+}
+function removeNamingRule(idx) {
+  if (!S._namingEditBuf) return;
+  S._namingEditBuf.splice(idx, 1);
+  renderNamingRulesEditor();
+}
+
+function toggleNamingEditor() {
+  const ed = document.getElementById('namingEditor');
+  if (!ed) return;
+  ed.style.display = ed.style.display === 'none' ? 'block' : 'none';
+  if (ed.style.display === 'block') renderNamingRulesEditor();
+}
+
+function onNamingTplChange() {
+  // 切換到另一個模板 → 重置編輯緩衝
+  S._namingEditBuf = null;
+  S._namingEditBufId = null;
+  renderNamingRulesEditor();
+}
+
+function saveNamingTemplate() {
+  const nameInp = document.getElementById('namingTplName');
+  const name = (nameInp && nameInp.value.trim()) || '';
+  const rules = _cloneRules(S._namingEditBuf || []);
+  if (!rules.length) { alert('模板至少需要一條規則'); return; }
+  const user = loadNamingTemplates();
+  const currentId = S._namingEditBufId;
+  const currentTpl = getAllNamingTemplates().find(t => t.id === currentId);
+  // 內建模板或無名稱 → 一律另存新模板
+  if (!currentTpl || currentTpl.builtin || !name) {
+    if (!name) { alert('請輸入模板名稱'); return; }
+    const newId = 'user_' + Date.now();
+    user.push({ id:newId, name, rules });
+    saveNamingTemplates(user);
+    refreshNamingUI(newId);
+    alert('已新增命名模板：' + name);
+  } else {
+    // 覆寫現有 user template
+    const i = user.findIndex(t => t.id === currentId);
+    if (i < 0) { user.push({ id:currentId, name, rules }); }
+    else       { user[i] = { id:currentId, name, rules }; }
+    saveNamingTemplates(user);
+    refreshNamingUI(currentId);
+    alert('已更新命名模板：' + name);
+  }
+}
+
+function deleteNamingTemplate() {
+  const sel = document.getElementById('namingTplSel');
+  const id = sel ? sel.value : '';
+  if (!id || id === 'jbs_default') { alert('內建模板無法刪除'); return; }
+  if (!confirm('確定要刪除此命名模板？')) return;
+  const user = loadNamingTemplates().filter(t => t.id !== id);
+  saveNamingTemplates(user);
+  S._namingEditBuf = null; S._namingEditBufId = null;
+  refreshNamingUI('jbs_default');
+}
+
+// 套用目前選擇的命名模板到 rename table（同時更新換算與 SPEC）
+function applyCurrentNamingTemplate() {
+  // 確保以「目前 select 對應的已儲存模板」為準 (而非編輯緩衝)
+  const tpl = getActiveNamingTemplate();
+  let matched = 0;
+  S._rawCols.forEach((col, idx) => {
+    if (S._excludedCols && S._excludedCols.has(col)) return;
+    const samples = S._colSamples[col] || [];
+    const cond    = parseConditionLabel(samples[0]);
+    for (const r of tpl.rules) {
+      if (!r.pattern) continue;
+      let m = false;
+      try { m = new RegExp(r.pattern).test(col); }
+      catch(e) { m = col.includes(r.pattern); }
+      if (!m) continue;
+      // 名稱替換：若樣板含 {cond} 但無法解析，跳過此規則繼續找下一條
+      const tmpl = r.nameTemplate || '';
+      if (tmpl.includes('{cond}') && !cond) continue;
+      const newName = tmpl.replace('{cond}', cond || '');
+      if (!newName) continue;
+      const inp = document.getElementById(`ri_${idx}`);
+      if (inp) inp.value = newName;
+      // 套換算規則
+      const convType = r.convType || 'auto';
+      if (!S._colConvOverrides) S._colConvOverrides = {};
+      if (convType === 'auto') delete S._colConvOverrides[col];
+      else if (convType === 'custom') S._colConvOverrides[col] = { type:'custom', factor: parseFloat(r.convFactor) || 1 };
+      else                            S._colConvOverrides[col] = { type: convType };
+      // 同步下拉與倍數欄位的 UI
+      const convSel  = document.getElementById(`conv_${idx}`);
+      const factorIn = document.getElementById(`convF_${idx}`);
+      if (convSel)  convSel.value = convType;
+      if (factorIn) {
+        factorIn.style.display = convType === 'custom' ? 'block' : 'none';
+        if (convType === 'custom' && r.convFactor != null && r.convFactor !== '') factorIn.value = r.convFactor;
+      }
+      // 套 SPEC（寫入使用者覆寫；空白代表不指定，由自動偵測值繼續顯示）
+      if (!S._colSpecsUser) S._colSpecsUser = {};
+      if (r.lsl !== '' && r.lsl != null && !isNaN(parseFloat(r.lsl))) {
+        if (!S._colSpecsUser[col]) S._colSpecsUser[col] = {};
+        S._colSpecsUser[col].lsl = parseFloat(r.lsl);
+      }
+      if (r.usl !== '' && r.usl != null && !isNaN(parseFloat(r.usl))) {
+        if (!S._colSpecsUser[col]) S._colSpecsUser[col] = {};
+        S._colSpecsUser[col].usl = parseFloat(r.usl);
+      }
+      // 重繪該列預覽（包含 SPEC 顯示）
+      updateConvPreview(col, idx);
+      matched++;
+      break; // 第一條符合即停
+    }
+  });
+  document.getElementById('upStatus').innerHTML =
+    `<div class="status ok">✅ 已套用「${escHtml(tpl.name)}」：命中 ${matched} 個欄位</div>`;
+}
+
+// 既有 autoFillRename 保留為相容性 shim（指向 builtin 預設模板）
+function autoFillRename() {
+  // 強制使用 builtin 模板
+  const sel = document.getElementById('namingTplSel');
+  if (sel) sel.value = 'jbs_default';
+  S._namingEditBuf = null; S._namingEditBufId = null;
+  applyCurrentNamingTemplate();
 }
 
 // ══════════════════════════════════════════════════
