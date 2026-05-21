@@ -3052,6 +3052,42 @@ function autoFillRename() {
   applyCurrentNamingTemplate();
 }
 
+// 將資料載入頁的 SPEC（自動偵測 + 使用者覆寫）推播到下游：
+//   - S.statSpecs[newName] = { lsl, usl, typical? }   ← 統計表
+//   - S.chartSpecs[newName] = { lsl, usl, typical? }  ← 圖表分析
+// 套用規則：使用者覆寫優先；否則以 raw 值套用對應的 conversion。
+// 已存在的 typical 與其他欄位會保留。
+function propagateSpecsToDownstream(renameMap, convMap) {
+  if (!S._rawCols || !S._rawCols.length) return;
+  const writeOne = (key, lsl, usl) => {
+    if (lsl == null && usl == null) return;
+    const ensure = (bucket) => {
+      if (!bucket[key] || typeof bucket[key] !== 'object') bucket[key] = {};
+      if (lsl != null) bucket[key].lsl = lsl;
+      if (usl != null) bucket[key].usl = usl;
+    };
+    if (!S.statSpecs)  S.statSpecs  = {};
+    if (!S.chartSpecs) S.chartSpecs = {};
+    ensure(S.statSpecs);
+    ensure(S.chartSpecs);
+  };
+  S._rawCols.forEach(origCol => {
+    if (S._excludedCols && S._excludedCols.has(origCol)) return;
+    const newName = (renameMap && renameMap[origCol]) || origCol;
+    const conv    = convMap && convMap[newName];
+    const convType   = conv ? conv.type   : 'none';
+    const convFactor = conv ? conv.factor : 1;
+    const user = (S._colSpecsUser && S._colSpecsUser[origCol]) || {};
+    const raw  = (S._colSpecsRaw  && S._colSpecsRaw[origCol])  || {};
+    // 使用者覆寫已是顯示單位；自動偵測值需經 convertValueByRule
+    const lsl = (user.lsl !== undefined && user.lsl !== null && !isNaN(user.lsl)) ? user.lsl
+              : (raw.lsl  !=  null ? convertValueByRule(raw.lsl, convType, convFactor) : null);
+    const usl = (user.usl !== undefined && user.usl !== null && !isNaN(user.usl)) ? user.usl
+              : (raw.usl  !=  null ? convertValueByRule(raw.usl, convType, convFactor) : null);
+    writeOne(newName, lsl, usl);
+  });
+}
+
 // ══════════════════════════════════════════════════
 // STEP 3：APPLY RENAME + ANALYZE
 // ══════════════════════════════════════════════════
@@ -3128,6 +3164,12 @@ async function applyAndAnalyze() {
   S.lots  = [...new Set(S.data.map(r => r.Lot))].sort();
   const allCols = new Set(S.data.flatMap(r => Object.keys(r)));
   S.items = [...allCols].filter(c => !META_COLS.has(c));
+
+  // 把「資料載入頁」的 SPEC 推到下游（統計表 / 圖表分析）。
+  // - key 使用 rename 後的 item 名稱
+  // - 使用者覆寫值優先；否則以自動偵測值套用當前換算規則
+  // - 既有 chartSpecs.typical 等其他欄位保留
+  propagateSpecsToDownstream(renameMap, convMap);
 
   // Global bin edges for ALL items (for % distribution)
   S.globalBins = {};
