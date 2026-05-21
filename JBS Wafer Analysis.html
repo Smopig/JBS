@@ -1217,10 +1217,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <option value="warm">暖色系</option>
         <option value="custom">自訂…</option>
       </select>
-      <input id="caCustomColors" type="text" placeholder="自訂色碼（用逗號分隔，例：#3182ce,#38a169）"
-             oninput="updateChartStyle('customColors', this.value)"
-             style="display:none;flex:1;min-width:240px;padding:4px 8px;font-size:11px;
-                    border:1px solid var(--border-2);border-radius:4px;background:var(--bg-2);color:var(--text)">
+      <input id="caCustomColors" type="hidden">
+      <div id="caCustomPalette" style="display:none;gap:4px;flex-wrap:wrap;align-items:center;flex:1;min-width:240px"></div>
 
       <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);margin-left:8px;cursor:pointer">
         <input type="checkbox" id="caDashCycle" onchange="updateChartStyle('dashCycle', this.checked)">
@@ -4290,26 +4288,74 @@ function refreshChartStyleUI() {
   }
   const palSel = document.getElementById('caPaletteSel');
   const dash   = document.getElementById('caDashCycle');
-  const cc     = document.getElementById('caCustomColors');
   const cs     = _chartStyle();
   if (palSel) palSel.value = cs.palette || 'default';
   if (dash)   dash.checked = !!cs.dashCycle;
-  if (cc) {
-    cc.style.display = cs.palette === 'custom' ? 'inline-block' : 'none';
-    cc.value = Array.isArray(cs.customColors) ? cs.customColors.join(',') : '';
+  renderCustomPaletteUI();
+}
+
+// 渲染「自訂」色盤的色塊列（每個色塊 = HTML5 color picker + 刪除鈕）
+function renderCustomPaletteUI() {
+  const wrap = document.getElementById('caCustomPalette');
+  if (!wrap) return;
+  const cs = _chartStyle();
+  if (cs.palette !== 'custom') { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'flex';
+  // 第一次切到 custom 時若尚未設定，預填當前色盤前 8 色作為起點
+  if (!Array.isArray(cs.customColors) || cs.customColors.length === 0) {
+    const base = CHART_PALETTES[cs._lastNonCustomPalette || 'default'] || CHART_PALETTES.default;
+    cs.customColors = base.slice(0, 8);
   }
+  const swatches = cs.customColors.map((c, i) => `
+    <span style="position:relative;display:inline-flex;align-items:center">
+      <input type="color" value="${escHtml(c)}" oninput="setCustomColor(${i}, this.value)"
+             style="width:30px;height:26px;padding:0;border:1px solid var(--border-2);border-radius:4px;cursor:pointer;background:transparent">
+      <button onclick="removeCustomColor(${i})" title="移除"
+              style="position:absolute;top:-6px;right:-6px;width:14px;height:14px;border-radius:50%;
+                     border:1px solid var(--border-2);background:var(--bg);color:#e53e3e;font-size:9px;
+                     line-height:1;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center">×</button>
+    </span>`).join('');
+  wrap.innerHTML = swatches + `
+    <button onclick="addCustomColor()" title="新增顏色"
+            style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:26px;
+                   border:1px dashed var(--border-2);border-radius:4px;background:var(--bg-2);color:var(--text-2);
+                   font-size:14px;cursor:pointer;line-height:1">＋</button>
+    <span style="font-size:10px;color:var(--text-3);margin-left:4px">${cs.customColors.length} 色</span>`;
+}
+
+function setCustomColor(idx, hex) {
+  const cs = _chartStyle();
+  if (!Array.isArray(cs.customColors)) cs.customColors = [];
+  cs.customColors[idx] = hex;
+  if (typeof renderChart === 'function') renderChart();
+}
+function addCustomColor() {
+  const cs = _chartStyle();
+  if (!Array.isArray(cs.customColors)) cs.customColors = [];
+  // 取下一個尚未使用、來自 default 色盤的顏色作為新增預設
+  const used = new Set(cs.customColors.map(c => c.toLowerCase()));
+  const next = CHART_PALETTES.default.find(c => !used.has(c.toLowerCase())) || '#888888';
+  cs.customColors.push(next);
+  renderCustomPaletteUI();
+  if (typeof renderChart === 'function') renderChart();
+}
+function removeCustomColor(idx) {
+  const cs = _chartStyle();
+  if (!Array.isArray(cs.customColors)) return;
+  cs.customColors.splice(idx, 1);
+  if (cs.customColors.length === 0) cs.customColors = ['#3182ce'];  // 至少留一色
+  renderCustomPaletteUI();
+  if (typeof renderChart === 'function') renderChart();
 }
 
 function updateChartStyle(field, value) {
   const cs = _chartStyle();
-  if (field === 'customColors') {
-    cs.customColors = String(value).split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
-  } else if (field === 'dashCycle') {
+  if (field === 'dashCycle') {
     cs.dashCycle = !!value;
   } else if (field === 'palette') {
+    if (value !== 'custom') cs._lastNonCustomPalette = value;
     cs.palette = value;
-    const cc = document.getElementById('caCustomColors');
-    if (cc) cc.style.display = value === 'custom' ? 'inline-block' : 'none';
+    renderCustomPaletteUI();
   }
   if (typeof renderChart === 'function') renderChart();
 }
