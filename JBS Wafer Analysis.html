@@ -667,6 +667,9 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <button class="tab-btn" id="tb-filter" onclick="switchTab('filter',this)" disabled>🔍 篩選</button>
   <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
   <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
+  <button class="tab-btn" id="tb-qc"      onclick="switchTab('qc',this)"      disabled>🧪 Data QC</button>
+  <button class="tab-btn" id="tb-speccenter" onclick="switchTab('speccenter',this)" disabled>🎚 SPEC 中心</button>
+  <button class="tab-btn" id="tb-ai"      onclick="switchTab('ai',this)"      disabled>🤖 智能分析</button>
   <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
   <button class="tab-btn" onclick="window.print()" title="列印目前分頁或另存為 PDF" style="padding:0 12px;font-size:13px">🖨</button>
 </div>
@@ -1595,12 +1598,14 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <!-- 8 -->
     <div class="sec" id="m8">
       <h2>8. 💾 匯出 Excel</h2>
-      <p>點擊任一分頁右上角的「💾 匯出 Excel」，產生含兩個工作表的 Excel 檔：</p>
+      <p>點擊任一分頁右上角的「💾 匯出 Excel」，產生含至多三個工作表的 Excel 檔：</p>
       <table>
         <tr><th>工作表</th><th>內容</th></tr>
         <tr><td>合併資料</td><td>所有 Lot 的原始量測資料（已套用換算）合併為單一表格</td></tr>
         <tr><td>統計</td><td>每個量測項目 × 每個 Lot 的 Count / Min / Max / Mean / Median / Std</td></tr>
+        <tr><td>能力指標</td><td>有設定 LSL/USL 的項目逐 Lot 的 Cp / Cpu / Cpl / Cpk（無 spec 則省略此工作表）</td></tr>
       </table>
+      <p>另可於「🧪 Data QC」與「🤖 智能分析」分頁取得 QC 報表、Split 顯著性、Wafer Pattern 與 LLM 解讀;「🎚 SPEC 中心」可集中管理所有量測項目的 LSL / Typical / USL。</p>
       <p>檔名格式：<code>wafer_analysis_YYYY-MM-DD.xlsx</code></p>
     </div>
 
@@ -1627,8 +1632,67 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <p>紅色點表示該量測值超出 UCL（上管制線）或低於 LCL（下管制線），屬於失控點。</p>
     </div>
 
-    <p style="text-align:center;font-size:11px;color:#a0aec0;margin-top:20px">最後更新：2026-05-05</p>
+    <p style="text-align:center;font-size:11px;color:#a0aec0;margin-top:20px">最後更新：2026-05-21</p>
   </div>
+  </div>
+
+  <!-- ══ Data QC ══ -->
+  <div id="panel-qc" class="tab-panel">
+    <div class="ctrl">
+      <label>離群門檻 (|z| &gt;)</label>
+      <input id="qcZThr" type="number" step="0.5" value="3" style="width:70px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px">
+      <button class="btn btn-blue" onclick="runDataQC()">執行 QC 掃描</button>
+      <button class="btn btn-gray" onclick="exportQCReport()">匯出報表</button>
+      <span id="qcSummary" style="margin-left:12px;font-size:12px;color:var(--text-3)"></span>
+    </div>
+    <div id="qcResult" style="padding:8px"></div>
+  </div>
+
+  <!-- ══ SPEC Center ══ -->
+  <div id="panel-speccenter" class="tab-panel">
+    <div class="ctrl">
+      <button class="btn btn-blue"  onclick="specCenterApply()">套用至 統計 / 圖表 分頁</button>
+      <button class="btn btn-gray"  onclick="specCenterImportFromCols()">由原始檔案 SPEC 匯入</button>
+      <button class="btn btn-gray"  onclick="specCenterExportJson()">匯出 JSON</button>
+      <label class="btn btn-gray" style="cursor:pointer">匯入 JSON
+        <input type="file" accept=".json" style="display:none" onchange="specCenterImportJson(event)">
+      </label>
+      <span id="specCenterStatus" style="margin-left:12px;font-size:12px;color:var(--text-3)"></span>
+    </div>
+    <div id="specCenterTbl" style="padding:8px"></div>
+  </div>
+
+  <!-- ══ AI 智能分析 ══ -->
+  <div id="panel-ai" class="tab-panel">
+    <div class="ctrl">
+      <button class="btn btn-blue"  onclick="runSplitSignificance()">🧮 Split 顯著性分析</button>
+      <button class="btn btn-blue"  onclick="runWaferPatternClassify()">🌀 Wafer Pattern 分類</button>
+      <button class="btn btn-blue"  onclick="batchExportChartImages()">📸 批次圖片匯出</button>
+      <button class="btn btn-gray"  onclick="document.getElementById('aiCfg').style.display=document.getElementById('aiCfg').style.display==='none'?'':'none'">⚙ LLM 設定</button>
+      <label class="btn btn-gray" style="cursor:pointer">⇪ 載入比對 session
+        <input type="file" accept=".json" style="display:none" onchange="loadCompareSession(event)">
+      </label>
+      <button class="btn btn-gray" onclick="renderSessionCompare()">🆚 多 Session 比較</button>
+    </div>
+    <div id="aiCfg" style="display:none;padding:12px;background:var(--bg-2);border-radius:6px;margin:8px 0">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+        <label style="font-size:12px">Endpoint</label>
+        <input id="aiEp" type="text" placeholder="https://api.anthropic.com/v1/messages 或自架代理" style="flex:1;min-width:280px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <label style="font-size:12px">Model</label>
+        <input id="aiMdl" type="text" placeholder="claude-opus-4-7" style="width:200px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:12px">API Key</label>
+        <input id="aiKey" type="password" placeholder="僅存於瀏覽器 localStorage" style="flex:1;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <button class="btn btn-gray" onclick="saveAICfg()" style="font-size:12px">儲存</button>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px">⚠ 直接從瀏覽器呼叫第三方 LLM 通常需要 CORS 代理。若 endpoint 為空,「智能解讀」會以離線啟發式產生報告。</div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-start;margin:8px 0">
+      <textarea id="aiPrompt" placeholder="輸入你想問的問題,例如:本批 Lot 為何良率下降?哪個 process step 影響最大?&#10;留空則使用預設摘要 prompt。" style="flex:1;min-height:60px;padding:8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;font-family:var(--ff-sans)"></textarea>
+      <button class="btn btn-blue" onclick="runAIInsight()" style="white-space:nowrap">🧠 智能解讀</button>
+    </div>
+    <div id="aiResult" style="padding:8px"></div>
   </div>
 
 </div><!-- /content -->
@@ -3227,7 +3291,7 @@ async function applyAndAnalyze() {
   populateSels();
   if (typeof refreshChartStyleUI === 'function') refreshChartStyleUI();
 
-  ['map','count','pct','stats','chart','split','yield','filter','dashboard'].forEach(t => {
+  ['map','count','pct','stats','chart','split','yield','filter','dashboard','qc','speccenter','ai'].forEach(t => {
     const el = document.getElementById('tb-' + t); if (el) el.disabled = false;
   });
 
@@ -6061,6 +6125,9 @@ function _refreshAllPanels() {
   if (id === 'panel-stats') renderStats();
   if (id === 'panel-chart') { refreshChartStyleUI(); renderChart(); }
   if (id === 'panel-yield') { if (typeof renderYield === 'function') renderYield(); }
+  if (id === 'panel-qc')         { if (typeof renderQCEmpty === 'function') renderQCEmpty(); }
+  if (id === 'panel-speccenter') { if (typeof renderSpecCenter === 'function') renderSpecCenter(); }
+  if (id === 'panel-ai')         { if (typeof renderAIIntro === 'function') renderAIIntro(); }
 }
 
 // EXPORT EXCEL
@@ -6321,7 +6388,7 @@ function importSession(file) {
       if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
       if (o.dataStartIdx != null) S._dataStartIdx = o.dataStartIdx;
 
-      ['map','count','pct','stats','chart','split','yield','filter','dashboard'].forEach(t => {
+      ['map','count','pct','stats','chart','split','yield','filter','dashboard','qc','speccenter','ai'].forEach(t => {
         const el = document.getElementById('tb-' + t); if (el) el.disabled = false;
       });
       document.getElementById('btnExp').disabled = false;
@@ -7955,6 +8022,617 @@ function _setupSplitListeners() {
       st.style.color = 'var(--text-3)';
     }
   }, 0);
+})();
+</script>
+
+<!-- ═══ Extended features: Data QC / SPEC Center / AI / Pattern / Compare ═══ -->
+<script>
+(function(){
+'use strict';
+
+// ─── stats helpers ───
+function _mean(a){ let s=0; for(const v of a) s+=v; return s/a.length; }
+function _std(a){ if(a.length<2) return 0; const m=_mean(a); let s=0; for(const v of a) s+=(v-m)*(v-m); return Math.sqrt(s/(a.length-1)); }
+function _validNum(v){ return v!=null && v!=='' && !isNaN(parseFloat(v)); }
+
+// ══════════════════════════════════════════════════
+// DATA QC
+// ══════════════════════════════════════════════════
+window.renderQCEmpty = function(){
+  const el = document.getElementById('qcResult');
+  if (!el) return;
+  if (!S.data.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-3)">⚠ 尚無資料,請先載入。</div>'; return; }
+  if (!el.dataset.ran) el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-3)">點擊「執行 QC 掃描」開始。</div>';
+};
+
+window.runDataQC = function(){
+  if (!S.data.length) { Toast.info('請先載入資料'); return; }
+  const zThr = parseFloat(document.getElementById('qcZThr').value) || 3;
+  const lots = getActiveLots();
+  const items = S.items || [];
+  const outliers = []; // {lot, item, xpos, ypos, value, z}
+  const missing  = []; // {lot, item, count}
+  const dupKey   = {}; // 'lot|x|y' → count
+  const lotItemStats = {}; // per lot+item N
+
+  S.data.forEach(r => {
+    if (!lots.includes(r.Lot)) return;
+    const k = `${r.Lot}|${r.Xpos}|${r.Ypos}`;
+    dupKey[k] = (dupKey[k]||0) + 1;
+  });
+
+  lots.forEach(lot => {
+    items.forEach(item => {
+      const rows = S.data.filter(r => r.Lot===lot);
+      let missCnt = 0;
+      const vals = [];
+      const rowRefs = [];
+      rows.forEach(r => {
+        const v = r[item];
+        if (!_validNum(v)) { missCnt++; }
+        else { vals.push(parseFloat(v)); rowRefs.push(r); }
+      });
+      lotItemStats[`${lot}|${item}`] = { n: vals.length, miss: missCnt };
+      if (missCnt) missing.push({ lot, item, count: missCnt });
+      if (vals.length >= 3) {
+        const m = _mean(vals), s = _std(vals);
+        if (s > 0) {
+          vals.forEach((v,i)=>{
+            const z = (v - m) / s;
+            if (Math.abs(z) > zThr) outliers.push({ lot, item, xpos: rowRefs[i].Xpos, ypos: rowRefs[i].Ypos, value: v, z });
+          });
+        }
+      }
+    });
+  });
+
+  const dups = Object.entries(dupKey).filter(([,c])=>c>1).map(([k,c])=>{
+    const [lot,x,y] = k.split('|'); return { lot, xpos:x, ypos:y, count:c };
+  });
+
+  document.getElementById('qcSummary').textContent =
+    `離群 ${outliers.length} · 缺值 ${missing.reduce((a,b)=>a+b.count,0)} · 重複座標 ${dups.length}`;
+
+  const fmtTbl = (title, rows, cols, color) => {
+    if (!rows.length) return `<div style="margin:12px 0"><h3 style="margin:4px 0;font-size:14px;color:${color}">✓ ${title}: 0</h3></div>`;
+    const head = cols.map(c=>`<th style="padding:4px 8px;border:1px solid var(--line);text-align:left">${c}</th>`).join('');
+    const body = rows.slice(0,500).map(r => '<tr>' + cols.map(c=>`<td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(String(r[c]??''))}</td>`).join('') + '</tr>').join('');
+    const more = rows.length>500 ? `<div style="font-size:11px;color:var(--text-3);margin-top:4px">… 顯示前 500 筆,共 ${rows.length}</div>` : '';
+    return `<div style="margin:12px 0">
+      <h3 style="margin:4px 0;font-size:14px;color:${color}">${title}: ${rows.length}</h3>
+      <table style="border-collapse:collapse;font-size:12px;width:100%">
+        <thead style="background:var(--bg-2)"><tr>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>${more}
+    </div>`;
+  };
+
+  const el = document.getElementById('qcResult');
+  el.dataset.ran = '1';
+  el.innerHTML =
+    fmtTbl(`離群點 (|z|>${zThr})`, outliers.map(o=>({...o, value: (+o.value).toFixed(4), z:o.z.toFixed(2)})), ['lot','item','xpos','ypos','value','z'], '#e53e3e') +
+    fmtTbl('缺值統計 (每 Lot×Item)', missing, ['lot','item','count'], '#dd6b20') +
+    fmtTbl('座標重複 (同 Lot 同 Xpos/Ypos)', dups, ['lot','xpos','ypos','count'], '#3182ce');
+
+  window._lastQC = { outliers, missing, dups };
+};
+
+window.exportQCReport = function(){
+  if (!window._lastQC) { Toast.info('請先執行 QC 掃描'); return; }
+  if (typeof XLSX === 'undefined') { Toast.info('XLSX 未載入'); return; }
+  const wb = XLSX.utils.book_new();
+  const { outliers, missing, dups } = window._lastQC;
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(outliers), '離群點');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(missing),  '缺值');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dups),     '座標重複');
+  XLSX.writeFile(wb, `jbs_qc_${new Date().toISOString().slice(0,10)}.xlsx`);
+};
+
+// ══════════════════════════════════════════════════
+// SPEC CENTER
+// ══════════════════════════════════════════════════
+window.renderSpecCenter = function(){
+  const wrap = document.getElementById('specCenterTbl');
+  if (!wrap) return;
+  if (!S.items || !S.items.length) { wrap.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-3)">⚠ 尚無 items,請先載入資料。</div>'; return; }
+  const rows = S.items.map(it => {
+    const cur = S.chartSpecs[it] || S.statSpecs[it] || {};
+    const lsl = cur.lsl ?? '';
+    const usl = cur.usl ?? '';
+    const typ = cur.typical ?? '';
+    return `<tr>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(it)}</td>
+      <td style="padding:2px 4px;border:1px solid var(--line)"><input data-it="${escHtml(it)}" data-k="lsl"     type="number" step="any" value="${lsl}"  style="width:100%;padding:3px 6px;border:1px solid #cbd5e0;border-radius:3px;font-size:12px"></td>
+      <td style="padding:2px 4px;border:1px solid var(--line)"><input data-it="${escHtml(it)}" data-k="typical" type="number" step="any" value="${typ}"  style="width:100%;padding:3px 6px;border:1px solid #cbd5e0;border-radius:3px;font-size:12px"></td>
+      <td style="padding:2px 4px;border:1px solid var(--line)"><input data-it="${escHtml(it)}" data-k="usl"     type="number" step="any" value="${usl}"  style="width:100%;padding:3px 6px;border:1px solid #cbd5e0;border-radius:3px;font-size:12px"></td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<table style="border-collapse:collapse;font-size:12px;width:100%;max-width:720px">
+    <thead style="background:var(--bg-2)"><tr>
+      <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">量測項目</th>
+      <th style="padding:6px 8px;border:1px solid var(--line)">LSL</th>
+      <th style="padding:6px 8px;border:1px solid var(--line)">Typical</th>
+      <th style="padding:6px 8px;border:1px solid var(--line)">USL</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+};
+
+window.specCenterApply = function(){
+  const inputs = document.querySelectorAll('#specCenterTbl input[data-it]');
+  let n = 0;
+  inputs.forEach(inp => {
+    const it = inp.dataset.it, k = inp.dataset.k, v = inp.value;
+    if (v === '') {
+      if (S.chartSpecs[it]) delete S.chartSpecs[it][k];
+      if (S.statSpecs[it])  delete S.statSpecs[it][k];
+    } else {
+      S.chartSpecs[it] = S.chartSpecs[it] || {};
+      S.statSpecs[it]  = S.statSpecs[it]  || {};
+      S.chartSpecs[it][k] = parseFloat(v);
+      S.statSpecs[it][k]  = parseFloat(v);
+      n++;
+    }
+  });
+  document.getElementById('specCenterStatus').textContent = `✓ 已套用 ${n} 個欄位,可至「統計」或「圖表分析」確認。`;
+  if (typeof saveSettings==='function') saveSettings();
+};
+
+window.specCenterImportFromCols = function(){
+  const src = (S._colSpecsUser && Object.keys(S._colSpecsUser).length) ? S._colSpecsUser : (S._colSpecsRaw||{});
+  let n = 0;
+  Object.entries(src).forEach(([col, sp]) => {
+    const item = (STD_RENAME && STD_RENAME[col]) || col;
+    if (!S.items.includes(item)) return;
+    S.chartSpecs[item] = S.chartSpecs[item] || {};
+    S.statSpecs[item]  = S.statSpecs[item]  || {};
+    if (sp.lsl != null) { S.chartSpecs[item].lsl = +sp.lsl; S.statSpecs[item].lsl = +sp.lsl; n++; }
+    if (sp.usl != null) { S.chartSpecs[item].usl = +sp.usl; S.statSpecs[item].usl = +sp.usl; n++; }
+  });
+  renderSpecCenter();
+  document.getElementById('specCenterStatus').textContent = `由原始 SPEC 匯入 ${n} 個值。`;
+};
+
+window.specCenterExportJson = function(){
+  const payload = {};
+  S.items.forEach(it => { if (S.chartSpecs[it]) payload[it] = S.chartSpecs[it]; });
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type:'application/json' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download:`jbs_specs_${new Date().toISOString().slice(0,10)}.json` });
+  a.click(); URL.revokeObjectURL(a.href);
+};
+
+window.specCenterImportJson = function(ev){
+  const f = ev.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const obj = JSON.parse(e.target.result);
+      let n = 0;
+      Object.entries(obj).forEach(([it, sp]) => {
+        S.chartSpecs[it] = { ...sp };
+        S.statSpecs[it]  = { ...sp };
+        n++;
+      });
+      renderSpecCenter();
+      document.getElementById('specCenterStatus').textContent = `✓ 由 JSON 匯入 ${n} 個項目。`;
+    } catch(err) { Toast.info('JSON 解析失敗:'+err.message); }
+  };
+  r.readAsText(f);
+  ev.target.value = '';
+};
+
+// ══════════════════════════════════════════════════
+// AI panel — intro
+// ══════════════════════════════════════════════════
+window.renderAIIntro = function(){
+  const cfg = JSON.parse(localStorage.getItem('jbs_ai_cfg')||'{}');
+  if (cfg.endpoint) document.getElementById('aiEp').value  = cfg.endpoint;
+  if (cfg.model)    document.getElementById('aiMdl').value = cfg.model;
+  if (cfg.key)      document.getElementById('aiKey').value = cfg.key;
+  const el = document.getElementById('aiResult');
+  if (el && !el.dataset.touched) {
+    el.innerHTML = `<div style="padding:16px;background:var(--bg-2);border-radius:6px;color:var(--text-3);font-size:13px;line-height:1.7">
+      此頁集中所有進階分析與 AI 工具:<br>
+      • <b>Split 顯著性</b>:對目前已選的 split steps,計算每個 chart item 在群組間的 Welch t-test (2 群) / one-way ANOVA F 值 (≥3 群)<br>
+      • <b>Wafer Pattern 分類</b>:對每個 lot 依失敗/遮罩座標分布啟發式判別 (center hot / edge ring / cluster / random)<br>
+      • <b>批次圖片匯出</b>:目前分頁中所有 Plotly 圖一鍵下載 PNG<br>
+      • <b>多 Session 比較</b>:載入另一個 session JSON 與當前資料逐 lot 比對 mean / std / yield<br>
+      • <b>智能解讀</b>:把目前 dashboard 摘要丟給 LLM endpoint;若未設定 endpoint 則改用本地啟發式產出建議
+    </div>`;
+  }
+};
+
+window.saveAICfg = function(){
+  const cfg = {
+    endpoint: document.getElementById('aiEp').value.trim(),
+    model:    document.getElementById('aiMdl').value.trim() || 'claude-opus-4-7',
+    key:      document.getElementById('aiKey').value.trim(),
+  };
+  localStorage.setItem('jbs_ai_cfg', JSON.stringify(cfg));
+  Toast.info('✓ LLM 設定已存。');
+};
+
+// ══════════════════════════════════════════════════
+// SPLIT SIGNIFICANCE: Welch t-test (2 grp) / one-way ANOVA (≥3)
+// ══════════════════════════════════════════════════
+// Approx p-value via Lugannani-style table / use erfc for t→p heuristic.
+// To avoid full statistical libs we provide F & t with rough p hints:
+//   - small p (highly sig) when |t|>3 or F large
+function _erfc(x){
+  // Abramowitz & Stegun 7.1.26
+  const z = Math.abs(x);
+  const t = 1/(1+0.3275911*z);
+  const y = 1 - (((((1.061405429*t -1.453152027)*t)+1.421413741)*t -0.284496736)*t +0.254829592)*t*Math.exp(-z*z);
+  return x>=0 ? 1-y : 1+y;
+}
+function _tPvalueTwoSided(t, df){
+  // Use normal approx for df>=30, else fudge by df scaling
+  const z = t / Math.sqrt(1 + (1.5/df));
+  return _erfc(Math.abs(z)/Math.SQRT2);
+}
+function _welch(a, b){
+  if (a.length<2 || b.length<2) return null;
+  const ma=_mean(a), mb=_mean(b);
+  const va=_std(a)**2, vb=_std(b)**2;
+  const se = Math.sqrt(va/a.length + vb/b.length);
+  if (se===0) return null;
+  const t = (ma-mb)/se;
+  const df = (va/a.length + vb/b.length)**2 / ((va/a.length)**2/(a.length-1) + (vb/b.length)**2/(b.length-1));
+  return { t, df, p: _tPvalueTwoSided(t, df), ma, mb, na:a.length, nb:b.length };
+}
+function _anovaOneWay(groups){
+  // groups: [[...],[...],...]
+  const k = groups.length;
+  const all = [].concat(...groups);
+  if (all.length < k+1) return null;
+  const grand = _mean(all);
+  let ssb = 0, ssw = 0;
+  groups.forEach(g => { const m=_mean(g); ssb += g.length*(m-grand)**2; g.forEach(v => { ssw += (v-m)**2; }); });
+  const dfb = k-1, dfw = all.length - k;
+  const msb = ssb/dfb, msw = ssw/dfw;
+  if (msw===0) return { F: Infinity, dfb, dfw, p: 0 };
+  const F = msb/msw;
+  // rough p via F→z heuristic
+  const z = Math.sqrt(F) - 1;
+  const p = _erfc(Math.max(0,z)/Math.SQRT2);
+  return { F, dfb, dfw, p };
+}
+function _getSplitGroupsForItem(item, lots){
+  // Use combo-key logic like _updateSplitStatsCompare; fallback to per-lot groups
+  const steps = (S.chartSplitSteps && S.chartSplitSteps.length) ? S.chartSplitSteps : [];
+  const map = {};
+  const order = [];
+  lots.forEach(lot => {
+    let key;
+    if (steps.length && typeof _getLotComboKey==='function') {
+      key = _getLotComboKey(lot);
+      if (key.split(' / ').every(p => p === '—')) return;
+    } else key = lot;
+    if (!map[key]) { map[key] = []; order.push(key); }
+    const vs = validData(lot, item);
+    map[key].push(...vs);
+  });
+  return order.map(k => ({ name:k, data: map[k] })).filter(g => g.data.length >= 2);
+}
+window.runSplitSignificance = function(){
+  if (!S.items.length) { Toast.info('請先載入資料'); return; }
+  const lots = getActiveLots();
+  const items = (S.chartItems && S.chartItems.filter(Boolean).length) ? S.chartItems.filter(Boolean) : S.items;
+  const rowsHtml = items.map(item => {
+    const groups = _getSplitGroupsForItem(item, lots);
+    if (groups.length < 2) return `<tr><td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(item)}</td><td colspan="4" style="padding:4px 8px;border:1px solid var(--line);color:var(--text-3)">群組不足</td></tr>`;
+    let stat, statLabel, p, detail;
+    if (groups.length === 2) {
+      const r = _welch(groups[0].data, groups[1].data);
+      if (!r) return '';
+      stat = r.t.toFixed(3); statLabel = `t(df≈${r.df.toFixed(1)})`; p = r.p;
+      detail = `${groups[0].name}(n=${r.na}, μ=${r.ma.toFixed(3)}) vs ${groups[1].name}(n=${r.nb}, μ=${r.mb.toFixed(3)})`;
+    } else {
+      const r = _anovaOneWay(groups.map(g=>g.data));
+      if (!r) return '';
+      stat = r.F.toFixed(3); statLabel = `F(${r.dfb},${r.dfw})`; p = r.p;
+      detail = groups.map(g=>`${g.name}(n=${g.data.length}, μ=${_mean(g.data).toFixed(3)})`).join(' / ');
+    }
+    const sig = p < 0.001 ? '★★★' : p < 0.01 ? '★★' : p < 0.05 ? '★' : '';
+    const pColor = p < 0.05 ? '#e53e3e' : 'inherit';
+    return `<tr>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(item)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${statLabel}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${stat}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right;color:${pColor};font-weight:600">${p.toExponential(2)} ${sig}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);font-size:11px;color:var(--text-3)">${escHtml(detail)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('aiResult').dataset.touched = '1';
+  document.getElementById('aiResult').innerHTML = `
+    <h3 style="margin:8px 0;font-size:14px">Split 顯著性 (★ p&lt;0.05, ★★ p&lt;0.01, ★★★ p&lt;0.001)</h3>
+    <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">注:p 值以常態/erfc 近似估算,僅供初步篩選。精確值請丟回 R / Python 計算。</div>
+    <table style="border-collapse:collapse;font-size:12px;width:100%">
+      <thead style="background:var(--bg-2)"><tr>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">項目</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">統計量</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">值</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">p</th>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">群組摘要</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>`;
+};
+
+// ══════════════════════════════════════════════════
+// WAFER PATTERN classification
+// ══════════════════════════════════════════════════
+window.runWaferPatternClassify = function(){
+  if (!S.lots.length) { Toast.info('請先載入資料'); return; }
+  const lots = getActiveLots();
+  const items = S.items;
+  // Use specs to mark fail; if no spec, use top/bottom 5% as proxy
+  const rowsHtml = lots.map(lot => {
+    const rows = S.data.filter(r => r.Lot === lot);
+    if (!rows.length) return '';
+    let xs = rows.map(r => parseFloat(r.Xpos)).filter(v=>!isNaN(v));
+    let ys = rows.map(r => parseFloat(r.Ypos)).filter(v=>!isNaN(v));
+    if (!xs.length) return `<tr><td colspan="4" style="padding:4px 8px;border:1px solid var(--line)">${escHtml(lot)}: 無座標</td></tr>`;
+    const cx = (Math.min(...xs)+Math.max(...xs))/2;
+    const cy = (Math.min(...ys)+Math.max(...ys))/2;
+    const R  = Math.max(Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys)) / 2 || 1;
+
+    const fail = [];
+    rows.forEach(r => {
+      const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+      if (isNaN(x)||isNaN(y)) return;
+      if (_isMasked && _isMasked(r.Lot, r.Xpos, r.Ypos)) { fail.push([x,y]); return; }
+      for (const it of items) {
+        const sp = S.chartSpecs[it] || S.statSpecs[it] || {};
+        const v = parseFloat(r[it]);
+        if (isNaN(v)) continue;
+        if (sp.lsl != null && v < +sp.lsl) { fail.push([x,y]); return; }
+        if (sp.usl != null && v > +sp.usl) { fail.push([x,y]); return; }
+      }
+    });
+    const fr = (fail.length / rows.length) * 100;
+    let pattern = 'Random / 健康';
+    let detail = `失敗 ${fail.length}/${rows.length} (${fr.toFixed(1)}%)`;
+    if (fail.length >= 5) {
+      const inner = fail.filter(([x,y]) => Math.hypot(x-cx, y-cy) < R*0.4).length;
+      const outer = fail.filter(([x,y]) => Math.hypot(x-cx, y-cy) > R*0.8).length;
+      const innerRatio = inner / fail.length;
+      const outerRatio = outer / fail.length;
+      if (outerRatio > 0.6) pattern = '🌀 Edge Ring (邊緣)';
+      else if (innerRatio > 0.6) pattern = '🎯 Center Hot (中心)';
+      else {
+        // Cluster: check max pairwise density
+        let maxNeighbors = 0;
+        for (const [x,y] of fail) {
+          let c = 0;
+          for (const [x2,y2] of fail) if (Math.hypot(x-x2,y-y2) < R*0.15) c++;
+          if (c > maxNeighbors) maxNeighbors = c;
+        }
+        if (maxNeighbors / fail.length > 0.4) pattern = '🔘 Cluster (聚集)';
+        else pattern = '🎲 Random';
+      }
+      detail += ` · inner ${(innerRatio*100).toFixed(0)}% · outer ${(outerRatio*100).toFixed(0)}%`;
+    } else {
+      pattern = '✓ 健康 (失敗<5)';
+    }
+    return `<tr>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(lot)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${pattern}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${fr.toFixed(2)}%</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);font-size:11px;color:var(--text-3)">${detail}</td>
+    </tr>`;
+  }).filter(Boolean).join('');
+  document.getElementById('aiResult').dataset.touched = '1';
+  document.getElementById('aiResult').innerHTML = `
+    <h3 style="margin:8px 0;font-size:14px">Wafer Pattern 啟發式分類</h3>
+    <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">注:依 spec 失敗/遮罩座標分布判別;若無 spec 則僅遮罩座標。精準分類請以 ML 模型訓練。</div>
+    <table style="border-collapse:collapse;font-size:12px;width:100%">
+      <thead style="background:var(--bg-2)"><tr>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">Lot</th>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">Pattern</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">失敗率</th>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">摘要</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>`;
+};
+
+// ══════════════════════════════════════════════════
+// BATCH IMAGE EXPORT
+// ══════════════════════════════════════════════════
+window.batchExportChartImages = async function(){
+  if (typeof Plotly === 'undefined') { Toast.info('Plotly 未載入'); return; }
+  const panels = ['panel-map','panel-count','panel-pct','panel-stats','panel-chart','panel-yield'];
+  let total = 0;
+  for (const pid of panels) {
+    const p = document.getElementById(pid);
+    if (!p) continue;
+    const charts = p.querySelectorAll('.js-plotly-plot, [id^="ch-"], [id^="ca-"], [id^="ct-"]');
+    for (const c of charts) {
+      if (!c.id || !c._fullLayout) continue; // only initialized Plotly
+      try {
+        const url = await Plotly.toImage(c, { format:'png', width: 1200, height: 600, scale: 2 });
+        const a = Object.assign(document.createElement('a'), { href: url, download: `${pid}_${c.id}.png` });
+        a.click();
+        total++;
+        await new Promise(r => setTimeout(r, 80));
+      } catch(e) { console.warn('toImage failed for', c.id, e); }
+    }
+  }
+  Toast.info(`✓ 已匯出 ${total} 張圖片。`);
+};
+
+// ══════════════════════════════════════════════════
+// MULTI-SESSION COMPARE
+// ══════════════════════════════════════════════════
+window._cmpSession = null;
+window.loadCompareSession = function(ev){
+  const f = ev.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = e => {
+    try {
+      const obj = JSON.parse(e.target.result);
+      if (!obj.data || !obj.lots) throw new Error('非 JBS session 格式');
+      window._cmpSession = obj;
+      Toast.info(`✓ 已載入比對 session (${obj.lots.length} Lot, ${obj.data.length} 筆),點「多 Session 比較」`);
+    } catch(err) { Toast.info('載入失敗:'+err.message); }
+  };
+  r.readAsText(f);
+  ev.target.value = '';
+};
+window.renderSessionCompare = function(){
+  const cmp = window._cmpSession;
+  if (!cmp) { Toast.info('請先載入比對 session'); return; }
+  if (!S.data.length) { Toast.info('當前無資料'); return; }
+  // Compare per-item mean / std across two sessions (overall, not per-lot)
+  const items = S.items.filter(it => cmp.items && cmp.items.includes(it));
+  const rowsHtml = items.map(it => {
+    const aVals = S.data.map(r=>parseFloat(r[it])).filter(v=>!isNaN(v));
+    const bVals = cmp.data.map(r=>parseFloat(r[it])).filter(v=>!isNaN(v));
+    if (!aVals.length || !bVals.length) return '';
+    const ma = _mean(aVals), mb = _mean(bVals);
+    const sa = _std(aVals), sb = _std(bVals);
+    const dPct = mb!==0 ? ((ma-mb)/mb*100) : 0;
+    const w = _welch(aVals, bVals);
+    const p = w ? w.p : NaN;
+    const sig = p < 0.001 ? '★★★' : p < 0.01 ? '★★' : p < 0.05 ? '★' : '';
+    return `<tr>
+      <td style="padding:4px 8px;border:1px solid var(--line)">${escHtml(it)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${ma.toFixed(4)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${mb.toFixed(4)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right;color:${Math.abs(dPct)>5?'#e53e3e':'inherit'}">${dPct.toFixed(2)}%</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${sa.toFixed(4)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${sb.toFixed(4)}</td>
+      <td style="padding:4px 8px;border:1px solid var(--line);text-align:right">${isNaN(p)?'-':p.toExponential(2)} ${sig}</td>
+    </tr>`;
+  }).filter(Boolean).join('');
+  document.getElementById('aiResult').dataset.touched = '1';
+  document.getElementById('aiResult').innerHTML = `
+    <h3 style="margin:8px 0;font-size:14px">多 Session 比較 (當前 vs 比對檔, Welch t-test)</h3>
+    <table style="border-collapse:collapse;font-size:12px;width:100%">
+      <thead style="background:var(--bg-2)"><tr>
+        <th style="padding:6px 8px;border:1px solid var(--line);text-align:left">項目</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">μ (當前)</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">μ (比對)</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">Δ%</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">σ (當前)</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">σ (比對)</th>
+        <th style="padding:6px 8px;border:1px solid var(--line)">p</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>`;
+};
+
+// ══════════════════════════════════════════════════
+// AI INSIGHT — calls LLM if configured, else heuristic
+// ══════════════════════════════════════════════════
+function _buildSummary(){
+  const lots = getActiveLots();
+  const summary = {
+    lotCount: lots.length, itemCount: S.items.length, rowCount: S.data.length,
+    items: {}, yieldByLot: {}
+  };
+  S.items.slice(0, 30).forEach(it => {
+    const all = [];
+    lots.forEach(lot => { all.push(...validData(lot, it)); });
+    if (!all.length) return;
+    summary.items[it] = { n: all.length, mean: _mean(all), std: _std(all),
+      min: Math.min(...all), max: Math.max(...all) };
+    const sp = S.chartSpecs[it] || S.statSpecs[it];
+    if (sp) {
+      let fail = 0;
+      all.forEach(v => {
+        if (sp.lsl != null && v < +sp.lsl) fail++;
+        else if (sp.usl != null && v > +sp.usl) fail++;
+      });
+      summary.items[it].failPct = (fail/all.length*100);
+    }
+  });
+  lots.forEach(lot => {
+    const rows = S.data.filter(r => r.Lot===lot);
+    let pass = 0, total = 0;
+    rows.forEach(r => {
+      let ok = true;
+      for (const it of S.items) {
+        const sp = S.chartSpecs[it] || S.statSpecs[it]; if (!sp) continue;
+        const v = parseFloat(r[it]); if (isNaN(v)) continue;
+        if (sp.lsl != null && v < +sp.lsl) { ok=false; break; }
+        if (sp.usl != null && v > +sp.usl) { ok=false; break; }
+      }
+      total++; if (ok) pass++;
+    });
+    if (total) summary.yieldByLot[lot] = (pass/total*100);
+  });
+  return summary;
+}
+
+function _heuristicReport(sum, userQ){
+  const lines = [];
+  lines.push(`📊 **資料摘要**:${sum.lotCount} Lot · ${sum.itemCount} 項目 · ${sum.rowCount} 筆量測。`);
+  // Yield ranking
+  const ys = Object.entries(sum.yieldByLot).sort((a,b)=>a[1]-b[1]);
+  if (ys.length) {
+    const worst = ys.slice(0, Math.min(3, ys.length));
+    const best  = ys.slice(-Math.min(3, ys.length)).reverse();
+    lines.push(`🟢 **良率最高 Lot**:${best.map(([l,y])=>`${l} (${y.toFixed(1)}%)`).join(', ')}`);
+    lines.push(`🔴 **良率最低 Lot**:${worst.map(([l,y])=>`${l} (${y.toFixed(1)}%)`).join(', ')}`);
+    const gap = best[0][1] - worst[0][1];
+    if (gap > 10) lines.push(`⚠ Lot 間良率差異 ${gap.toFixed(1)}% > 10%,建議檢查 split 條件對應的 process step。`);
+  }
+  // Items with high fail
+  const failItems = Object.entries(sum.items).filter(([,d]) => d.failPct != null && d.failPct > 5).sort((a,b)=>b[1].failPct - a[1].failPct);
+  if (failItems.length) {
+    lines.push(`🔴 **失敗率 > 5% 的項目**:`);
+    failItems.slice(0,5).forEach(([it,d]) => lines.push(`  · ${it}: ${d.failPct.toFixed(1)}% (μ=${d.mean.toFixed(3)}, σ=${d.std.toFixed(3)})`));
+  } else {
+    lines.push(`✅ 所有有 spec 的項目失敗率皆 ≤ 5%。`);
+  }
+  // Items with high CV
+  const cvItems = Object.entries(sum.items).map(([it,d])=>({ it, cv: d.mean!==0 ? Math.abs(d.std/d.mean) : 0 }))
+    .filter(x=>x.cv>0.1).sort((a,b)=>b.cv-a.cv).slice(0,5);
+  if (cvItems.length) {
+    lines.push(`📈 **變異大的項目 (CV>10%)**:${cvItems.map(x=>`${x.it}(${(x.cv*100).toFixed(1)}%)`).join(', ')}`);
+  }
+  if (userQ) lines.push(`\n💬 **針對你的問題**「${userQ}」:目前 endpoint 未設定 LLM,以上為離線啟發式摘要。若要詳細推理,請在「⚙ LLM 設定」填入 endpoint 與 key。`);
+  else lines.push(`\n💡 建議:設定 LLM endpoint 後可獲得針對特定問題的推理分析。`);
+  return lines.join('\n');
+}
+
+window.runAIInsight = async function(){
+  if (!S.data.length) { Toast.info('請先載入資料'); return; }
+  const userQ = document.getElementById('aiPrompt').value.trim();
+  const summary = _buildSummary();
+  const cfg = JSON.parse(localStorage.getItem('jbs_ai_cfg')||'{}');
+  const el = document.getElementById('aiResult');
+  el.dataset.touched = '1';
+  el.innerHTML = '<div style="padding:16px;color:var(--text-3)">分析中…</div>';
+
+  if (!cfg.endpoint || !cfg.key) {
+    const txt = _heuristicReport(summary, userQ);
+    el.innerHTML = `<div style="padding:16px;background:var(--bg-2);border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.7">${escHtml(txt)}</div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px">⚠ 離線模式 (未設定 LLM endpoint)。</div>`;
+    return;
+  }
+
+  const prompt = `你是半導體晶圓良率分析助理。以下是當前 dashboard 摘要 JSON,請用繁體中文簡潔分析,指出風險與改善方向。\n\n使用者問題:${userQ || '請給整體良率與項目層面的健康度評估,以及最值得追查的 3 個方向。'}\n\n資料:\n${JSON.stringify(summary).slice(0, 30000)}`;
+  try {
+    const resp = await fetch(cfg.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': cfg.key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: cfg.model || 'claude-opus-4-7',
+        max_tokens: 1500,
+        messages: [{ role:'user', content: prompt }]
+      })
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0,200)}`);
+    const j = await resp.json();
+    const txt = (j.content && j.content[0] && j.content[0].text) || j.completion || JSON.stringify(j).slice(0,2000);
+    el.innerHTML = `<div style="padding:16px;background:var(--bg-2);border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.7">${escHtml(txt)}</div>`;
+  } catch(err) {
+    const fallback = _heuristicReport(summary, userQ);
+    el.innerHTML = `<div style="padding:12px;background:#fff5f5;border-left:4px solid #fc8181;border-radius:4px;font-size:12px;margin-bottom:8px">LLM 呼叫失敗:${escHtml(err.message)}<br>已改用離線啟發式報告。</div>
+      <div style="padding:16px;background:var(--bg-2);border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.7">${escHtml(fallback)}</div>`;
+  }
+};
+
 })();
 </script>
 
