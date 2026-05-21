@@ -48,6 +48,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .btn-green:hover { background: #276749; }
 .btn-gray  { background: #edf2f7; color: #4a5568; }
 .btn-gray:hover  { background: #e2e8f0; }
+.btn-red   { background: #e53e3e; color: white; }
+.btn-red:hover:not(:disabled) { background: #c53030; }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* Status */
@@ -2197,6 +2199,9 @@ async function parseUploadedFiles() {
     const file = S.files[fi];
     const entry = { file, rows: null, detection: null, template: null, parsed: null, error: null };
     try {
+      if (typeof XLSX === 'undefined') {
+        throw new Error('XLSX library 未載入，請確認 CDN 或 libs/ 目錄是否可存取');
+      }
       const isCsv = file.name.toLowerCase().endsWith('.csv');
       let wb;
       if (isCsv) {
@@ -2365,6 +2370,10 @@ async function importTemplatesJSON(file) {
 // PLOTLY THEME — auto-inject dark/light layout defaults
 // ══════════════════════════════════════════════════
 (function() {
+  if (typeof Plotly === 'undefined') {
+    console.warn('[JBS] Plotly 未載入，跳過主題注入。圖表功能將無法使用，請確認 CDN 或 libs/ 目錄是否可存取。');
+    return;
+  }
   const _newPlot = Plotly.newPlot;
   function getThemeColors() {
     const cs = getComputedStyle(document.documentElement);
@@ -4022,8 +4031,9 @@ function renderYield() {
     return;
   }
 
-  // Build matrix: lots × items
-  const matrix = S.lots.map(lot =>
+  // Build matrix: lots × items (apply global lot filter)
+  const activeLots = getActiveLots();
+  const matrix = activeLots.map(lot =>
     specItems.map(item => {
       const spec = getSpecForItem(item);
       const lsl = spec?.lsl != null ? parseFloat(spec.lsl) : null;
@@ -5019,7 +5029,8 @@ function _updateSplitStatsCompare(items) {
   // Build groups using same combo-key logic as getChartGroups
   const order = [];
   const map = {};  // comboKey → {label, lots, color}
-  S.lots.forEach(lot => {
+  const activeLots = getActiveLots();
+  activeLots.forEach(lot => {
     const key = _getLotComboKey(lot);
     if (key.split(' / ').every(p => p === '—')) return;
     if (!map[key]) {
@@ -5098,6 +5109,7 @@ function caScatter(items, grid) {
   const xAxisKey = document.getElementById('caScatterX').value;
   const ptSize   = parseInt(document.getElementById('caScatterSize').value) || 5;
   const xLabel   = xAxisKey === 'xpos' ? 'Xpos' : xAxisKey === 'ypos' ? 'Ypos' : 'Index';
+  const activeLots = getActiveLots();
 
   items.forEach(item => {
     const spec   = S.chartSpecs[item] || {};
@@ -5105,7 +5117,7 @@ function caScatter(items, grid) {
     const annots = buildSpecAnnotations(spec, showSpec);
 
     if (lotMode === 'overlay') {
-      const traces = S.lots.map((lot, li) => {
+      const traces = activeLots.map((lot, li) => {
         const rows = S.data.filter(r => r.Lot === lot);
         const pts  = rows.map((r, idx) => {
           const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
@@ -5130,7 +5142,7 @@ function caScatter(items, grid) {
         yaxis:{title:{text:escHtml(item),font:{size:10}}}
       }, {responsive:true, displayModeBar:false});
     } else {
-      S.lots.forEach((lot, li) => {
+      activeLots.forEach((lot, li) => {
         const rows = S.data.filter(r => r.Lot === lot);
         const pts  = rows.map((r, idx) => {
           const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
@@ -6249,6 +6261,16 @@ function exportSession() {
     chartItems: S.chartItems, chartType: S.chartType,
     activeStats: S.activeStats, customStats: S.customStats,
     headerIdx: S._headerIdx, dataStartIdx: S._dataStartIdx,
+    activeLots: S.activeLots,
+    maskSet: S.maskSet ? Object.fromEntries(
+      Object.entries(S.maskSet).map(([k, v]) => [k, [...v]])
+    ) : undefined,
+    chartSplitSteps: S.chartSplitSteps,
+    cntSplitSteps: S.cntSplitSteps, cntSplitMode: S.cntSplitMode,
+    pctSplitSteps: S.pctSplitSteps, pctSplitMode: S.pctSplitMode,
+    splitTemplates: S.splitTemplates, activeTemplate: S.activeTemplate,
+    splitBatchTemplates: S.splitBatchTemplates,
+    splitBatchLocked: S.splitBatchLocked,
   };
   const blob = new Blob([JSON.stringify(session)], {type:'application/json'});
   const a = Object.assign(document.createElement('a'), {
@@ -6311,6 +6333,20 @@ function importSession(file) {
 
       if (o.chartSplitStep) S.chartSplitStep = o.chartSplitStep;
       if (o.chartSplitMode) S.chartSplitMode = o.chartSplitMode;
+      if (o.chartSplitSteps) S.chartSplitSteps = o.chartSplitSteps;
+      if (o.cntSplitSteps)   S.cntSplitSteps   = o.cntSplitSteps;
+      if (o.cntSplitMode)    S.cntSplitMode    = o.cntSplitMode;
+      if (o.pctSplitSteps)   S.pctSplitSteps   = o.pctSplitSteps;
+      if (o.pctSplitMode)    S.pctSplitMode    = o.pctSplitMode;
+      if (o.activeLots)      S.activeLots      = o.activeLots;
+      if (o.maskSet) {
+        S.maskSet = {};
+        Object.entries(o.maskSet).forEach(([k, v]) => { S.maskSet[k] = new Set(v); });
+      }
+      if (o.splitTemplates)      S.splitTemplates      = o.splitTemplates;
+      if (o.activeTemplate)      S.activeTemplate      = o.activeTemplate;
+      if (o.splitBatchTemplates) S.splitBatchTemplates = o.splitBatchTemplates;
+      if (o.splitBatchLocked != null) S.splitBatchLocked = o.splitBatchLocked;
       if (Object.keys(S.splitProfiles).length) {
         renderProfileSel();
         renderSplitViews(); renderSplitMatchTable(); populateSplitStepSel(); _populateAllSplitSels();
