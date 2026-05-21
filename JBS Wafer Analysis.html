@@ -796,12 +796,13 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         </div>
         <div style="font-size:11px;color:var(--text-3);margin-bottom:6px">
           規則順序由上而下執行，第一條符合的會生效。
+          關鍵字支援 <code>*</code> 通配符（代表任意字元），例：<code>* ICBO</code> 會比對 <code>3 ICBO</code>、<code>9 ICBO</code>。
           名稱模板可用 <code>{cond}</code> 代入第一個樣本值解析後的條件（例：<code>21V</code>、<code>5mA</code>）。
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead>
             <tr style="background:var(--bg);color:var(--text-2)">
-              <th style="padding:4px 6px;text-align:left;width:20%">關鍵字 / Regex</th>
+              <th style="padding:4px 6px;text-align:left;width:20%">關鍵字（支援 *）</th>
               <th style="padding:4px 6px;text-align:left;width:24%">新名稱模板</th>
               <th style="padding:4px 6px;text-align:left;width:14%">數值換算</th>
               <th style="padding:4px 6px;text-align:left;width:10%">自訂倍數</th>
@@ -2961,6 +2962,14 @@ function deleteNamingTemplate() {
   refreshNamingUI('jbs_default');
 }
 
+// 把命名規則的 pattern 轉為 RegExp：支援 * 通配符（代表任意字元），
+// 其他 regex 元字元一律 escape，使用者無需懂 regex 也能寫規則。
+function _patternToRegex(pat) {
+  if (pat == null || pat === '') return null;
+  const escaped = String(pat).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  try { return new RegExp(escaped); } catch(e) { return null; }
+}
+
 // 套用目前選擇的命名模板到 rename table（同時更新換算與 SPEC）
 function applyCurrentNamingTemplate() {
   // 確保以「目前 select 對應的已儲存模板」為準 (而非編輯緩衝)
@@ -2972,9 +2981,8 @@ function applyCurrentNamingTemplate() {
     const cond    = parseConditionLabel(samples[0]);
     for (const r of tpl.rules) {
       if (!r.pattern) continue;
-      let m = false;
-      try { m = new RegExp(r.pattern).test(col); }
-      catch(e) { m = col.includes(r.pattern); }
+      const re = _patternToRegex(r.pattern);
+      const m  = re ? re.test(col) : col.includes(r.pattern);
       if (!m) continue;
       // 名稱替換：若樣板含 {cond} 但無法解析，跳過此規則繼續找下一條
       const tmpl = r.nameTemplate || '';
