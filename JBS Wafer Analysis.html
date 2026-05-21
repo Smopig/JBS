@@ -1673,6 +1673,9 @@ const BUILTIN_TEMPLATES = [
       waferId: { keyRegex: '^WaferId$',    valueCol: 6, row: [0,12] },
     },
     columnMap: {},
+    // metadata.lotId 在此格式僅包含 lot 字根（不含 wafer 索引），需以檔名 fallback
+    // 取得 wafer-level 識別字串（例：N63S11A_01）
+    lotIdPriority: ['fallback','lotId'],
     lotIdFallback: {
       source: 'filename',
       // AAA001Y-N63S11A_01-Data.xls → N63S11A_01
@@ -1743,6 +1746,8 @@ const BUILTIN_TEMPLATES = [
       'Serial#':'Serial', 'Site#':'Site', 'Bin#':'Bin', 'SBin#':'SBin',
       'XAdr':'Xpos', 'YAdr':'Ypos',
     },
+    // dlogTDO 的 Lot ID 為共用字根 (例: NK13374)，需以 Wafer ID 區分不同 wafer
+    lotIdPriority: ['waferId','lotId','fallback'],
     lotIdFallback: {
       source: 'filename',
       regex: '^([A-Za-z0-9]+)-',
@@ -1891,14 +1896,27 @@ function _extractMetadata(filename, rows, template) {
 }
 
 function resolveLotId(filename, template, metadata) {
-  if (metadata?.lotId) return String(metadata.lotId).trim();
-  const fb = template?.lotIdFallback;
-  if (fb?.source === 'filename' && fb.regex) {
-    const re = _safeRe(fb.regex);
-    if (re) {
-      const m = filename.match(re);
-      if (m) return fb.group != null ? m[fb.group] : m[0];
+  metadata = metadata || {};
+  // template.lotIdPriority 指定來源優先順序，例如 ['waferId','lotId','fallback']
+  // 預設行為：先 lotId、再 waferId、最後檔名 fallback
+  const priority = (template && template.lotIdPriority) || ['lotId','waferId','fallback'];
+  const tryFallback = () => {
+    const fb = template && template.lotIdFallback;
+    if (fb && fb.source === 'filename' && fb.regex) {
+      const re = _safeRe(fb.regex);
+      if (re) {
+        const m = filename.match(re);
+        if (m) return fb.group != null ? m[fb.group] : m[0];
+      }
     }
+    return null;
+  };
+  for (const src of priority) {
+    let v = null;
+    if (src === 'lotId')        v = metadata.lotId;
+    else if (src === 'waferId') v = metadata.waferId;
+    else if (src === 'fallback') v = tryFallback();
+    if (v != null && String(v).trim() !== '') return String(v).trim();
   }
   // ultimate legacy fallback
   const base = filename.replace(/\.(xls|xlsx|csv)$/i, '');
