@@ -1984,6 +1984,20 @@ function parseWithTemplate(filename, rows, template, opts) {
   const cmap = template.columnMap || {};
   const headers = rawHeaders.map(h => cmap[h] || h);
 
+  // 重複欄位名稱自動加 _2 / _3 後綴（pandas 風格）
+  // META 欄位不參與去重（理論上不會重複；若重複代表 template 有問題）
+  const seen = {};
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i];
+    if (!h || CANONICAL_META.includes(h)) continue;
+    if (seen[h] == null) {
+      seen[h] = 1;
+    } else {
+      seen[h]++;
+      headers[i] = `${h}_${seen[h]}`;
+    }
+  }
+
   // data start
   let dataStartIdx;
   if (opts.dataStartOverride != null && opts.dataStartOverride >= 0) {
