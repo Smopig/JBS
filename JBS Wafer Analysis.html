@@ -8156,22 +8156,34 @@ window.renderSpecCenter = function(){
     </tr></thead><tbody>${rows}</tbody></table>`;
 };
 
+// 統計分頁的 spec 為巢狀結構 S.statSpecs[item][statKey]={lsl,typical,usl},
+// SPEC 分頁只有每項目一組值,故套用到下列「分佈類數值列」,排除 Count/Std。
+const SPEC_CENTER_STAT_KEYS = ['Min','Max','Mean','Median','P5','P25','P75','P95'];
 window.specCenterApply = function(){
   const inputs = document.querySelectorAll('#specCenterTbl input[data-it]');
   let n = 0;
   inputs.forEach(inp => {
     const it = inp.dataset.it, k = inp.dataset.k, v = inp.value;
+    // 圖表分頁:扁平結構
     if (v === '') {
       if (S.chartSpecs[it]) delete S.chartSpecs[it][k];
-      if (S.statSpecs[it])  delete S.statSpecs[it][k];
     } else {
       S.chartSpecs[it] = S.chartSpecs[it] || {};
-      S.statSpecs[it]  = S.statSpecs[it]  || {};
       S.chartSpecs[it][k] = parseFloat(v);
-      S.statSpecs[it][k]  = parseFloat(v);
       n++;
     }
+    // 統計分頁:巢狀結構,套用到各分佈類統計列
+    S.statSpecs[it] = S.statSpecs[it] || {};
+    SPEC_CENTER_STAT_KEYS.forEach(sk => {
+      if (v === '') {
+        if (S.statSpecs[it][sk]) delete S.statSpecs[it][sk][k];
+      } else {
+        S.statSpecs[it][sk] = S.statSpecs[it][sk] || {};
+        S.statSpecs[it][sk][k] = parseFloat(v);
+      }
+    });
   });
+  if (typeof renderStats === 'function') renderStats();
   document.getElementById('specCenterStatus').textContent = `✓ 已套用 ${n} 個欄位,可至「統計」或「圖表分析」確認。`;
   if (typeof saveSettings==='function') saveSettings();
 };
@@ -8184,8 +8196,16 @@ window.specCenterImportFromCols = function(){
     if (!S.items.includes(item)) return;
     S.chartSpecs[item] = S.chartSpecs[item] || {};
     S.statSpecs[item]  = S.statSpecs[item]  || {};
-    if (sp.lsl != null) { S.chartSpecs[item].lsl = +sp.lsl; S.statSpecs[item].lsl = +sp.lsl; n++; }
-    if (sp.usl != null) { S.chartSpecs[item].usl = +sp.usl; S.statSpecs[item].usl = +sp.usl; n++; }
+    if (sp.lsl != null) {
+      S.chartSpecs[item].lsl = +sp.lsl;
+      SPEC_CENTER_STAT_KEYS.forEach(sk => { S.statSpecs[item][sk] = S.statSpecs[item][sk]||{}; S.statSpecs[item][sk].lsl = +sp.lsl; });
+      n++;
+    }
+    if (sp.usl != null) {
+      S.chartSpecs[item].usl = +sp.usl;
+      SPEC_CENTER_STAT_KEYS.forEach(sk => { S.statSpecs[item][sk] = S.statSpecs[item][sk]||{}; S.statSpecs[item][sk].usl = +sp.usl; });
+      n++;
+    }
   });
   renderSpecCenter();
   document.getElementById('specCenterStatus').textContent = `由原始 SPEC 匯入 ${n} 個值。`;
@@ -8208,7 +8228,13 @@ window.specCenterImportJson = function(ev){
       let n = 0;
       Object.entries(obj).forEach(([it, sp]) => {
         S.chartSpecs[it] = { ...sp };
-        S.statSpecs[it]  = { ...sp };
+        S.statSpecs[it]  = S.statSpecs[it] || {};
+        SPEC_CENTER_STAT_KEYS.forEach(sk => {
+          S.statSpecs[it][sk] = S.statSpecs[it][sk] || {};
+          if (sp.lsl     != null) S.statSpecs[it][sk].lsl     = +sp.lsl;
+          if (sp.usl     != null) S.statSpecs[it][sk].usl     = +sp.usl;
+          if (sp.typical != null) S.statSpecs[it][sk].typical = +sp.typical;
+        });
         n++;
       });
       renderSpecCenter();
