@@ -2327,7 +2327,7 @@ function buildRecordsFromEntry(entry, renameMap, excludedNewNames) {
   if (!entry || !entry.parsed || entry.error) return { records: [], errs: [entry?.error || '解析失敗'] };
   const errs = [];
   const { headers, dataStartIdx } = entry.parsed;
-  const lot = resolveLotId(entry.file.name, entry.template, entry.parsed.metadata);
+  const lot = effectiveLotName(entry.file.name, entry.template, entry.parsed.metadata);
   const wafer = entry.parsed.metadata.waferId || '';
   const excludeRe = entry.template.paramRules && entry.template.paramRules.excludeRegex
     ? _safeRe(entry.template.paramRules.excludeRegex) : null;
@@ -2379,7 +2379,7 @@ function renderDetectionPanel() {
     const ok     = !!entry.parsed && !entry.error;
     const score  = entry.detection ? entry.detection.score : 0;
     const ev     = entry.detection ? entry.detection.evidence.join(', ') : '';
-    const lot    = ok ? resolveLotId(entry.file.name, entry.template, entry.parsed.metadata) : '—';
+    const lot    = ok ? effectiveLotName(entry.file.name, entry.template, entry.parsed.metadata) : '—';
     const wafer  = ok ? (entry.parsed.metadata.waferId || '') : '';
     const hdr    = ok ? (entry.parsed.headerIdx + 1) : '—';
     const dst    = ok ? (entry.parsed.dataStartIdx + 1) : '—';
@@ -2523,6 +2523,8 @@ dz.addEventListener('drop', e => {
 // 給 UI 預覽用的 Lot 估算（在實際 parse 前先顯示一個合理名稱）。
 // 真正寫入資料時，會以 parseWithTemplate 取得的 metadata.lotId / template.lotIdFallback 為準。
 function getLotName(fname) {
+  const ov = S._lotNameOverrides && S._lotNameOverrides[fname];
+  if (ov && ov.trim()) return ov.trim();
   // 若已 parse 過，回傳 template-aware 結果
   const entry = (S._parsed || []).find(e => e && e.file && e.file.name === fname);
   if (entry && entry.parsed) {
@@ -2575,7 +2577,12 @@ function renderFileList() {
       return `<div class="file-item" style="display:flex;align-items:center;gap:10px">
         <span style="opacity:.6">📄</span>
         <span class="fi-name">${escHtml(f.name)}</span>
-        <span class="lot-tag l-${idx}">${escHtml(lot)}</span>
+        <span class="lot-tag l-${idx}" title="Lot 顏色">Lot</span>
+        <input class="lot-name-input" value="${escHtml(lot)}"
+               onchange="setLotNameOverride(${i}, this.value)"
+               title="可自訂此檔案的 Lot 名稱(多批載入時用來區分)"
+               style="width:150px;font-size:12px;padding:3px 6px;border-radius:4px;
+                      background:var(--bg);color:var(--text);border:1px solid var(--border-2)">
         <button onclick="removeFile(${i})" title="移除此檔案"
                 style="margin-left:4px;border:none;background:none;cursor:pointer;
                        color:var(--text-3);font-size:16px;line-height:1;padding:0 4px">×</button>
@@ -2588,15 +2595,38 @@ function renderFileList() {
 }
 
 function handleFiles(files) {
-  S.files = Array.from(files);
+  const incoming = Array.from(files);
+  // 一律累加到既有清單,依檔名去重(新選的同名檔覆寫舊的)
+  const byName = new Map(S.files.map(f => [f.name, f]));
+  incoming.forEach(f => byName.set(f.name, f));
+  S.files = [...byName.values()];
   S._parsed = [];
   S._activeTemplates = {};
+  S._lotNameOverrides = S._lotNameOverrides || {};
   document.getElementById('renameSection').style.display = 'none';
   const dp = document.getElementById('detectSection'); if (dp) dp.style.display = 'none';
   renderFileList();
 }
 
+// 取得檔案最終 Lot 名稱:優先使用者於檔案清單自訂的覆寫值。
+function effectiveLotName(fname, template, metadata) {
+  const ov = S._lotNameOverrides && S._lotNameOverrides[fname];
+  if (ov && ov.trim()) return ov.trim();
+  return resolveLotId(fname, template, metadata);
+}
+
+function setLotNameOverride(i, val) {
+  const f = S.files[i]; if (!f) return;
+  S._lotNameOverrides = S._lotNameOverrides || {};
+  const v = (val || '').trim();
+  if (v) S._lotNameOverrides[f.name] = v;
+  else delete S._lotNameOverrides[f.name];
+  renderFileList();
+}
+
 function removeFile(i) {
+  const f = S.files[i];
+  if (f && S._lotNameOverrides) delete S._lotNameOverrides[f.name];
   S.files.splice(i, 1);
   S._parsed = [];
   S._activeTemplates = {};
@@ -3245,7 +3275,9 @@ async function applyAndAnalyze() {
     S.data = [];
     S.batchCounter = 0;
     S.lotColors = {};
+    S._loadedFileNames = new Set();
   }
+  S._loadedFileNames = S._loadedFileNames || new Set();
   S.batchCounter++;
   const batchId = S.batchCounter;
   const errs = [];
@@ -3263,14 +3295,18 @@ async function applyAndAnalyze() {
     await parseUploadedFiles();
   }
 
+  let skippedDup = 0;
   for (const entry of S._parsed) {
     if (!entry.parsed || entry.error) {
       errs.push(`${entry.file.name}：${entry.error || '解析失敗'}`);
       continue;
     }
+    // 附加模式下,清單中已載入過的檔案不再重複加入(避免累加清單造成資料重複)
+    if (isAppend && S._loadedFileNames.has(entry.file.name)) { skippedDup++; continue; }
     const { records, errs: e2 } = buildRecordsFromEntry(entry, renameMap, excludedNewNames);
     for (const r of records) { r._batch = batchId; S.data.push(r); }
     if (e2 && e2.length) errs.push(...e2);
+    S._loadedFileNames.add(entry.file.name);
   }
 
   // Unit conversion — only on rows from THIS batch (avoid double-converting in append mode)
@@ -3318,8 +3354,9 @@ async function applyAndAnalyze() {
     return `<span class="lot-tag l-${idx}" style="margin:0 4px 0 0">${escHtml(l)}</span>`;
   }).join('');
   const modeLabel = isAppend ? `附加（批次 #${batchId}）` : '覆蓋載入';
+  const dupNote = skippedDup ? `（已略過 ${skippedDup} 個先前載入過的檔案）` : '';
   document.getElementById('upStatus').innerHTML =
-    `<div class="status ok">✅ ${modeLabel}完成：${S.lots.length} 個 Lot，${S.data.length} 筆資料，${S.items.length} 個量測項目<br>
+    `<div class="status ok">✅ ${modeLabel}完成${dupNote}：${S.lots.length} 個 Lot，${S.data.length} 筆資料，${S.items.length} 個量測項目<br>
        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
          <span style="color:var(--text-3);font-size:11px;margin-right:6px">Lot：</span>${lotChips}
        </div>
