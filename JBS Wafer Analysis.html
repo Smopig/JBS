@@ -1042,6 +1042,9 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <label style="white-space:nowrap;font-weight:700;font-size:12px">顯示統計列：</label>
       <div id="stChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
       <button class="btn btn-gray" style="font-size:12px;margin-left:8px" onclick="resetStats()">↩ 一鍵還原預設</button>
+      <button id="btnStatsOnlyInSpec" class="btn btn-gray" style="font-size:12px"
+              title="開啟後,統計僅計算落在該項目 SPEC（LSL～USL）內的量測點;未設定 SPEC 的項目不受影響"
+              onclick="toggleStatsOnlyInSpec()">僅計算 SPEC 內：關</button>
     </div>
     <!-- Row 3: custom formula -->
     <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:flex-start">
@@ -1738,6 +1741,7 @@ const S = {
   _excludedCols:    new Set(),   // original col names to skip in analysis
   _colConvOverrides: {},         // origColName → {type, factor?}
   activeStats:      [...DEFAULT_STATS],
+  statsOnlyInSpec:  false,            // 統計分頁:僅計算 SPEC 內量測點
   customStats:      [],
   statSpecs:        {},
   statFormats:      {},
@@ -3382,6 +3386,15 @@ function validData(lot,item) {
     .filter(r => !_isMasked(r.Lot, r.Xpos, r.Ypos))
     .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
 }
+// 統計分頁專用:當「僅計算 SPEC 內」開關開啟時,過濾掉超出 LSL/USL 的量測點。
+function statData(lot,item) {
+  const d = validData(lot, item);
+  if (!S.statsOnlyInSpec) return d;
+  const sp = S.chartSpecs[item] || {};
+  const lsl = sp.lsl, usl = sp.usl;
+  if (lsl == null && usl == null) return d;
+  return d.filter(v => (lsl == null || v >= lsl) && (usl == null || v <= usl));
+}
 // ── Lazy plot (IntersectionObserver-based deferred Plotly rendering) ──
 const _lazyObs = new IntersectionObserver(entries => {
   entries.forEach(entry => {
@@ -3562,6 +3575,18 @@ function resetItemStats(item) {
   renderStats();
 }
 
+function toggleStatsOnlyInSpec() {
+  S.statsOnlyInSpec = !S.statsOnlyInSpec;
+  const btn = document.getElementById('btnStatsOnlyInSpec');
+  if (btn) {
+    btn.textContent = `僅計算 SPEC 內：${S.statsOnlyInSpec ? '開' : '關'}`;
+    btn.className = `btn ${S.statsOnlyInSpec ? 'btn-blue' : 'btn-gray'}`;
+    btn.style.fontSize = '12px';
+  }
+  renderStats();
+  if (typeof debounceSave === 'function') debounceSave();
+}
+
 // ── Active stats management (global) ──
 function addStat(key) {
   if (!S.activeStats.includes(key)) { S.activeStats.push(key); renderStatChips(); renderStats(); }
@@ -3647,7 +3672,7 @@ function recolorStatRow(item, key) {
   S.lots.forEach(lot => {
     const cell = document.getElementById(`stc_${sk(item)}_${sk(key)}_${sk(lot)}`);
     if (!cell) return;
-    const d      = validData(lot, item);
+    const d      = statData(lot, item);
     if (!d.length) return;
     const rawVal = fn(d, spec);
     cell.setAttribute('style', specColor(key, rawVal, spec) || '');
@@ -4166,6 +4191,12 @@ const STAT_FNS={
 function renderStats() {
   const el = document.getElementById('stTable');
   el.innerHTML = '';
+  const btn = document.getElementById('btnStatsOnlyInSpec');
+  if (btn) {
+    btn.textContent = `僅計算 SPEC 內：${S.statsOnlyInSpec ? '開' : '關'}`;
+    btn.className = `btn ${S.statsOnlyInSpec ? 'btn-blue' : 'btn-gray'}`;
+    btn.style.fontSize = '12px';
+  }
   S.statItems.forEach(item => {
     if (!item) return;
     el.appendChild(buildItemStatsBlock(item));
@@ -4217,7 +4248,7 @@ function buildItemStatsBlock(item) {
 
     h += `<tr><td class="row-label">${esc_key}</td>`;
     getActiveLots().forEach(lot => {
-      const d = validData(lot, item);
+      const d = statData(lot, item);
       if (!d.length) { h += `<td id="stc_${sk(item)}_${sk(key)}_${sk(lot)}">—</td>`; return; }
       const rawVal  = fn(d, spec);
       const dispVal = formatStatVal(key, rawVal);
@@ -4273,7 +4304,7 @@ function copyStatsTable(item) {
     const fn = allFns[key]; if (!fn) return null;
     const spec = (S.statSpecs[item] || {})[key] || {};
     const vals = S.lots.map(lot => {
-      const d = validData(lot, item);
+      const d = statData(lot, item);
       if (!d.length) return '—';
       return formatStatVal(key, fn(d, spec));
     });
@@ -6251,6 +6282,7 @@ function saveSettings() {
       pctSplitSteps:    S.pctSplitSteps,
       pctSplitMode:     S.pctSplitMode,
       activeStats:      S.activeStats,
+      statsOnlyInSpec:  S.statsOnlyInSpec,
       customStats:      S.customStats,
       headerIdx:        S._headerIdx,
       dataStartIdx:     S._dataStartIdx,
@@ -6303,6 +6335,7 @@ function loadSettings() {
     if (o.pctSplitMode)  S.pctSplitMode  = o.pctSplitMode;
     if (o.activeLots !== undefined) S.activeLots = o.activeLots;
     if (o.activeStats) S.activeStats = o.activeStats;
+    if (o.statsOnlyInSpec != null) S.statsOnlyInSpec = o.statsOnlyInSpec;
     if (o.customStats) S.customStats = o.customStats;
     if (o.headerIdx    != null) S._headerIdx    = o.headerIdx;
     if (o.dataStartIdx != null) S._dataStartIdx = o.dataStartIdx;
