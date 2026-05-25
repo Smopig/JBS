@@ -1251,6 +1251,15 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <span>線型循環（實線/虛線/點線/長線/Dash-dot）</span>
       </label>
 
+      <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);margin-left:8px;white-space:nowrap"
+             title="每 N 條 wafer 同一色系、組內以線型區分；0 = 關閉（依 Lot 家族分組）">
+        <span>每組同色</span>
+        <input type="number" id="caGroupSize" min="0" max="99" step="1"
+               onchange="updateChartStyle('groupSize', this.value)"
+               style="width:48px;padding:4px 6px;border:1px solid var(--border-2);border-radius:4px;font-size:12px;background:var(--bg-2);color:var(--text)">
+        <span>條</span>
+      </label>
+
       <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
         <input id="caStyleName" type="text" placeholder="樣式名稱"
                style="padding:4px 8px;font-size:11px;border:1px solid var(--border-2);border-radius:4px;background:var(--bg-2);color:var(--text);width:140px">
@@ -4641,7 +4650,7 @@ const CHART_PALETTES = {
 const DASH_CYCLE = ['solid','dash','dot','longdash','dashdot'];
 
 function _defaultChartStyle() {
-  return { palette:'default', customColors:[], dashCycle:false };
+  return { palette:'default', customColors:[], dashCycle:false, groupSize:0 };
 }
 function _chartStyle() {
   if (!S.chartStyle) S.chartStyle = _defaultChartStyle();
@@ -4655,6 +4664,28 @@ function effectiveChartPalette() {
 }
 function chartDash(i) {
   return _chartStyle().dashCycle ? DASH_CYCLE[i % DASH_CYCLE.length] : 'solid';
+}
+// 每組同色：依 Lot 家族分組，家族內每 N 條換一個色系、組內以線型區分。
+// 回傳 { lotName: {color, dash} }；groupSize<1 時回傳 null（停用）。
+function _lotGroupStyleMap() {
+  const cs = _chartStyle();
+  const n = parseInt(cs.groupSize, 10);
+  if (!n || n < 1) return null;
+  const pal = effectiveChartPalette();
+  const fams = (typeof _lotsByFamily === 'function')
+    ? _lotsByFamily(S.lots || [])
+    : [{ family:null, lots:(S.lots || []) }];
+  const map = {};
+  let colorIdx = 0;
+  fams.forEach(f => {
+    f.lots.forEach((lot, i) => {
+      const blockPos = i % n;
+      if (i > 0 && blockPos === 0) colorIdx++;
+      map[lot] = { color: pal[colorIdx % pal.length], dash: DASH_CYCLE[blockPos % DASH_CYCLE.length] };
+    });
+    colorIdx++;  // 下一個家族換新色，避免與前一家族尾段同色
+  });
+  return map;
 }
 function getColor(i) {
   const pal = effectiveChartPalette();
@@ -4686,6 +4717,8 @@ function refreshChartStyleUI() {
   const cs     = _chartStyle();
   if (palSel) palSel.value = cs.palette || 'default';
   if (dash)   dash.checked = !!cs.dashCycle;
+  const grp = document.getElementById('caGroupSize');
+  if (grp) grp.value = cs.groupSize || 0;
   renderCustomPaletteUI();
 }
 
@@ -4747,6 +4780,10 @@ function updateChartStyle(field, value) {
   const cs = _chartStyle();
   if (field === 'dashCycle') {
     cs.dashCycle = !!value;
+  } else if (field === 'groupSize') {
+    let n = parseInt(value, 10);
+    if (!isFinite(n) || n < 0) n = 0;
+    cs.groupSize = n;
   } else if (field === 'palette') {
     if (value !== 'custom') cs._lastNonCustomPalette = value;
     cs.palette = value;
@@ -4803,6 +4840,7 @@ function resetChartStyle() {
 function _applyChartCardEnhancements(grid) {
   if (!grid) return;
   const dashOn = _chartStyle().dashCycle;
+  const grpMap = _lotGroupStyleMap();
   grid.querySelectorAll('.chart-card').forEach(card => {
     // 1) 下載工具列（避免重複加）
     let plotDiv = card.querySelector('.js-plotly-plot');
@@ -4831,14 +4869,18 @@ function _applyChartCardEnhancements(grid) {
       tb.appendChild(mk('svg',  '📐 SVG'));
       card.insertBefore(tb, card.firstChild);
     }
-    // 2) 線型循環：只對 scatter+lines 模式的 trace 套用 dash
-    if (dashOn && plotDiv && plotDiv.data && plotDiv.data.length) {
+    // 2) 線型循環 / 每組同色：只對 scatter+lines 模式的 trace 套用
+    if ((dashOn || grpMap) && plotDiv && plotDiv.data && plotDiv.data.length) {
       plotDiv.data.forEach((trace, i) => {
         const isScatter = !trace.type || trace.type === 'scatter' || trace.type === 'scattergl';
         const hasLine   = isScatter && (!trace.mode || /lines/.test(trace.mode));
         if (!hasLine) return;
-        const dash = chartDash(i);
-        try { Plotly.restyle(plotDiv, { 'line.dash': dash }, [i]); } catch(e) {}
+        const st = grpMap && trace.name ? grpMap[trace.name] : null;
+        if (st) {
+          try { Plotly.restyle(plotDiv, { 'line.color': st.color, 'line.dash': st.dash }, [i]); } catch(e) {}
+        } else if (dashOn) {
+          try { Plotly.restyle(plotDiv, { 'line.dash': chartDash(i) }, [i]); } catch(e) {}
+        }
       });
     }
   });
