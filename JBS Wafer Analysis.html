@@ -826,7 +826,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <select id="renameScopeSel" onchange="switchRenameScope(this.value)"
                 style="font-size:12px;padding:3px 8px;border-radius:4px;
                        background:var(--bg-2);color:var(--text);border:1px solid var(--border-2);min-width:220px"></select>
-        <span style="font-size:11px;color:var(--text-3)">選「全部檔案」時編輯會套到所有檔案；選某檔則只改該檔(同名欄位在不同 Lot 可給不同名稱)</span>
+        <span style="font-size:11px;color:var(--text-3)">檔案會依「格式＋Lot 家族」自動分組；選某組只設定該組一次(同名欄位在不同格式可給不同名稱)，選「全部」則套到所有檔</span>
       </div>
 
       <div class="rename-table-wrap">
@@ -2307,7 +2307,8 @@ async function parseUploadedFiles() {
       entry.template = userPick ? findTemplate(userPick) : entry.detection.template;
       if (entry.template) {
         const opts = {};
-        const ovr = (S._fileRowOverrides && S._fileRowOverrides[file.name]) || {};
+        const gk  = _groupKeyFor(entry);
+        const ovr = (S._groupRowOverrides && S._groupRowOverrides[gk]) || {};
         const num = v => (v !== '' && v != null && !isNaN(parseInt(v))) ? parseInt(v) : null;
         // 標題 / 資料起始列號:per-file 覆寫優先;否則(非自動模式)用全域輸入;否則交給 template 自動偵測
         let headerOv = num(ovr.header);
@@ -2389,41 +2390,29 @@ function renderDetectionPanel() {
   if (!sec || !list) return;
   if (!S._parsed || !S._parsed.length) { sec.style.display = 'none'; return; }
   const tpls = getAllTemplates();
-  const opts = tpls.map(t => `<option value="${escHtml(t.id)}">${escHtml(t.name)}</option>`).join('');
+  // 索引:檔名 → S._parsed 內的 index(供 template 下拉用)
+  const idxByName = {};
+  S._parsed.forEach((e, i) => { if (e && e.file) idxByName[e.file.name] = i; });
 
-  list.innerHTML = S._parsed.map((entry, fi) => {
-    const tplId  = entry.template ? entry.template.id : '';
-    const ok     = !!entry.parsed && !entry.error;
-    const score  = entry.detection ? entry.detection.score : 0;
-    const ev     = entry.detection ? entry.detection.evidence.join(', ') : '';
-    const lot    = ok ? effectiveLotName(entry.file.name, entry.template, entry.parsed.metadata) : '—';
-    const wafer  = ok ? (entry.parsed.metadata.waferId || '') : '';
-    const hdr    = ok ? (entry.parsed.headerIdx + 1) : '—';
-    const dst    = ok ? (entry.parsed.dataStartIdx + 1) : '—';
-    const statusIcon = ok ? '✅' : '⚠️';
+  const fileRowHtml = (entry) => {
+    const fi    = idxByName[entry.file.name];
+    const tplId = entry.template ? entry.template.id : '';
+    const ok    = !!entry.parsed && !entry.error;
+    const score = entry.detection ? entry.detection.score : 0;
+    const ev    = entry.detection ? entry.detection.evidence.join(', ') : '';
+    const lot   = ok ? effectiveLotName(entry.file.name, entry.template, entry.parsed.metadata) : '—';
+    const wafer = ok ? (entry.parsed.metadata.waferId || '') : '';
+    const hdr   = ok ? (entry.parsed.headerIdx + 1) : '—';
+    const dst   = ok ? (entry.parsed.dataStartIdx + 1) : '—';
+    const statusIcon  = ok ? '✅' : '⚠️';
     const statusColor = ok ? '#68d391' : '#fc8181';
     const errMsg = entry.error ? `<div style="color:#fc8181;font-size:11px;margin-top:3px">${escHtml(entry.error)}</div>` : '';
     const sel = tpls.map(t =>
       `<option value="${escHtml(t.id)}"${t.id === tplId ? ' selected' : ''}>${escHtml(t.name)}</option>`
     ).join('');
-    const ovr = (S._fileRowOverrides && S._fileRowOverrides[entry.file.name]) || {};
-    const rowInp = (key, ph, val) =>
-      `<input type="number" min="1" max="500" value="${val != null && val !== '' ? escHtml(String(val)) : ''}"
-              placeholder="${escHtml(String(ph))}" title="此檔專用,空白=沿用偵測/全域"
-              onchange="setFileRowOverride('${escHtml(entry.file.name)}','${key}',this.value)"
-              style="width:60px;font-size:11px;padding:2px 4px;background:var(--bg-2);color:var(--text);
-                     border:1px solid var(--border-2);border-radius:3px">`;
-    const rowOvrHtml = ok ? `
-        <div style="grid-column:2/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--text-3)">
-          <span>此檔列號覆寫:</span>
-          <label style="display:flex;align-items:center;gap:3px">標題${rowInp('header', hdr, ovr.header)}</label>
-          <label style="display:flex;align-items:center;gap:3px">資料起始${rowInp('dataStart', dst, ovr.dataStart)}</label>
-          <label style="display:flex;align-items:center;gap:3px">USL${rowInp('usl', 'auto', ovr.usl)}</label>
-          <label style="display:flex;align-items:center;gap:3px">LSL${rowInp('lsl', 'auto', ovr.lsl)}</label>
-        </div>` : '';
     return `
-      <div style="display:grid;grid-template-columns:24px 2fr 2fr 3fr auto;gap:8px;align-items:center;
-                  padding:6px 8px;background:var(--bg);border:1px solid var(--border-2);border-radius:4px">
+      <div style="display:grid;grid-template-columns:24px 2fr 2fr auto;gap:8px;align-items:center;
+                  padding:5px 8px;background:var(--bg);border:1px solid var(--border-2);border-radius:4px">
         <span style="font-size:14px;color:${statusColor}">${statusIcon}</span>
         <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px"
              title="${escHtml(entry.file.name)}">${escHtml(entry.file.name)}</div>
@@ -2437,21 +2426,57 @@ function renderDetectionPanel() {
           <option value="">— 自動偵測 —</option>
           ${sel}
         </select>
-        <span style="font-size:11px;color:var(--text-3)"></span>
         ${errMsg}
-        ${rowOvrHtml}
       </div>`;
-  }).join('');
+  };
+
+  const groups = _formatGroups();
+  let html = '';
+  groups.forEach(g => {
+    const ovr = (S._groupRowOverrides && S._groupRowOverrides[g.key]) || {};
+    const rep = S._parsed.find(e => e.file.name === g.files[0]);
+    const hdr = rep && rep.parsed ? rep.parsed.headerIdx + 1 : '';
+    const dst = rep && rep.parsed ? rep.parsed.dataStartIdx + 1 : '';
+    const rowInp = (key, ph, val) =>
+      `<input type="number" min="1" max="500" value="${val != null && val !== '' ? escHtml(String(val)) : ''}"
+              placeholder="${escHtml(String(ph))}" title="此格式群組共用,空白=沿用偵測/全域"
+              onchange="setGroupRowOverride('${escHtml(g.key)}','${key}',this.value)"
+              style="width:58px;font-size:11px;padding:2px 4px;background:var(--bg);color:var(--text);
+                     border:1px solid var(--border-2);border-radius:3px">`;
+    const filesHtml = g.files.map(fn => fileRowHtml(S._parsed.find(e => e.file.name === fn))).join('');
+    html += `
+      <div style="border:1px solid var(--border-2);border-radius:6px;padding:8px;background:var(--bg-2)">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <b style="font-size:12px">📦 ${escHtml(g.family)}</b>
+          <span style="font-size:11px;color:var(--text-3)">${escHtml(g.templateName)} · ${g.files.length} 檔</span>
+          <span style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--text-3)">
+            列號覆寫(此格式共用)：
+            <label style="display:flex;align-items:center;gap:3px">標題${rowInp('header', hdr, ovr.header)}</label>
+            <label style="display:flex;align-items:center;gap:3px">資料起始${rowInp('dataStart', dst, ovr.dataStart)}</label>
+            <label style="display:flex;align-items:center;gap:3px">USL${rowInp('usl', 'auto', ovr.usl)}</label>
+            <label style="display:flex;align-items:center;gap:3px">LSL${rowInp('lsl', 'auto', ovr.lsl)}</label>
+          </span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px">${filesHtml}</div>
+      </div>`;
+  });
+  // 解析失敗 / 無 template 的檔案另外列出
+  const failed = S._parsed.filter(e => !e.parsed || e.error);
+  if (failed.length) {
+    html += `<div style="border:1px solid #fc8181;border-radius:6px;padding:8px">
+      <b style="font-size:12px;color:#fc8181">⚠️ 無法解析</b>
+      <div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">${failed.map(fileRowHtml).join('')}</div></div>`;
+  }
+  list.innerHTML = html;
   sec.style.display = 'block';
 }
 
-async function setFileRowOverride(fname, key, val) {
-  S._fileRowOverrides = S._fileRowOverrides || {};
-  const o = S._fileRowOverrides[fname] = S._fileRowOverrides[fname] || {};
+async function setGroupRowOverride(groupKey, key, val) {
+  S._groupRowOverrides = S._groupRowOverrides || {};
+  const o = S._groupRowOverrides[groupKey] = S._groupRowOverrides[groupKey] || {};
   const v = (val || '').trim();
   if (v) o[key] = v; else delete o[key];
-  if (!Object.keys(o).length) delete S._fileRowOverrides[fname];
-  // 重新解析(僅影響有覆寫的檔案,但統一重跑流程以更新欄位與預覽)
+  if (!Object.keys(o).length) delete S._groupRowOverrides[groupKey];
   await loadColumns();
 }
 
@@ -2646,7 +2671,7 @@ function handleFiles(files) {
   S._parsed = [];
   S._activeTemplates = {};
   S._lotNameOverrides = S._lotNameOverrides || {};
-  S._fileRowOverrides = S._fileRowOverrides || {};
+  S._groupRowOverrides = S._groupRowOverrides || {};
   document.getElementById('renameSection').style.display = 'none';
   const dp = document.getElementById('detectSection'); if (dp) dp.style.display = 'none';
   renderFileList();
@@ -2671,7 +2696,6 @@ function setLotNameOverride(i, val) {
 function removeFile(i) {
   const f = S.files[i];
   if (f && S._lotNameOverrides)  delete S._lotNameOverrides[f.name];
-  if (f && S._fileRowOverrides)  delete S._fileRowOverrides[f.name];
   S.files.splice(i, 1);
   S._parsed = [];
   S._activeTemplates = {};
@@ -2773,8 +2797,9 @@ async function loadColumns() {
       if (pe.has && pe.has(c)) S._fileExclude[fname].add(c);
     });
   });
-  if (S._renameScope !== '*' && !Object.keys(fileCols).includes(S._renameScope)) S._renameScope = '*';
   if (!S._renameScope) S._renameScope = '*';
+  // 若目前群組 scope 已不存在,退回「全部」(renderRenameScopeSel 也會再校正一次)
+  if (S._renameScope !== '*' && !_formatGroups().some(g => g.key === S._renameScope)) S._renameScope = '*';
 
   buildRenameTable();
   document.getElementById('renameSection').style.display = 'block';
@@ -2801,69 +2826,102 @@ const _CONV_OPTS = [
 ];
 
 // ══════════════════════════════════════════════════
-// 每檔獨立命名 — scope helpers
-// S._renameScope: '*'(全部共用) | fileName
-// S._fileCols[fname]=[origCol...]; S._fileSamples[fname]={col:[vals]}
-// S._fileRename[fname]={origCol:newName}; S._fileExclude[fname]=Set(origCol)
-// 換算規則(S._colConvOverrides)與 SPEC(S._colSpecsRaw/User)仍以原始欄位名全域共用。
+// 格式群組命名 — scope helpers
+// 群組 = 同一偵測格式(template id) 且 同一 lot 家族(檔名前綴)。
+// S._renameScope: '*'(全部共用) | groupKey
+// 底層仍維持 per-file 模型(_fileRename/_fileExclude/_fileCols/_fileSamples),
+// 群組 scope 只是把編輯廣播到該組的所有檔案。
+// 換算規則(_colConvOverrides)與 SPEC(_colSpecsRaw/User)仍以原始欄位名共用。
 // ══════════════════════════════════════════════════
 function _okParsedFiles() {
   return (S._parsed || []).filter(e => e && e.parsed && !e.error).map(e => e.file.name);
 }
-function _displayedRenameCols() {
-  const sc = S._renameScope || '*';
-  if (sc === '*') return S._rawCols || [];
-  return (S._fileCols && S._fileCols[sc]) || [];
+// 由檔名推導 lot 家族(去副檔名、去尾端資料標籤、去尾端晶圓序號)
+function _lotFamily(fname) {
+  let b = String(fname).replace(/\.(xls|xlsx|csv)$/i, '');
+  b = b.replace(/[-_](data|summary|raw|cp|result|results)$/i, '');
+  b = b.replace(/[_-]\d+$/, '');
+  return b || fname;
+}
+function _groupKeyFor(entry) {
+  const tid = (entry && entry.template && entry.template.id) ? entry.template.id : '_none';
+  return tid + '' + _lotFamily(entry.file.name);
+}
+// 回傳格式群組陣列:[{key, templateId, templateName, family, files:[fname...]}]
+function _formatGroups() {
+  const map = {};
+  const order = [];
+  (S._parsed || []).forEach(e => {
+    if (!e || !e.parsed || e.error) return;
+    const key = _groupKeyFor(e);
+    if (!map[key]) {
+      map[key] = {
+        key,
+        templateId:   e.template ? e.template.id   : '',
+        templateName: e.template ? e.template.name : '未知格式',
+        family:       _lotFamily(e.file.name),
+        files: []
+      };
+      order.push(key);
+    }
+    map[key].files.push(e.file.name);
+  });
+  return order.map(k => map[k]);
 }
 function _filesForScope() {
   const sc = S._renameScope || '*';
-  return sc === '*' ? _okParsedFiles() : [sc];
+  if (sc === '*') return _okParsedFiles();
+  const g = _formatGroups().find(g => g.key === sc);
+  return g ? g.files : [];
 }
-function _filesHavingCol(col) {
-  return _okParsedFiles().filter(f => ((S._fileCols && S._fileCols[f]) || []).includes(col));
+function _displayedRenameCols() {
+  const sc = S._renameScope || '*';
+  if (sc === '*') return S._rawCols || [];
+  const cols = [], seen = new Set();
+  _filesForScope().forEach(f => ((S._fileCols && S._fileCols[f]) || []).forEach(c => {
+    if (!seen.has(c)) { seen.add(c); cols.push(c); }
+  }));
+  return cols;
+}
+function _scopeFilesHavingCol(col) {
+  return _filesForScope().filter(f => ((S._fileCols && S._fileCols[f]) || []).includes(col));
 }
 function _isColMixed(col) {
-  if ((S._renameScope || '*') !== '*') return false;
   let common = null, mixed = false;
-  _filesHavingCol(col).forEach(f => {
+  _scopeFilesHavingCol(col).forEach(f => {
     const nm = (S._fileRename[f] && S._fileRename[f][col] != null) ? S._fileRename[f][col] : col;
     if (common == null) common = nm; else if (common !== nm) mixed = true;
   });
   return mixed;
 }
 function _nameForCol(col) {
-  const sc = S._renameScope || '*';
-  if (sc !== '*') {
-    const m = S._fileRename[sc] || {};
-    return m[col] != null ? m[col] : col;
-  }
-  if (_isColMixed(col)) return '';
-  const files = _filesHavingCol(col);
+  const files = _scopeFilesHavingCol(col);
   if (!files.length) return col;
+  if (_isColMixed(col)) return '';
   const f = files[0];
   return (S._fileRename[f] && S._fileRename[f][col] != null) ? S._fileRename[f][col] : col;
 }
 function _samplesForCol(col) {
-  const sc = S._renameScope || '*';
-  if (sc !== '*') return (S._fileSamples[sc] && S._fileSamples[sc][col]) || [];
+  for (const f of _scopeFilesHavingCol(col)) {
+    const s = S._fileSamples[f] && S._fileSamples[f][col];
+    if (s && s.length) return s;
+  }
   return (S._colSamples && S._colSamples[col]) || [];
 }
 function _setNameForCol(col, name) {
   const v = (name || '').trim();
-  _filesForScope().forEach(f => {
-    if (!((S._fileCols && S._fileCols[f]) || []).includes(col)) return;
+  _scopeFilesHavingCol(col).forEach(f => {
     S._fileRename[f] = S._fileRename[f] || {};
     S._fileRename[f][col] = v || col;
   });
 }
 function _isExcludedCol(col) {
-  const files = _filesForScope().filter(f => ((S._fileCols && S._fileCols[f]) || []).includes(col));
+  const files = _scopeFilesHavingCol(col);
   if (!files.length) return false;
   return files.every(f => S._fileExclude[f] && S._fileExclude[f].has(col));
 }
 function _setExcludedCol(col, on) {
-  _filesForScope().forEach(f => {
-    if (!((S._fileCols && S._fileCols[f]) || []).includes(col)) return;
+  _scopeFilesHavingCol(col).forEach(f => {
     S._fileExclude[f] = S._fileExclude[f] || new Set();
     if (on) S._fileExclude[f].add(col); else S._fileExclude[f].delete(col);
   });
@@ -2875,12 +2933,13 @@ function switchRenameScope(val) {
 function renderRenameScopeSel() {
   const sel = document.getElementById('renameScopeSel');
   if (!sel) return;
-  const files = _okParsedFiles();
+  const groups = _formatGroups();
   let cur = S._renameScope || '*';
-  if (cur !== '*' && !files.includes(cur)) { cur = '*'; S._renameScope = '*'; }
-  let html = `<option value="*"${cur === '*' ? ' selected' : ''}>全部檔案(共用)</option>`;
-  files.forEach(f => {
-    html += `<option value="${escHtml(f)}"${cur === f ? ' selected' : ''}>${escHtml(getLotName(f))} — ${escHtml(f)}</option>`;
+  if (cur !== '*' && !groups.some(g => g.key === cur)) { cur = '*'; S._renameScope = '*'; }
+  let html = `<option value="*"${cur === '*' ? ' selected' : ''}>全部(共用)</option>`;
+  groups.forEach(g => {
+    const label = `${g.family} ｜ ${g.templateName}（${g.files.length} 檔）`;
+    html += `<option value="${escHtml(g.key)}"${cur === g.key ? ' selected' : ''}>${escHtml(label)}</option>`;
   });
   sel.innerHTML = html;
 }
@@ -3061,7 +3120,8 @@ function deleteRenameRow(origColName) {
   if (tr) tr.remove();
   const total  = _displayedRenameCols().length;
   const active = _displayedRenameCols().filter(c => !_isExcludedCol(c)).length;
-  const scopeLabel = (S._renameScope || '*') === '*' ? '全部檔案' : getLotName(S._renameScope);
+  const _g = (S._renameScope || '*') === '*' ? null : _formatGroups().find(g => g.key === S._renameScope);
+  const scopeLabel = _g ? _g.family : '全部';
   document.getElementById('upStatus').innerHTML =
     `<div class="status ok">✅ [${escHtml(scopeLabel)}] 共 ${total} 個欄位，已排除 ${total - active} 個（剩 ${active} 個），確認後執行步驟 3</div>`;
 }
