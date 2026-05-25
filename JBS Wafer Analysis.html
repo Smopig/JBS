@@ -3095,15 +3095,20 @@ function propagateSpecsToDownstream(renameMap, convMap) {
   if (!S._rawCols || !S._rawCols.length) return;
   const writeOne = (key, lsl, usl) => {
     if (lsl == null && usl == null) return;
-    const ensure = (bucket) => {
-      if (!bucket[key] || typeof bucket[key] !== 'object') bucket[key] = {};
-      if (lsl != null) bucket[key].lsl = lsl;
-      if (usl != null) bucket[key].usl = usl;
-    };
     if (!S.statSpecs)  S.statSpecs  = {};
     if (!S.chartSpecs) S.chartSpecs = {};
-    ensure(S.statSpecs);
-    ensure(S.chartSpecs);
+    // 圖表分析：扁平結構 chartSpecs[item] = { lsl, usl, typical? }
+    if (!S.chartSpecs[key] || typeof S.chartSpecs[key] !== 'object') S.chartSpecs[key] = {};
+    if (lsl != null) S.chartSpecs[key].lsl = lsl;
+    if (usl != null) S.chartSpecs[key].usl = usl;
+    // 統計表：巢狀結構 statSpecs[item][statKey] = { lsl, usl, typical? }
+    // SPEC 為項目層級屬性，寫入每個目前啟用的統計列，使各列都顯示且 Cpk 可計算。
+    if (!S.statSpecs[key] || typeof S.statSpecs[key] !== 'object') S.statSpecs[key] = {};
+    (S.activeStats || []).forEach(statKey => {
+      if (!S.statSpecs[key][statKey] || typeof S.statSpecs[key][statKey] !== 'object') S.statSpecs[key][statKey] = {};
+      if (lsl != null) S.statSpecs[key][statKey].lsl = lsl;
+      if (usl != null) S.statSpecs[key][statKey].usl = usl;
+    });
   };
   S._rawCols.forEach(origCol => {
     if (S._excludedCols && S._excludedCols.has(origCol)) return;
