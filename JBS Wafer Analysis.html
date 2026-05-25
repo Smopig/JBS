@@ -1095,6 +1095,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <select id="caLotMode" onchange="renderChart()"
                 style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
           <option value="overlay">全部疊加</option>
+          <option value="lotfam">同 Lot 疊加</option>
           <option value="split" selected>每 Lot 獨立</option>
         </select>
       </span>
@@ -1560,7 +1561,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <table>
         <tr><th>控制</th><th>說明</th></tr>
         <tr><td>量測項目</td><td>可新增多個，同時分析多個參數</td></tr>
-        <tr><td>Lot 顯示</td><td><strong>全部疊加</strong>：所有 Lot 在同一張圖（不同色）<br><strong>每 Lot 獨立</strong>：每 Lot 各自一張圖</td></tr>
+        <tr><td>Lot 顯示</td><td><strong>全部疊加</strong>：所有 Lot 在同一張圖（不同色）<br><strong>同 Lot 疊加</strong>：依 Lot 家族分組，同家族的 wafer 疊在同一張圖<br><strong>每 Lot 獨立</strong>：每 Lot 各自一張圖</td></tr>
         <tr><td>每列欄數</td><td>1 / 2 / 3 / 4 / 6 或自訂</td></tr>
         <tr><td>SPEC 線</td><td>勾選後顯示 LSL（<span class="badge red">紅虛線</span>）/ Typical（<span class="badge green">綠點線</span>）/ USL（<span class="badge red">紅虛線</span>）水平線</td></tr>
       </table>
@@ -5200,6 +5201,13 @@ function buildChartStatsHTML(item, groups) {
 
 // Chart types where lot mode is not meaningful (always one chart per item)
 const CA_NO_LOTMODE = new Set(['box','violin','bar','corr']);
+// 依 Lot 家族(去尾端 _NN / -NN 晶圓序號)分組,保留原順序
+function _lotsByFamily(lots) {
+  const fam = l => String(l).replace(/[_-]\d+$/, '') || String(l);
+  const order = [], map = {};
+  lots.forEach(l => { const k = fam(l); if (!map[k]) { map[k] = []; order.push(k); } map[k].push(l); });
+  return order.map(k => ({ family: k, lots: map[k] }));
+}
 
 function initChartTab() {
   renderChartTypeButtons();
@@ -5502,32 +5510,37 @@ function caScatter(items, grid) {
     const shapes = buildSpecShapes(spec, showSpec);
     const annots = buildSpecAnnotations(spec, showSpec);
 
-    if (lotMode === 'overlay') {
-      const traces = activeLots.map((lot, li) => {
-        const rows = S.data.filter(r => r.Lot === lot);
-        const pts  = rows.map((r, idx) => {
-          const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
-                  : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
-          const y = parseFloat(r[item]);
-          return [x, y];
-        }).filter(p => !isNaN(p[0]) && !isNaN(p[1]) &&
-            (!S.chartOnlyInSpec || ((spec.lsl==null||p[1]>=spec.lsl) && (spec.usl==null||p[1]<=spec.usl))));
-        return {
-          type:'scatter', mode:'markers', name:lot,
-          x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
-          marker:{color:getLotColor(lot,li), size:ptSize, opacity:0.75}
-        };
+    if (lotMode === 'overlay' || lotMode === 'lotfam') {
+      const groups = (lotMode === 'lotfam') ? _lotsByFamily(activeLots) : [{ family: null, lots: activeLots }];
+      groups.forEach(grp => {
+        const traces = grp.lots.map(lot => {
+          const li = activeLots.indexOf(lot);
+          const rows = S.data.filter(r => r.Lot === lot);
+          const pts  = rows.map((r, idx) => {
+            const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
+                    : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
+            const y = parseFloat(r[item]);
+            return [x, y];
+          }).filter(p => !isNaN(p[0]) && !isNaN(p[1]) &&
+              (!S.chartOnlyInSpec || ((spec.lsl==null||p[1]>=spec.lsl) && (spec.usl==null||p[1]<=spec.usl))));
+          return {
+            type:'scatter', mode:'markers', name:lot,
+            x:pts.map(p=>p[0]), y:pts.map(p=>p[1]),
+            marker:{color:getLotColor(lot,li), size:ptSize, opacity:0.75}
+          };
+        });
+        const title = grp.family ? `${escHtml(grp.family)} — ${escHtml(item)}` : escHtml(item);
+        const id = uid('ca', item + (grp.family || 'all') + 'sc');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, traces, {
+          title:{text:title, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+          shapes, annotations:annots, height:320,
+          xaxis:{title:{text:xLabel,font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
       });
-      const id = uid('ca', item+'sc');
-      grid.insertAdjacentHTML('beforeend',
-        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
-      Plotly.newPlot(id, traces, {
-        title:{text:escHtml(item), font:{size:12}},
-        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
-        shapes, annotations:annots, height:320,
-        xaxis:{title:{text:xLabel,font:{size:10}}},
-        yaxis:{title:{text:escHtml(item),font:{size:10}}}
-      }, {responsive:true, displayModeBar:false});
     } else {
       activeLots.forEach((lot, li) => {
         const rows = S.data.filter(r => r.Lot === lot);
@@ -5570,44 +5583,49 @@ function caTrend(items, grid) {
     const spec   = S.chartSpecs[item] || {};
     const shapes = buildSpecShapes(spec, showSpec);
 
-    if (lotMode === 'overlay') {
-      // All lots on one chart: X=Lots, Y=Mean, error bars
-      const mus = [], ep = [], em = [], xs = [];
-      S.lots.forEach(lot => {
-        const d = caData(lot, item);
-        if (!d.length) return;
-        const mu = mean(d);
-        const [emv, epv] = errBarVals(d, errMode);
-        xs.push(lot); mus.push(mu); em.push(emv); ep.push(epv);
-      });
-      const annots = buildSpecAnnotations(spec, showSpec);
-      if (showCpk) {
-        xs.forEach((lot, xi) => {
+    if (lotMode === 'overlay' || lotMode === 'lotfam') {
+      // 一張圖一組:X=Lot,Y=Mean,誤差棒。overlay=全部一張;lotfam=每家族一張
+      const groups = (lotMode === 'lotfam') ? _lotsByFamily(S.lots) : [{ family: null, lots: S.lots }];
+      groups.forEach(grp => {
+        const mus = [], ep = [], em = [], xs = [];
+        grp.lots.forEach(lot => {
           const d = caData(lot, item);
-          const cpk = calcCpk(d, spec);
-          if (cpk !== null) annots.push({
-            x:lot, yref:'y', y:mus[xi],
-            text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
-            font:{size:10, color:'#333'}, ax:0, ay:-28
-          });
+          if (!d.length) return;
+          const mu = mean(d);
+          const [emv, epv] = errBarVals(d, errMode);
+          xs.push(lot); mus.push(mu); em.push(emv); ep.push(epv);
         });
-      }
-      const id = uid('ca', item+'trend');
-      grid.insertAdjacentHTML('beforeend',
-        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
-      Plotly.newPlot(id, [{
-        type:'scatter', mode:'lines+markers', name:item,
-        x:xs, y:mus,
-        error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
-                 color:'rgba(50,50,50,.4)',thickness:1.5,width:4},
-        marker:{color:'#3182ce',size:8}, line:{color:'#3182ce',width:2}
-      }], {
-        title:{text:escHtml(item), font:{size:12}},
-        margin:{t:40,b:50,l:44,r:10}, showlegend:false,
-        shapes, annotations:annots, height:320,
-        xaxis:{title:{text:'Lot',font:{size:10}}},
-        yaxis:{title:{text:escHtml(item),font:{size:10}}}
-      }, {responsive:true, displayModeBar:false});
+        if (!xs.length) return;
+        const annots = buildSpecAnnotations(spec, showSpec);
+        if (showCpk) {
+          xs.forEach((lot, xi) => {
+            const d = caData(lot, item);
+            const cpk = calcCpk(d, spec);
+            if (cpk !== null) annots.push({
+              x:lot, yref:'y', y:mus[xi],
+              text:`Cpk=${rd(cpk,2)}`, showarrow:true, arrowhead:0,
+              font:{size:10, color:'#333'}, ax:0, ay:-28
+            });
+          });
+        }
+        const title = grp.family ? `${escHtml(grp.family)} — ${escHtml(item)}` : escHtml(item);
+        const id = uid('ca', item + (grp.family || 'all') + 'trend');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, [{
+          type:'scatter', mode:'lines+markers', name:item,
+          x:xs, y:mus,
+          error_y:{type:'data',symmetric:false,array:ep,arrayminus:em,visible:true,
+                   color:'rgba(50,50,50,.4)',thickness:1.5,width:4},
+          marker:{color:'#3182ce',size:8}, line:{color:'#3182ce',width:2}
+        }], {
+          title:{text:title, font:{size:12}},
+          margin:{t:40,b:50,l:44,r:10}, showlegend:false,
+          shapes, annotations:annots, height:320,
+          xaxis:{title:{text:'Lot',font:{size:10}}},
+          yaxis:{title:{text:escHtml(item),font:{size:10}}}
+        }, {responsive:true, displayModeBar:false});
+      });
 
     } else {
       // Split: one chart per lot — scatter points + mean line
@@ -5782,27 +5800,33 @@ function caCDF(items, grid) {
         line:{color:'#38a169',width:1.5,dash:'dot'}});
     }
 
-    if (lotMode === 'overlay') {
-      const traces = S.lots.map((lot, li) => {
-        const d = [...caData(lot, item)].sort((a,b)=>a-b);
-        if (!d.length) return null;
-        const cdf = d.map((_,i)=>(i+1)/d.length*100);
-        return {
-          type:'scatter', mode:'lines', name:lot,
-          x:d, y:cdf,
-          line:{color:getLotColor(lot,li), width:2, shape:'hv'}
-        };
-      }).filter(Boolean);
-      const id = uid('ca', item+'cdf');
-      grid.insertAdjacentHTML('beforeend',
-        `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
-      Plotly.newPlot(id, traces, {
-        title:{text:`${escHtml(item)} CDF`, font:{size:12}},
-        margin:{t:40,b:36,l:44,r:10}, showlegend:true,
-        shapes, height:320,
-        xaxis:{title:{text:escHtml(item),font:{size:10}}},
-        yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
-      }, {responsive:true, displayModeBar:false});
+    if (lotMode === 'overlay' || lotMode === 'lotfam') {
+      const groups = (lotMode === 'lotfam') ? _lotsByFamily(S.lots) : [{ family: null, lots: S.lots }];
+      groups.forEach(grp => {
+        const traces = grp.lots.map(lot => {
+          const li = S.lots.indexOf(lot);
+          const d = [...caData(lot, item)].sort((a,b)=>a-b);
+          if (!d.length) return null;
+          const cdf = d.map((_,i)=>(i+1)/d.length*100);
+          return {
+            type:'scatter', mode:'lines', name:lot,
+            x:d, y:cdf,
+            line:{color:getLotColor(lot,li), width:2, shape:'hv'}
+          };
+        }).filter(Boolean);
+        if (!traces.length) return;
+        const title = grp.family ? `${escHtml(grp.family)} — ${escHtml(item)} CDF` : `${escHtml(item)} CDF`;
+        const id = uid('ca', item + (grp.family || 'all') + 'cdf');
+        grid.insertAdjacentHTML('beforeend',
+          `<div class="chart-card"><div id="${id}" style="height:320px"></div></div>`);
+        Plotly.newPlot(id, traces, {
+          title:{text:title, font:{size:12}},
+          margin:{t:40,b:36,l:44,r:10}, showlegend:true,
+          shapes, height:320,
+          xaxis:{title:{text:escHtml(item),font:{size:10}}},
+          yaxis:{title:{text:'%',font:{size:10}}, range:[0,100]}
+        }, {responsive:true, displayModeBar:false});
+      });
     } else {
       S.lots.forEach((lot, li) => {
         const d = [...caData(lot, item)].sort((a,b)=>a-b);
