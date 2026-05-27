@@ -919,6 +919,33 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
 
+  <!-- Wafer map Excel export options modal -->
+  <div id="mapExpModal" style="display:none;position:fixed;inset:0;z-index:1000;
+       background:rgba(0,0,0,.45);align-items:center;justify-content:center">
+    <div style="background:var(--bg-1,#fff);color:var(--text,#1a202c);border-radius:8px;
+         padding:20px 24px;min-width:300px;box-shadow:0 10px 40px rgba(0,0,0,.35)">
+      <div style="font-size:15px;font-weight:700;margin-bottom:14px">匯出地圖 Excel — 軸方向</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <label style="width:48px;font-size:13px">X 軸：</label>
+        <select id="mapExpXDir" style="flex:1;padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px">
+          <option value="desc">大 → 小</option>
+          <option value="asc">小 → 大</option>
+        </select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+        <label style="width:48px;font-size:13px">Y 軸：</label>
+        <select id="mapExpYDir" style="flex:1;padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px">
+          <option value="desc">大 → 小</option>
+          <option value="asc">小 → 大</option>
+        </select>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button class="btn btn-gray" style="font-size:13px" onclick="closeMapExpModal()">取消</button>
+        <button class="btn btn-blue" style="font-size:13px" onclick="doExportMapExcel()">確定匯出</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ Count Dist ══ -->
   <div id="panel-count" class="tab-panel">
     <div id="cntSplitRow" class="ctrl" style="display:none">
@@ -1686,7 +1713,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       </table>
       <p>另可於「🧪 Data QC」與「🤖 智能分析」分頁取得 QC 報表、Split 顯著性、Wafer Pattern 與 LLM 解讀;「🎚 SPEC 中心」可集中管理所有量測項目的 LSL / Typical / USL。</p>
       <p>檔名格式：<code>wafer_analysis_YYYY-MM-DD.xlsx</code></p>
-      <p>另於「🗺 Wafer MAP」分頁可點「💾 匯出地圖 Excel」匯出 map 結果：含「全部資料(長格式)」總表（Lot/Wafer/Xpos/Ypos/各項目/Masked）及每片 wafer 的各項目 X×Y 矩陣工作表（遮罩/缺值格為空）。檔名：<code>wafer_map_YYYY-MM-DD.xlsx</code></p>
+      <p>另於「🗺 Wafer MAP」分頁可點「💾 匯出地圖 Excel」匯出 map 結果：匯出時可選 X / Y 軸方向（大→小 或 小→大）。產生「全部資料(長格式)」總表（Lot/Wafer/Xpos/Ypos/各項目/Masked），以及<strong>每個量測項目一個工作表</strong>（表內各 wafer 的 X×Y 矩陣垂直堆疊，數值依色階上色、每個項目各自 min~max 自動範圍，遮罩/缺值格為空）。檔名：<code>wafer_map_YYYY-MM-DD.xlsx</code></p>
     </div>
 
     <!-- 9 -->
@@ -1777,7 +1804,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
 </div><!-- /content -->
 
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script>
@@ -4215,19 +4242,48 @@ function renderMap() {
   });
 }
 
-// 匯出 wafer map 結果到 Excel：長格式總表 + 每片 wafer 的各項目 X×Y 矩陣
+// 在色階 scaleArr ([stop,'#hex']) 上線性內插，t∈[0,1]，回傳 'RRGGBB'
+function _scaleColorHex(t, scaleArr) {
+  t = Math.max(0, Math.min(1, t));
+  const hx = h => { h = h.replace('#',''); return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]; };
+  let lo = scaleArr[0], hi = scaleArr[scaleArr.length-1];
+  for (let i = 0; i < scaleArr.length-1; i++) {
+    if (t >= scaleArr[i][0] && t <= scaleArr[i+1][0]) { lo = scaleArr[i]; hi = scaleArr[i+1]; break; }
+  }
+  const span = hi[0]-lo[0], f = span > 0 ? (t-lo[0])/span : 0;
+  const a = hx(lo[1]), b = hx(hi[1]);
+  const c = a.map((v,i) => Math.round(v + (b[i]-v)*f));
+  return c.map(v => v.toString(16).padStart(2,'0')).join('').toUpperCase();
+}
+// 依底色亮度決定字色（深底白字 / 淺底黑字）
+function _fontHexForBg(rgb) {
+  const r = parseInt(rgb.slice(0,2),16), g = parseInt(rgb.slice(2,4),16), b = parseInt(rgb.slice(4,6),16);
+  return (0.299*r + 0.587*g + 0.114*b) < 140 ? 'FFFFFF' : '000000';
+}
+
+// 點「💾 匯出地圖 Excel」→ 開啟軸方向選擇彈窗
 function exportMapExcel() {
   if (!S.data.length) { alert('尚無資料可匯出'); return; }
-  const lots = getActiveLots();
-  if (!lots.length) { alert('沒有作用中的 Lot/Wafer'); return; }
-  if (lots.length > 50 &&
-      !confirm(`將產生 ${lots.length} 個 wafer 工作表，檔案可能較大，是否繼續？`)) return;
+  if (!getActiveLots().length) { alert('沒有作用中的 Lot/Wafer'); return; }
+  document.getElementById('mapExpXDir').value = document.getElementById('mapXDir').value;
+  document.getElementById('mapExpYDir').value = document.getElementById('mapYDir').value;
+  document.getElementById('mapExpModal').style.display = 'flex';
+}
+function closeMapExpModal() {
+  document.getElementById('mapExpModal').style.display = 'none';
+}
 
-  const xDesc = document.getElementById('mapXDir').value === 'desc';
-  const yDesc = document.getElementById('mapYDir').value === 'desc';
+// 依彈窗選擇實際匯出：長格式總表 + 每個量測項目一個工作表（各 wafer 矩陣堆疊、依色階上色）
+function doExportMapExcel() {
+  const lots = getActiveLots();
+  const xDesc = document.getElementById('mapExpXDir').value === 'desc';
+  const yDesc = document.getElementById('mapExpYDir').value === 'desc';
+  closeMapExpModal();
+
+  const scaleArr = COLORSCALES[document.getElementById('mapColorscale').value] || COLORSCALES.WhRd;
   const wb = XLSX.utils.book_new();
 
-  // 1) 長格式總表
+  // 1) 長格式總表（不上色）
   const longRows = [];
   lots.forEach(lot => {
     S.data.filter(r => r.Lot === lot).forEach(r => {
@@ -4240,40 +4296,73 @@ function exportMapExcel() {
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(longRows), '全部資料(長格式)');
 
-  // 2) 每片 wafer 一個矩陣工作表（各項目垂直堆疊）
+  // 2) 每個量測項目一個工作表
   const usedNames = new Set();
   const sheetName = raw => {
-    let n = String(raw).replace(/[\[\]:*?/\\]/g, '_').slice(0, 28) || 'wafer';
-    let base = n, i = 1;
+    let n = String(raw).replace(/[\[\]:*?/\\]/g, '_').slice(0, 28) || 'item';
+    const base = n; let i = 1;
     while (usedNames.has(n)) n = `${base.slice(0, 25)}_${i++}`;
     usedNames.add(n);
     return n;
   };
-  lots.forEach(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
-    if (!rows.length) return;
-    let xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
-    let ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
-    if (xDesc) xSet = xSet.slice().reverse();
-    if (yDesc) ySet = ySet.slice().reverse();
+
+  S.items.forEach(item => {
+    // 該 item 跨所有作用中 wafer、未遮罩數值的 min/max（自動範圍）
+    let vMin = Infinity, vMax = -Infinity;
+    lots.forEach(lot => {
+      S.data.filter(r => r.Lot === lot).forEach(r => {
+        const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+        if (isNaN(x) || isNaN(y) || _isMasked(lot, x, y)) return;
+        const v = parseFloat(r[item]);
+        if (!isNaN(v)) { if (v < vMin) vMin = v; if (v > vMax) vMax = v; }
+      });
+    });
+    const span = vMax - vMin;
 
     const aoa = [];
-    S.items.forEach(item => {
-      aoa.push([`項目: ${item}`]);
+    const colorCells = [];  // {r,c,v}
+    lots.forEach(lot => {
+      const rows = S.data.filter(r => r.Lot === lot);
+      if (!rows.length) return;
+      let xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
+      let ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
+      if (xDesc) xSet = xSet.slice().reverse();
+      if (yDesc) ySet = ySet.slice().reverse();
+
+      aoa.push([`Wafer: ${lot}`]);
       aoa.push(['Ypos\\Xpos', ...xSet]);
       ySet.forEach(y => {
+        const rowIdx = aoa.length;
         const line = [y];
-        xSet.forEach(x => {
+        xSet.forEach((x, ci) => {
           if (_isMasked(lot, x, y)) { line.push(''); return; }
           const m = rows.find(r => parseFloat(r.Xpos) === x && parseFloat(r.Ypos) === y);
           const v = m ? parseFloat(m[item]) : NaN;
-          line.push(isNaN(v) ? '' : v);
+          if (isNaN(v)) { line.push(''); return; }
+          line.push(v);
+          colorCells.push({ r: rowIdx, c: ci + 1, v });
         });
         aoa.push(line);
       });
-      aoa.push([]);  // 區塊間空白列
+      aoa.push([]);  // wafer 區塊間空白列
     });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), sheetName(lot));
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    if (isFinite(vMin) && isFinite(vMax)) {
+      colorCells.forEach(({ r, c, v }) => {
+        const ref = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[ref];
+        if (!cell) return;
+        const t = span > 0 ? (v - vMin) / span : 0.5;
+        const bg = _scaleColorHex(t, scaleArr);
+        cell.s = {
+          fill: { patternType: 'solid', fgColor: { rgb: bg } },
+          font: { color: { rgb: _fontHexForBg(bg) } },
+          alignment: { horizontal: 'center' }
+        };
+      });
+    }
+    XLSX.utils.book_append_sheet(wb, ws, sheetName(item));
   });
 
   XLSX.writeFile(wb, `wafer_map_${new Date().toISOString().slice(0,10)}.xlsx`);
