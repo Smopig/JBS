@@ -883,6 +883,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <option value="desc" selected>大 → 小</option>
         <option value="asc">小 → 大</option>
       </select>
+      <button class="btn btn-blue" style="font-size:12px;margin-left:12px" onclick="exportMapExcel()">💾 匯出地圖 Excel</button>
     </div>
     <div class="ctrl">
       <label>色階樣式：</label>
@@ -1685,6 +1686,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       </table>
       <p>另可於「🧪 Data QC」與「🤖 智能分析」分頁取得 QC 報表、Split 顯著性、Wafer Pattern 與 LLM 解讀;「🎚 SPEC 中心」可集中管理所有量測項目的 LSL / Typical / USL。</p>
       <p>檔名格式：<code>wafer_analysis_YYYY-MM-DD.xlsx</code></p>
+      <p>另於「🗺 Wafer MAP」分頁可點「💾 匯出地圖 Excel」匯出 map 結果：含「全部資料(長格式)」總表（Lot/Wafer/Xpos/Ypos/各項目/Masked）及每片 wafer 的各項目 X×Y 矩陣工作表（遮罩/缺值格為空）。檔名：<code>wafer_map_YYYY-MM-DD.xlsx</code></p>
     </div>
 
     <!-- 9 -->
@@ -4211,6 +4213,70 @@ function renderMap() {
       }
     );
   });
+}
+
+// 匯出 wafer map 結果到 Excel：長格式總表 + 每片 wafer 的各項目 X×Y 矩陣
+function exportMapExcel() {
+  if (!S.data.length) { alert('尚無資料可匯出'); return; }
+  const lots = getActiveLots();
+  if (!lots.length) { alert('沒有作用中的 Lot/Wafer'); return; }
+  if (lots.length > 50 &&
+      !confirm(`將產生 ${lots.length} 個 wafer 工作表，檔案可能較大，是否繼續？`)) return;
+
+  const xDesc = document.getElementById('mapXDir').value === 'desc';
+  const yDesc = document.getElementById('mapYDir').value === 'desc';
+  const wb = XLSX.utils.book_new();
+
+  // 1) 長格式總表
+  const longRows = [];
+  lots.forEach(lot => {
+    S.data.filter(r => r.Lot === lot).forEach(r => {
+      const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+      const row = { Lot: r.Lot, Wafer: r.Wafer ?? '', Xpos: r.Xpos, Ypos: r.Ypos };
+      S.items.forEach(it => { row[it] = (r[it] === '' || r[it] == null) ? null : parseFloat(r[it]); });
+      row.Masked = (!isNaN(x) && !isNaN(y) && _isMasked(lot, x, y)) ? 'Y' : 'N';
+      longRows.push(row);
+    });
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(longRows), '全部資料(長格式)');
+
+  // 2) 每片 wafer 一個矩陣工作表（各項目垂直堆疊）
+  const usedNames = new Set();
+  const sheetName = raw => {
+    let n = String(raw).replace(/[\[\]:*?/\\]/g, '_').slice(0, 28) || 'wafer';
+    let base = n, i = 1;
+    while (usedNames.has(n)) n = `${base.slice(0, 25)}_${i++}`;
+    usedNames.add(n);
+    return n;
+  };
+  lots.forEach(lot => {
+    const rows = S.data.filter(r => r.Lot === lot);
+    if (!rows.length) return;
+    let xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
+    let ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
+    if (xDesc) xSet = xSet.slice().reverse();
+    if (yDesc) ySet = ySet.slice().reverse();
+
+    const aoa = [];
+    S.items.forEach(item => {
+      aoa.push([`項目: ${item}`]);
+      aoa.push(['Ypos\\Xpos', ...xSet]);
+      ySet.forEach(y => {
+        const line = [y];
+        xSet.forEach(x => {
+          if (_isMasked(lot, x, y)) { line.push(''); return; }
+          const m = rows.find(r => parseFloat(r.Xpos) === x && parseFloat(r.Ypos) === y);
+          const v = m ? parseFloat(m[item]) : NaN;
+          line.push(isNaN(v) ? '' : v);
+        });
+        aoa.push(line);
+      });
+      aoa.push([]);  // 區塊間空白列
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), sheetName(lot));
+  });
+
+  XLSX.writeFile(wb, `wafer_map_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // ══════════════════════════════════════════════════
