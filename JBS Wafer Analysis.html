@@ -5705,7 +5705,7 @@ function _updateSplitStatsCompare(items) {
   if (!order.length) { div.style.display = 'none'; return; }
 
   const groups = order.map(k => map[k]);
-  div.innerHTML = buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined');
+  div.innerHTML = buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec);
   div.style.display = '';
 }
 
@@ -8065,7 +8065,7 @@ function renderSplitAnalysis() {
   resultWrap.style.display = '';
 }
 
-function buildSplitStatsHtml(items, groups, procName, dispMode) {
+function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
   const liveGroups = groups.filter(g => g.lots.length > 0);
   if (dispMode === 'individual') {
     // Per-lot breakdown grouped by condition
@@ -8076,7 +8076,9 @@ function buildSplitStatsHtml(items, groups, procName, dispMode) {
       let first = true;
       liveGroups.forEach(g => {
         g.lots.forEach((lotName, li) => {
-          const vals = S.data.filter(r => r.Lot === lotName && r[item] != null && isFinite(r[item])).map(r => +r[item]);
+          const vals = _inSpecArr(
+            S.data.filter(r => r.Lot === lotName && r[item] != null && isFinite(r[item])).map(r => +r[item]),
+            item, onlyInSpec);
           const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color.mk};margin-right:4px;vertical-align:middle"></span>`;
           html += `<tr>
             ${first ? `<td rowspan="${liveGroups.reduce((s,gx)=>s+gx.lots.length,0)}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
@@ -8111,9 +8113,11 @@ function buildSplitStatsHtml(items, groups, procName, dispMode) {
     html += `<tr><td style="font-weight:600">${escHtml(item)}</td>`;
     const gMeans = [];
     liveGroups.forEach(g => {
-      const vals = S.data
-        .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
-        .map(r => +r[item]);
+      const vals = _inSpecArr(
+        S.data
+          .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
+          .map(r => +r[item]),
+        item, onlyInSpec);
       const m = vals.length ? mean(vals) : null;
       gMeans.push(m);
       const fmt = v => v != null ? rd(v, 4) : '—';
