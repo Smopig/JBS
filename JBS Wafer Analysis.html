@@ -5499,6 +5499,7 @@ function renderChart() {
     setGridCols(grid, getCols('ca'));
     grid.innerHTML = '';
     caDualAxis(items, grid);
+    setTimeout(() => _applyChartCardEnhancements(grid), 0);
     return;
   }
   if (!items.length) return;
@@ -5516,7 +5517,6 @@ function renderChart() {
     case 'corr':       caCorr(items, grid);             break;
     case 'qq':         caQQ(items, grid);               break;
     case 'corrMatrix': caCorrelationMatrix(items, grid); break;
-    case 'dualaxis':   caDualAxis(items, grid);           break;
   }
   _updateSplitStatsCompare(items);
   // 為每張卡片加入 PNG/JPG/SVG 下載按鈕；套用「線型循環」設定
