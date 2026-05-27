@@ -4665,7 +4665,7 @@ function renderYield() {
     type: 'heatmap',
     z: zVals,
     x: specItems,
-    y: S.lots,
+    y: activeLots,
     text: textVals,
     texttemplate: '%{text}',
     textfont: { size: 11 },
@@ -5163,9 +5163,10 @@ function _buildComboColorMapFor(steps) {
 function _getSplitGroupsFor(item, splitSteps, mode, onlyInSpec) {
   const colorMap = _buildComboColorMapFor(splitSteps);
   const gd = lot => _inSpecArr(validData(lot, item), item, onlyInSpec);
+  const aLots = getActiveLots();
   if (mode === 'combined') {
     const grouped = {};
-    S.lots.forEach(lot => {
+    aLots.forEach(lot => {
       const key = _getLotComboKeyFor(lot, splitSteps);
       const d = gd(lot);
       if (!grouped[key]) grouped[key] = { name: key, col: colorMap[key], data: [] };
@@ -5175,7 +5176,7 @@ function _getSplitGroupsFor(item, splitSteps, mode, onlyInSpec) {
       .map(g => ({ name: g.name, color: g.col.mk, fg: g.col.fg, data: g.data }));
   }
   // individual: one group per lot, colored by condition
-  return S.lots.map((lot, li) => {
+  return aLots.map((lot, li) => {
     const key = _getLotComboKeyFor(lot, splitSteps);
     const col = colorMap[key] || { mk: getColor(li), fg: getColor(li) };
     return { name: lot, color: col.mk, fg: col.fg, data: gd(lot) };
@@ -5389,15 +5390,16 @@ function getLotColor(lot, fallbackIdx) {
 // Supports multi-step cross-product grouping.
 function getChartGroups(item) {
   const steps = S.chartSplitSteps;
+  const aLots = getActiveLots();
   if (!steps.length) {
-    return S.lots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:caData(lot,item) }));
+    return aLots.map((lot, li) => ({ name:lot, color:getColor(li), lots:[lot], data:caData(lot,item) }));
   }
 
   if (S.chartSplitMode === 'combined') {
     // Group lots by their combo condition key
     const order = [];  // preserve insertion order
     const map = {};    // key → {name, color, lots, data}
-    S.lots.forEach(lot => {
+    aLots.forEach(lot => {
       const key = _getLotComboKey(lot);
       if (key.split(' / ').every(p => p === '—')) return; // unassigned
       if (!map[key]) {
@@ -5412,7 +5414,7 @@ function getChartGroups(item) {
   }
 
   // Individual mode: each lot its own trace, colored by its combo
-  return S.lots.map((lot, li) => ({ name:lot, color:getLotColor(lot,li), lots:[lot], data:caData(lot,item) }));
+  return aLots.map((lot, li) => ({ name:lot, color:getLotColor(lot,li), lots:[lot], data:caData(lot,item) }));
 }
 
 // Compact stats table HTML rendered under each chart card
@@ -5851,7 +5853,7 @@ function caTrend(items, grid) {
 
     if (lotMode === 'overlay' || lotMode === 'lotfam') {
       // 一張圖一組:X=Lot,Y=Mean,誤差棒。overlay=全部一張;lotfam=每家族一張
-      const groups = (lotMode === 'lotfam') ? _lotsByFamily(S.lots) : [{ family: null, lots: S.lots }];
+      const groups = (lotMode === 'lotfam') ? _lotsByFamily(getActiveLots()) : [{ family: null, lots: getActiveLots() }];
       groups.forEach(grp => {
         const mus = [], ep = [], em = [], xs = [];
         grp.lots.forEach(lot => {
@@ -5895,7 +5897,7 @@ function caTrend(items, grid) {
 
     } else {
       // Split: one chart per lot — scatter points + mean line
-      S.lots.forEach((lot, li) => {
+      getActiveLots().forEach((lot, li) => {
         const d = caData(lot, item);
         if (!d.length) return;
         const mu = mean(d), sg = std(d);
@@ -5947,9 +5949,10 @@ function populateDualStatSelects() {
 }
 // Wafer selection for dual-axis X 軸 (null/empty = 全部)
 function dualSelectedLots() {
+  const aLots = getActiveLots();
   const sel = S.dualWaferSel;
-  if (!sel || !sel.length) return S.lots.slice();
-  return S.lots.filter(l => sel.includes(l));
+  if (!sel || !sel.length) return aLots.slice();
+  return aLots.filter(l => sel.includes(l));
 }
 function _updateDualWaferLabel() {
   const lbl = document.getElementById('caDualWaferLabel');
@@ -6135,11 +6138,15 @@ function caSPC(items, grid) {
   const xAxisKey = document.getElementById('caSPCxAxis').value;
   const sigma    = parseInt(document.getElementById('caSPCsigma').value) || 3;
 
+  const aLots = getActiveLots();
+  const aSet = new Set(aLots);
+  const activeData = S.data.filter(r => aSet.has(r.Lot));
+
   items.forEach(item => {
     const spec = S.chartSpecs[item] || {};
     const allRows = xAxisKey === 'lot'
-      ? S.lots.flatMap(lot => S.data.filter(r => r.Lot === lot))
-      : S.data;
+      ? aLots.flatMap(lot => S.data.filter(r => r.Lot === lot))
+      : activeData;
     const pairs = allRows.map((r, idx) => {
       const y = parseFloat(r[item]);
       if (isNaN(y)) return null;
@@ -6171,7 +6178,7 @@ function caSPC(items, grid) {
       {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
     ];
 
-    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getLotColor(p.lot, S.lots.indexOf(p.lot)));
+    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getLotColor(p.lot, aLots.indexOf(p.lot)));
     const id = uid('ca', item+'spc');
     const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
     grid.insertAdjacentHTML('beforeend',
@@ -6212,10 +6219,11 @@ function caCDF(items, grid) {
     }
 
     if (lotMode === 'overlay' || lotMode === 'lotfam') {
-      const groups = (lotMode === 'lotfam') ? _lotsByFamily(S.lots) : [{ family: null, lots: S.lots }];
+      const aLots = getActiveLots();
+      const groups = (lotMode === 'lotfam') ? _lotsByFamily(aLots) : [{ family: null, lots: aLots }];
       groups.forEach(grp => {
         const traces = grp.lots.map(lot => {
-          const li = S.lots.indexOf(lot);
+          const li = aLots.indexOf(lot);
           const d = [...caData(lot, item)].sort((a,b)=>a-b);
           if (!d.length) return null;
           const cdf = d.map((_,i)=>(i+1)/d.length*100);
@@ -6239,7 +6247,7 @@ function caCDF(items, grid) {
         }, {responsive:true, displayModeBar:false});
       });
     } else {
-      S.lots.forEach((lot, li) => {
+      getActiveLots().forEach((lot, li) => {
         const d = [...caData(lot, item)].sort((a,b)=>a-b);
         if (!d.length) return;
         const cdf = d.map((_,i)=>(i+1)/d.length*100);
@@ -6273,7 +6281,8 @@ function caCorr(items, grid) {
   const selLot        = document.getElementById('caCorrLot').value;
   if (!yItem) { grid.innerHTML='<div style="padding:20px;color:#718096;font-size:13px">請選擇 Y 軸項目</div>'; return; }
 
-  const activeLots = selLot === 'all' ? S.lots : [selLot];
+  const aLots = getActiveLots();
+  const activeLots = selLot === 'all' ? aLots : [selLot];
 
   items.forEach(item => {
     if (item === yItem) return;
@@ -6281,7 +6290,7 @@ function caCorr(items, grid) {
     const specY = S.chartSpecs[yItem] || {};
 
     const rawPairs = activeLots.flatMap(lot => {
-      const li = S.lots.indexOf(lot);
+      const li = aLots.indexOf(lot);
       return S.data.filter(r => r.Lot === lot).map(r => {
         const x = parseFloat(r[item]);
         const y = parseFloat(r[yItem]);
@@ -6303,7 +6312,7 @@ function caCorr(items, grid) {
     if (!displayPairs.length) return;
 
     const traces = activeLots.map(lot => {
-      const li  = S.lots.indexOf(lot);
+      const li  = aLots.indexOf(lot);
       const pts = displayPairs.filter(p => p.lot === lot);
       if (!pts.length) return null;
       return {
@@ -6434,8 +6443,10 @@ function caCorrelationMatrix(items, grid) {
   }
 
   // Pair-wise — must align rows
+  const aSet = new Set(getActiveLots());
+  const activeData = S.data.filter(r => aSet.has(r.Lot));
   const pairValues = (itemA, itemB) => {
-    const pairs = S.data.map(r => ({
+    const pairs = activeData.map(r => ({
       a: parseFloat(r[itemA]), b: parseFloat(r[itemB])
     })).filter(p => !isNaN(p.a) && !isNaN(p.b));
     return { a: pairs.map(p => p.a), b: pairs.map(p => p.b) };
