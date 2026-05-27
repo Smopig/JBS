@@ -1087,9 +1087,11 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
     <!-- Row 2: Items + Lot mode + Cols + Split grouping -->
     <div class="ctrl" style="flex-wrap:wrap;gap:8px;align-items:center">
-      <label style="white-space:nowrap;font-size:12px;font-weight:700">量測項目：</label>
-      <div id="caItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
-      <button class="btn btn-gray" style="font-size:12px" onclick="addChartItem()">＋ 新增項目</button>
+      <span id="caItemsWrap" style="display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label style="white-space:nowrap;font-size:12px;font-weight:700">量測項目：</label>
+        <div id="caItemList" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+        <button class="btn btn-gray" style="font-size:12px" onclick="addChartItem()">＋ 新增項目</button>
+      </span>
       <span id="caLotModeWrap" style="display:inline-flex;align-items:center;gap:6px;margin-left:12px">
         <label style="white-space:nowrap;font-size:12px;font-weight:700">LOT 顯示：</label>
         <select id="caLotMode" onchange="renderChart()"
@@ -1220,18 +1222,21 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     </div>
 
     <div id="caCtxDual" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
-      <label style="font-size:12px;font-weight:700">右軸項目：</label>
+      <label style="font-size:12px;font-weight:700;color:#3182ce">左軸項目：</label>
+      <select id="caDualX" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="">-- 選擇左軸項目 --</option>
+      </select>
+      <select id="caDualXStat" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700;color:#dd6b20">右軸項目：</label>
       <select id="caDualY" onchange="renderChart()"
               style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
         <option value="">-- 選擇右軸項目 --</option>
       </select>
-      <label style="margin-left:12px;font-size:12px;font-weight:700">統計量：</label>
-      <select id="caDualStat" onchange="renderChart()"
-              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
-        <option value="median">中位數 (Median)</option>
-        <option value="mean">均值 (Mean)</option>
-      </select>
-      <span style="font-size:11px;color:#718096">左軸＝量測項目選單第一個項目，右軸＝此下拉項目；X 軸為各批次 (Lot 家族)</span>
+      <select id="caDualYStat" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；X 軸＝各批次／SPLIT 分組</span>
     </div>
 
     <!-- Row 4: SPEC lines -->
@@ -1641,10 +1646,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
 
       <h4>🔀 雙軸對比（Dual Axis）</h4>
       <ul>
-        <li>以<strong>批次 (Lot 家族)</strong> 為 X 軸，繪製兩個量測項目的<strong>中位數 / 均值</strong>趨勢折線</li>
-        <li><strong>左軸</strong>＝量測項目選單的第一個項目（藍色）；<strong>右軸</strong>＝獨立下拉選單選擇的項目（橘色），各自獨立 Y 軸刻度</li>
+        <li>以<strong>批次 (Lot)</strong>（或 SPLIT 分組）為 X 軸，左右軸各畫一條趨勢折線</li>
+        <li><strong>左軸</strong>（藍色）與<strong>右軸</strong>（橘色）各自獨立選擇量測項目與<strong>統計量</strong>（Mean / Median / Min / Max / Std / P5 / P25 / P75 / P95），各有獨立 Y 軸刻度</li>
         <li>適合比較不同量測階段（如 CP 與 FT）同性質參數的批次趨勢一致性</li>
-        <li>同一 Lot 家族的多片 wafer 會先合併再計算統計量</li>
+        <li>啟用 <strong>SPLIT 分組</strong>時 X 軸改以分組呈現；<strong>僅計算 SPEC 內</strong>開啟時資料先經 SPEC 過濾</li>
       </ul>
     </div>
 
@@ -3643,7 +3648,9 @@ function populateSels() {
   document.getElementById('pctLot').innerHTML   = lotOpts;
   document.getElementById('cntLot').innerHTML   = lotOpts;
   document.getElementById('caCorrY').innerHTML    = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
+  document.getElementById('caDualX').innerHTML     = '<option value="">-- 選擇左軸項目 --</option>' + opts;
   document.getElementById('caDualY').innerHTML     = '<option value="">-- 選擇右軸項目 --</option>' + opts;
+  populateDualStatSelects();
   document.getElementById('caCorrLot').innerHTML  = '<option value="all">全部 Lot</option>' + S.lots.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
   renderStatItemSelects();
   renderChartItemSelects();
@@ -5279,6 +5286,7 @@ function _lotsByFamily(lots) {
 function initChartTab() {
   renderChartTypeButtons();
   renderChartItemSelects();
+  populateDualStatSelects();
   updateChartCtxPanels();
 }
 
@@ -5314,6 +5322,9 @@ function updateChartCtxPanels() {
   // Lot mode not meaningful for box/violin/bar/corr
   const lmw = document.getElementById('caLotModeWrap');
   if (lmw) lmw.style.display = CA_NO_LOTMODE.has(S.chartType) ? 'none' : 'inline-flex';
+  // Dual axis selects its own L/R items — hide the top measurement-item row
+  const iw = document.getElementById('caItemsWrap');
+  if (iw) iw.style.display = S.chartType === 'dualaxis' ? 'none' : 'inline-flex';
 }
 
 // ── Item selects ──
@@ -5459,7 +5470,15 @@ function renderChart() {
   const items = S.chartItems.filter(Boolean);
   const grid  = document.getElementById('caGrid');
   syncOnlyInSpecBtn('chart');
-  if (!items.length || !grid) return;
+  if (!grid) return;
+  // Dual axis uses its own L/R item selects, not the top measurement-item list
+  if (S.chartType === 'dualaxis') {
+    setGridCols(grid, getCols('ca'));
+    grid.innerHTML = '';
+    caDualAxis(items, grid);
+    return;
+  }
+  if (!items.length) return;
   setGridCols(grid, getCols('ca'));
   grid.innerHTML = '';
   renderChartSpecInputs();
@@ -5737,32 +5756,42 @@ function caTrend(items, grid) {
   });
 }
 
-// ── Dual Y-axis lot trend comparison (CP vs FT 風格) ──
+// ── Dual Y-axis trend comparison (CP vs FT 風格) ──
+const DUAL_STATS = ['Mean','Median','Min','Max','Std','P5','P25','P75','P95'];
+function populateDualStatSelects() {
+  const opts = DUAL_STATS.map(k => `<option value="${k}">${k}</option>`).join('');
+  ['caDualXStat','caDualYStat'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = opts;
+    el.value = 'Median';
+  });
+}
 function caDualAxis(items, grid) {
-  const stat      = document.getElementById('caDualStat').value;   // 'median' | 'mean'
-  const leftItem  = items[0] || '';
+  const leftItem  = document.getElementById('caDualX').value;
   const rightItem = document.getElementById('caDualY').value;
+  const leftStat  = document.getElementById('caDualXStat').value || 'Median';
+  const rightStat = document.getElementById('caDualYStat').value || 'Median';
   if (!leftItem || !rightItem) {
     grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">'
-      + '請於「量測項目」選單選擇左軸項目，並於「右軸項目」下拉選單選擇右軸項目。</div>';
+      + '請選擇左軸項目與右軸項目。</div>';
     return;
   }
-  const agg       = stat === 'mean' ? mean : median;
-  const statLabel = stat === 'mean' ? 'Mean' : 'Median';
+  const fnL = STAT_FNS[leftStat], fnR = STAT_FNS[rightStat];
 
-  // X 軸：各批次（Lot 家族），同家族 wafer 合併後取統計量
-  const fams = _lotsByFamily(S.lots);
+  // X 軸分類沿用 SPLIT 設定：無 SPLIT 時每個 Lot 一組，combined 時依條件合併
+  const gL = getChartGroups(leftItem);
+  const gR = getChartGroups(rightItem);
+  const rMap = {};
+  gR.forEach(g => { rMap[g.name] = g.data; });
+
   const xs = [], yL = [], yR = [];
-  fams.forEach(f => {
-    const dl = [], dr = [];
-    f.lots.forEach(lot => {
-      dl.push(...caData(lot, leftItem));
-      dr.push(...caData(lot, rightItem));
-    });
-    if (!dl.length && !dr.length) return;
-    xs.push(f.family);
-    yL.push(dl.length ? agg(dl) : null);
-    yR.push(dr.length ? agg(dr) : null);
+  gL.forEach(g => {
+    const dr = rMap[g.name] || [];
+    if (!g.data.length && !dr.length) return;
+    xs.push(g.name);
+    yL.push(g.data.length ? fnL(g.data) : null);
+    yR.push(dr.length      ? fnR(dr)     : null);
   });
   if (!xs.length) {
     grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">無可繪製的資料。</div>';
@@ -5774,17 +5803,17 @@ function caDualAxis(items, grid) {
   grid.insertAdjacentHTML('beforeend',
     `<div class="chart-card"><div id="${id}" style="height:400px"></div></div>`);
   Plotly.newPlot(id, [
-    { type:'scatter', mode:'lines+markers', name:leftItem,
+    { type:'scatter', mode:'lines+markers', name:`${leftItem} (${leftStat})`,
       x:xs, y:yL, yaxis:'y', connectgaps:true,
       marker:{color:cL, size:9}, line:{color:cL, width:2} },
-    { type:'scatter', mode:'lines+markers', name:rightItem,
+    { type:'scatter', mode:'lines+markers', name:`${rightItem} (${rightStat})`,
       x:xs, y:yR, yaxis:'y2', connectgaps:true,
       marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} }
   ], {
-    title:{text:`${escHtml(leftItem)} 與 ${escHtml(rightItem)} 批次趨勢對比 (${statLabel})`, font:{size:13}},
+    title:{text:`${escHtml(leftItem)} (${leftStat}) 與 ${escHtml(rightItem)} (${rightStat}) 批次趨勢對比`, font:{size:13}},
     margin:{t:50, b:60, l:64, r:64}, height:400,
     legend:{orientation:'h', y:-0.2, x:0.5, xanchor:'center'},
-    xaxis:{title:{text:'批次 (Lot)', font:{size:11}}, type:'category'},
+    xaxis:{title:{text:S.chartSplitSteps.length ? '分組' : '批次 (Lot)', font:{size:11}}, type:'category'},
     yaxis:{title:{text:escHtml(leftItem), font:{size:11, color:cL}}, tickfont:{color:cL}},
     yaxis2:{title:{text:escHtml(rightItem), font:{size:11, color:cR}}, tickfont:{color:cR},
             overlaying:'y', side:'right'}
