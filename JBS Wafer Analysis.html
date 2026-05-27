@@ -1219,6 +1219,21 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <span style="font-size:11px;color:#718096">（打勾後僅顯示並計算 SPEC 範圍內的點）</span>
     </div>
 
+    <div id="caCtxDual" class="ctrl" style="display:none;gap:10px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;font-weight:700">右軸項目：</label>
+      <select id="caDualY" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="">-- 選擇右軸項目 --</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;font-weight:700">統計量：</label>
+      <select id="caDualStat" onchange="renderChart()"
+              style="padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="median">中位數 (Median)</option>
+        <option value="mean">均值 (Mean)</option>
+      </select>
+      <span style="font-size:11px;color:#718096">左軸＝量測項目選單第一個項目，右軸＝此下拉項目；X 軸為各批次 (Lot 家族)</span>
+    </div>
+
     <!-- Row 4: SPEC lines -->
     <div class="ctrl" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
       <label style="font-size:12px;font-weight:700;white-space:nowrap">SPEC 線：</label>
@@ -1622,6 +1637,14 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <li><strong>迴歸線 + R²</strong>：勾選後疊加最小平方迴歸線，圖角顯示方程式與 R²</li>
         <li><strong>依 SPEC 篩選資料</strong>：勾選後，只顯示並計算 X、Y 皆在各自 SPEC 範圍內的點；迴歸標示加上「[SPEC 內]」備註</li>
         <li>Y 軸的 SPEC 在 SPEC 列以<span class="badge purple">紫色 Y:</span>標示獨立輸入</li>
+      </ul>
+
+      <h4>🔀 雙軸對比（Dual Axis）</h4>
+      <ul>
+        <li>以<strong>批次 (Lot 家族)</strong> 為 X 軸，繪製兩個量測項目的<strong>中位數 / 均值</strong>趨勢折線</li>
+        <li><strong>左軸</strong>＝量測項目選單的第一個項目（藍色）；<strong>右軸</strong>＝獨立下拉選單選擇的項目（橘色），各自獨立 Y 軸刻度</li>
+        <li>適合比較不同量測階段（如 CP 與 FT）同性質參數的批次趨勢一致性</li>
+        <li>同一 Lot 家族的多片 wafer 會先合併再計算統計量</li>
       </ul>
     </div>
 
@@ -3620,6 +3643,7 @@ function populateSels() {
   document.getElementById('pctLot').innerHTML   = lotOpts;
   document.getElementById('cntLot').innerHTML   = lotOpts;
   document.getElementById('caCorrY').innerHTML    = '<option value="">-- 選擇 Y 項目 --</option>' + opts;
+  document.getElementById('caDualY').innerHTML     = '<option value="">-- 選擇右軸項目 --</option>' + opts;
   document.getElementById('caCorrLot').innerHTML  = '<option value="all">全部 Lot</option>' + S.lots.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
   renderStatItemSelects();
   renderChartItemSelects();
@@ -4631,6 +4655,7 @@ const CHART_TYPES = [
   {key:'corr',       label:'🔗 相關分析'},
   {key:'qq',         label:'📐 QQ-Plot'},
   {key:'corrMatrix', label:'🔢 相關矩陣'},
+  {key:'dualaxis',   label:'🔀 雙軸對比'},
 ];
 
 const LOT_COLORS = [
@@ -5242,7 +5267,7 @@ function buildChartStatsHTML(item, groups) {
 }
 
 // Chart types where lot mode is not meaningful (always one chart per item)
-const CA_NO_LOTMODE = new Set(['box','violin','bar','corr']);
+const CA_NO_LOTMODE = new Set(['box','violin','bar','corr','dualaxis']);
 // 依 Lot 家族(去尾端 _NN / -NN 晶圓序號)分組,保留原順序
 function _lotsByFamily(lots) {
   const fam = l => String(l).replace(/[_-]\d+$/, '') || String(l);
@@ -5274,10 +5299,11 @@ function switchChartType(type) {
 }
 
 function updateChartCtxPanels() {
-  const ctxIds = ['caCtxScatter','caCtxTrend','caCtxBar','caCtxSPC','caCtxCorr'];
+  const ctxIds = ['caCtxScatter','caCtxTrend','caCtxBar','caCtxSPC','caCtxCorr','caCtxDual'];
   const show = {
     scatter:'caCtxScatter', trend:'caCtxTrend',
-    bar:'caCtxBar', spc:'caCtxSPC', corr:'caCtxCorr'
+    bar:'caCtxBar', spc:'caCtxSPC', corr:'caCtxCorr',
+    dualaxis:'caCtxDual'
   };
   ctxIds.forEach(id => {
     const el = document.getElementById(id);
@@ -5448,6 +5474,7 @@ function renderChart() {
     case 'corr':       caCorr(items, grid);             break;
     case 'qq':         caQQ(items, grid);               break;
     case 'corrMatrix': caCorrelationMatrix(items, grid); break;
+    case 'dualaxis':   caDualAxis(items, grid);           break;
   }
   _updateSplitStatsCompare(items);
   // 為每張卡片加入 PNG/JPG/SVG 下載按鈕；套用「線型循環」設定
@@ -5708,6 +5735,60 @@ function caTrend(items, grid) {
       });
     }
   });
+}
+
+// ── Dual Y-axis lot trend comparison (CP vs FT 風格) ──
+function caDualAxis(items, grid) {
+  const stat      = document.getElementById('caDualStat').value;   // 'median' | 'mean'
+  const leftItem  = items[0] || '';
+  const rightItem = document.getElementById('caDualY').value;
+  if (!leftItem || !rightItem) {
+    grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">'
+      + '請於「量測項目」選單選擇左軸項目，並於「右軸項目」下拉選單選擇右軸項目。</div>';
+    return;
+  }
+  const agg       = stat === 'mean' ? mean : median;
+  const statLabel = stat === 'mean' ? 'Mean' : 'Median';
+
+  // X 軸：各批次（Lot 家族），同家族 wafer 合併後取統計量
+  const fams = _lotsByFamily(S.lots);
+  const xs = [], yL = [], yR = [];
+  fams.forEach(f => {
+    const dl = [], dr = [];
+    f.lots.forEach(lot => {
+      dl.push(...caData(lot, leftItem));
+      dr.push(...caData(lot, rightItem));
+    });
+    if (!dl.length && !dr.length) return;
+    xs.push(f.family);
+    yL.push(dl.length ? agg(dl) : null);
+    yR.push(dr.length ? agg(dr) : null);
+  });
+  if (!xs.length) {
+    grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">無可繪製的資料。</div>';
+    return;
+  }
+
+  const cL = '#3182ce', cR = '#dd6b20';
+  const id = uid('ca', leftItem + rightItem + 'dual');
+  grid.insertAdjacentHTML('beforeend',
+    `<div class="chart-card"><div id="${id}" style="height:400px"></div></div>`);
+  Plotly.newPlot(id, [
+    { type:'scatter', mode:'lines+markers', name:leftItem,
+      x:xs, y:yL, yaxis:'y', connectgaps:true,
+      marker:{color:cL, size:9}, line:{color:cL, width:2} },
+    { type:'scatter', mode:'lines+markers', name:rightItem,
+      x:xs, y:yR, yaxis:'y2', connectgaps:true,
+      marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} }
+  ], {
+    title:{text:`${escHtml(leftItem)} 與 ${escHtml(rightItem)} 批次趨勢對比 (${statLabel})`, font:{size:13}},
+    margin:{t:50, b:60, l:64, r:64}, height:400,
+    legend:{orientation:'h', y:-0.2, x:0.5, xanchor:'center'},
+    xaxis:{title:{text:'批次 (Lot)', font:{size:11}}, type:'category'},
+    yaxis:{title:{text:escHtml(leftItem), font:{size:11, color:cL}}, tickfont:{color:cL}},
+    yaxis2:{title:{text:escHtml(rightItem), font:{size:11, color:cR}}, tickfont:{color:cR},
+            overlaying:'y', side:'right'}
+  }, {responsive:true, displayModeBar:false});
 }
 
 // ── Bar + Error Bar ──
