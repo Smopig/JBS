@@ -1376,6 +1376,19 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       </select>
     </div>
     <div id="yieldArea"></div>
+
+    <!-- ── Bin Pareto（依 Bin 代碼統計失效分佈）── -->
+    <div class="ctrl" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <label style="font-weight:700">📉 Bin Pareto：</label>
+      <select id="binParetoField" onchange="renderBinPareto()" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="Bin">Hard Bin</option>
+        <option value="SBin">Soft Bin</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;display:inline-flex;align-items:center;gap:4px">
+        <input type="checkbox" id="binParetoExcludePass" onchange="renderBinPareto()"> 排除 Pass Bin（Bin 1）
+      </label>
+    </div>
+    <div id="binParetoArea"></div>
   </div>
 
   <!-- ══ Global Filter ══ -->
@@ -4677,6 +4690,7 @@ function renderYield() {
 
   if (!specItems.length) {
     area.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:14px">⚠️ 尚無 SPEC 設定，請先在「統計」或「圖表分析」分頁設定 LSL / USL。</div>';
+    renderBinPareto();
     return;
   }
 
@@ -4730,6 +4744,82 @@ function renderYield() {
     xaxis: { tickangle: -40, tickfont: { size: 10 } },
     yaxis: { tickfont: { size: 10 } },
     colorbar: { title: { text: fmt === 'pct' ? '良率%' : '失敗數', side: 'right' }, tickfont: { size: 10 } },
+  }, { responsive: true, displayModeBar: 'hover' });
+
+  renderBinPareto();
+}
+
+// ── Bin Pareto：依 Bin / SBin 代碼統計 die 數，由高到低排序並繪累積百分比 ──
+function renderBinPareto() {
+  const area = document.getElementById('binParetoArea');
+  if (!area) return;
+  area.innerHTML = '';
+
+  const field = document.getElementById('binParetoField')?.value || 'Bin';
+  const excludePass = !!document.getElementById('binParetoExcludePass')?.checked;
+  const activeLots = new Set(getActiveLots());
+
+  // 確認資料是否含該 Bin 欄位
+  const hasField = S.data.some(r => r[field] != null && r[field] !== '');
+  if (!hasField) {
+    area.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px">⚠️ 目前資料不含「${field}」欄位，無法產生 Bin Pareto。</div>`;
+    return;
+  }
+
+  // 統計各 Bin 代碼的 die 數（套用 Lot 篩選與遮罩）
+  const counts = new Map();
+  let totalDie = 0;
+  for (const r of S.data) {
+    if (!activeLots.has(r.Lot)) continue;
+    if (_isMasked(r.Lot, r.Xpos, r.Ypos)) continue;
+    const code = String(r[field]);
+    if (code === '' || code === 'null' || code === 'undefined') continue;
+    totalDie++;
+    if (excludePass && (code === '1' || code === '01')) continue;
+    counts.set(code, (counts.get(code) || 0) + 1);
+  }
+
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    area.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px">無可顯示的 ${field} 資料（可能皆為 Pass Bin）。</div>`;
+    return;
+  }
+
+  const labels = entries.map(e => `Bin ${e[0]}`);
+  const vals = entries.map(e => e[1]);
+  const sumShown = vals.reduce((a, b) => a + b, 0);
+  let cum = 0;
+  const cumPct = vals.map(v => { cum += v; return cum / sumShown * 100; });
+
+  const plotId = uid('binpareto', field);
+  area.insertAdjacentHTML('beforeend',
+    `<div style="padding:10px">
+       <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">
+         總 die 數：${totalDie}　|　顯示 ${field} 類別：${entries.length}　|　失效率參考（排除 Pass）：依下方累積線
+       </div>
+       <div id="${plotId}" style="min-height:380px"></div>
+     </div>`);
+
+  Plotly.newPlot(plotId, [
+    {
+      type: 'bar', x: labels, y: vals, name: 'Die 數',
+      marker: { color: '#3182ce' },
+      hovertemplate: '%{x}<br>Die 數: %{y}<extra></extra>',
+    },
+    {
+      type: 'scatter', mode: 'lines+markers', x: labels, y: cumPct,
+      name: '累積 %', yaxis: 'y2', line: { color: '#dd6b20', width: 2 },
+      marker: { size: 6 },
+      hovertemplate: '%{x}<br>累積: %{y:.1f}%<extra></extra>',
+    },
+  ], {
+    title: { text: `${field} Pareto`, font: { size: 14 } },
+    margin: { t: 50, b: 90, l: 60, r: 60 },
+    xaxis: { tickangle: -40, tickfont: { size: 10 } },
+    yaxis: { title: { text: 'Die 數' }, tickfont: { size: 10 } },
+    yaxis2: { title: { text: '累積 %' }, overlaying: 'y', side: 'right',
+              range: [0, 105], tickfont: { size: 10 }, showgrid: false },
+    legend: { orientation: 'h', y: 1.12 },
   }, { responsive: true, displayModeBar: 'hover' });
 }
 
