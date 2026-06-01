@@ -932,6 +932,16 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <button class="btn btn-red" onclick="clearAllMasks()" style="font-size:12px;margin-left:8px">清除全部遮罩</button>
       <span id="mapMaskCount" style="font-size:12px;color:#718096;margin-left:12px"></span>
     </div>
+    <div class="ctrl" style="border-top:1px solid var(--border);padding-top:10px;flex-wrap:wrap">
+      <label style="font-weight:700">🔀 Wafer Delta：</label>
+      <select id="mapDeltaA" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <span style="font-size:13px;color:#718096">−</span>
+      <select id="mapDeltaB" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <button class="btn btn-blue" style="font-size:12px;margin-left:8px" onclick="renderDeltaMap()">產生差異圖</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:4px" onclick="document.getElementById('mapDeltaArea').innerHTML=''">清除</button>
+      <span style="font-size:11px;color:var(--text-3);margin-left:8px">以目前「量測項目」對兩 Lot 同座標相減（對稱色階，0=無差異）</span>
+    </div>
+    <div id="mapDeltaArea"></div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
 
@@ -1246,6 +1256,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <option value="2">±2σ</option>
         <option value="3" selected>±3σ</option>
       </select>
+      <label style="margin-left:12px;font-size:12px;display:inline-flex;align-items:center;gap:4px"
+             title="標示 Western Electric / Nelson run rules 違反點（僅 Index / Lot 分組軸有效）">
+        <input type="checkbox" id="caSPCrunRules" onchange="renderChart()"> Run rules
+      </label>
     </div>
 
     <!-- Row 3e: Correlation contextual -->
@@ -4221,6 +4235,7 @@ function renderMap() {
   const zmax       = zmaxRaw !== '' ? parseFloat(zmaxRaw) : undefined;
   const grid = document.getElementById('mapGrid');
   if(!item) return;
+  _populateDeltaSelectors();
   setGridCols(grid, getCols('map'));
   grid.innerHTML = '';
 
@@ -4292,6 +4307,97 @@ function renderMap() {
       }
     );
   });
+}
+
+// 以目前作用中的 Lot 填充 Wafer Delta 的兩個下拉選單（保留既有選擇）
+function _populateDeltaSelectors() {
+  const lots = getActiveLots();
+  ['mapDeltaA', 'mapDeltaB'].forEach((id, idx) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = lots.map(l => `<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
+    if (lots.includes(prev)) sel.value = prev;
+    else if (lots.length > idx) sel.value = lots[idx];   // 預設 A=第1片、B=第2片
+  });
+}
+
+// Wafer-to-Wafer Delta Map：對兩 Lot 在相同 (Xpos,Ypos) 的目前量測項目相減，
+// 以對稱色階（0=無差異）呈現系統性偏移。
+function renderDeltaMap() {
+  const area = document.getElementById('mapDeltaArea');
+  if (!area) return;
+  const item = document.getElementById('mapItem').value;
+  const lotA = document.getElementById('mapDeltaA').value;
+  const lotB = document.getElementById('mapDeltaB').value;
+  if (!item) { Toast.warn('請先選擇量測項目'); return; }
+  if (!lotA || !lotB) { Toast.warn('請選擇兩個 Lot'); return; }
+  if (lotA === lotB) { Toast.warn('請選擇兩個不同的 Lot'); return; }
+
+  const xDesc = document.getElementById('mapXDir').value === 'desc';
+  const yDesc = document.getElementById('mapYDir').value === 'desc';
+
+  // 建立 (x,y) → 值 對照（套用遮罩）
+  const buildMap = lot => {
+    const m = new Map();
+    for (const r of getLotRows(lot)) {
+      const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+      if (isNaN(x) || isNaN(y) || _isMasked(lot, x, y)) continue;
+      const v = parseFloat(r[item]);
+      if (!isNaN(v)) m.set(x + ',' + y, v);
+    }
+    return m;
+  };
+  const mapA = buildMap(lotA), mapB = buildMap(lotB);
+
+  const xSet = new Set(), ySet = new Set();
+  let overlap = 0;
+  for (const k of mapA.keys()) {
+    if (mapB.has(k)) {
+      overlap++;
+      const [x, y] = k.split(',').map(Number);
+      xSet.add(x); ySet.add(y);
+    }
+  }
+  if (!overlap) {
+    area.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3);font-size:13px">⚠️ ${escHtml(lotA)} 與 ${escHtml(lotB)} 無相同座標的有效量測點，無法產生差異圖。</div>`;
+    return;
+  }
+  const xs = [...xSet].sort((a, b) => a - b);
+  const ys = [...ySet].sort((a, b) => a - b);
+
+  const z = ys.map(y => xs.map(x => {
+    const k = x + ',' + y;
+    return (mapA.has(k) && mapB.has(k)) ? mapA.get(k) - mapB.get(k) : null;
+  }));
+  const diffs = z.flat().filter(v => v !== null && !isNaN(v));
+  const absMax = Math.max(...diffs.map(Math.abs)) || 1;
+
+  const yMin = ys[0], yMax = ys[ys.length - 1];
+  const yPad = (yMax - yMin) * 0.03 || 0.5;
+  const id = uid('mapdelta', lotA + '_' + lotB);
+  area.innerHTML =
+    `<div style="padding:10px">
+       <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">
+         ${escHtml(lotA)} − ${escHtml(lotB)} ｜ ${escHtml(item)} ｜ 共同座標 N=${overlap}
+         ｜ Δ Mean=${rd(mean(diffs),4)}  σ=${rd(std(diffs),4)}  範圍=±${rd(absMax,4)}
+       </div>
+       <div id="${id}" style="min-height:380px"></div>
+     </div>`;
+
+  Plotly.newPlot(id, [{
+    type: 'heatmap', z, x: xs, y: ys,
+    colorscale: COLORSCALES.RdBu, zmid: 0, zmin: -absMax, zmax: absMax,
+    hoverongaps: false,
+    hovertemplate: 'X=%{x}<br>Y=%{y}<br>Δ=%{z}<extra></extra>',
+    colorbar: { title: { text: 'Δ', side: 'right' } },
+  }], {
+    title: { text: `Wafer Delta：${escHtml(lotA)} − ${escHtml(lotB)}`, font: { size: 13 } },
+    margin: { t: 46, b: 40, l: 48, r: 10 },
+    xaxis: { title: { text: 'Xpos', font: { size: 10 } }, autorange: xDesc ? 'reversed' : true },
+    yaxis: { title: { text: 'Ypos', font: { size: 10 } },
+             range: yDesc ? [yMax + yPad, yMin - yPad] : [yMin - yPad, yMax + yPad] },
+  }, { responsive: true, displayModeBar: 'hover' });
 }
 
 // 在色階 scaleArr ([stop,'#hex']) 上線性內插，t∈[0,1]，回傳 'RRGGBB'
@@ -6271,10 +6377,52 @@ function caBar(items, grid) {
 }
 
 // ── SPC ──
+// Western Electric / Nelson run rules（僅對有序序列有意義）。
+// 回傳 Map<index, [rule編號...]>，標示每個違反規則的量測點。
+function spcRunRules(y, mu, sg) {
+  const n = y.length;
+  const viol = new Map();
+  const add = (i, r) => { if (!viol.has(i)) viol.set(i, []); if (!viol.get(i).includes(r)) viol.get(i).push(r); };
+  if (sg === 0 || !isFinite(sg)) return viol;
+  const side = y.map(v => v > mu ? 1 : v < mu ? -1 : 0);      // 相對 CL 的側
+  const zone = y.map(v => (v - mu) / sg);                     // 以 σ 為單位
+  // Rule 1：超出 3σ
+  for (let i = 0; i < n; i++) if (Math.abs(zone[i]) > 3) add(i, 1);
+  // Rule 2：連續 3 點中有 2 點 > 2σ（同側）
+  for (let i = 0; i + 2 < n; i++) {
+    for (const s of [1, -1]) {
+      const w = [i, i+1, i+2].filter(j => side[j] === s && Math.abs(zone[j]) > 2);
+      if (w.length >= 2) w.forEach(j => add(j, 2));
+    }
+  }
+  // Rule 3：連續 5 點中有 4 點 > 1σ（同側）
+  for (let i = 0; i + 4 < n; i++) {
+    for (const s of [1, -1]) {
+      const w = [i,i+1,i+2,i+3,i+4].filter(j => side[j] === s && Math.abs(zone[j]) > 1);
+      if (w.length >= 4) w.forEach(j => add(j, 3));
+    }
+  }
+  // Rule 4：連續 8 點位於 CL 同側
+  for (let i = 0; i + 7 < n; i++) {
+    const s = side[i];
+    if (s !== 0 && [i,i+1,i+2,i+3,i+4,i+5,i+6,i+7].every(j => side[j] === s))
+      for (let j = i; j < i + 8; j++) add(j, 4);
+  }
+  // Rule 5：連續 6 點單調遞增或遞減（趨勢）
+  for (let i = 0; i + 5 < n; i++) {
+    let inc = true, dec = true;
+    for (let j = i; j < i + 5; j++) { if (!(y[j+1] > y[j])) inc = false; if (!(y[j+1] < y[j])) dec = false; }
+    if (inc || dec) for (let j = i; j < i + 6; j++) add(j, 5);
+  }
+  return viol;
+}
+
 function caSPC(items, grid) {
   const showSpec = document.getElementById('caShowSpec').checked;
   const xAxisKey = document.getElementById('caSPCxAxis').value;
   const sigma    = parseInt(document.getElementById('caSPCsigma').value) || 3;
+  const useRunRules = !!document.getElementById('caSPCrunRules')?.checked
+                      && (xAxisKey === 'index' || xAxisKey === 'lot');
 
   const aLots = getActiveLots();
   const aSet = new Set(aLots);
@@ -6316,7 +6464,16 @@ function caSPC(items, grid) {
       {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
     ];
 
-    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getLotColor(p.lot, aLots.indexOf(p.lot)));
+    // Run rules 違反（以標準 σ zone 計算，與所選管制線 σ 無關）
+    const ruleViol = useRunRules ? spcRunRules(yVals, mu, sg) : new Map();
+    const colorArr = pairs.map((p,i) =>
+      outOfCtrl[i] ? '#e53e3e'
+      : (ruleViol.has(i) ? '#dd6b20' : getLotColor(p.lot, aLots.indexOf(p.lot))));
+    const sizeArr = pairs.map((p,i) => (ruleViol.has(i) && !outOfCtrl[i]) ? 8 : 5);
+    const symArr  = pairs.map((p,i) => (ruleViol.has(i) && !outOfCtrl[i]) ? 'diamond' : 'circle');
+    const hoverArr = pairs.map((p,i) =>
+      ruleViol.has(i) ? `值=${rd(p.y,4)}<br>違反規則: ${ruleViol.get(i).join(', ')}` : `值=${rd(p.y,4)}`);
+    const nViol = ruleViol.size;
     const id = uid('ca', item+'spc');
     const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
     grid.insertAdjacentHTML('beforeend',
@@ -6324,9 +6481,10 @@ function caSPC(items, grid) {
     Plotly.newPlot(id, [{
       type:'scatter', mode:'markers', name:item,
       x:pairs.map(p=>p.x), y:pairs.map(p=>p.y),
-      marker:{color:colorArr, size:5}
+      marker:{color:colorArr, size:sizeArr, symbol:symArr},
+      text:hoverArr, hovertemplate:'%{text}<extra></extra>'
     }], {
-      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}</sup>`,
+      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}${useRunRules?`　|　Run rules 違反: ${nViol}`:''}</sup>`,
              font:{size:10}},
       margin:{t:52,b:36,l:44,r:10}, showlegend:false,
       shapes, annotations:annots, height:340,
