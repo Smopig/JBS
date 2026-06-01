@@ -1873,14 +1873,18 @@ const N_BINS        = 25;
 const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 
 // ══════════════════════════════════════════════════
-// STATE
+// STATE — 全域應用狀態（依關注點分群，見 ARCHITECTURE.md）
+// 分群為文件性註解，屬性命名與順序維持不變以確保行為相容。
 // ══════════════════════════════════════════════════
 const S = {
+  // ── 資料模型（Data Model）：解析後的量測資料與衍生索引 ──
   files: [], data: [], lots: [], items: [], globalBins: {},
   activeLots: null,   // null = show all; array = filtered subset
   loadMode: 'overwrite',     // 'overwrite' | 'append'
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
+
+  // ── 載入 / 解析（Parsing）：檔案解析快取、模板與欄位處理設定 ──
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
   _parsed: [],                  // per-file parse result cache (see parseUploadedFiles)
   _activeTemplates: {},         // { fileIdx → templateId } user override
@@ -1889,6 +1893,8 @@ const S = {
   _colSpecsUser: {},            // { origCol → {lsl, usl} } 使用者手動修改後的 SPEC (顯示單位)
   _excludedCols:    new Set(),   // original col names to skip in analysis
   _colConvOverrides: {},         // origColName → {type, factor?}
+
+  // ── 統計分頁（Statistics）──
   activeStats:      [...DEFAULT_STATS],
   statsOnlyInSpec:  false,            // 統計分頁:僅計算 SPEC 內量測點
   cntOnlyInSpec:    false,            // Count 分布:僅計算 SPEC 內量測點
@@ -1899,31 +1905,35 @@ const S = {
   statFormats:      {},
   statItems:        [''],              // list of selected measurement items
   itemRemovedStats: {},               // { item: Set<statKey> }  per-item hidden rows
-  // Chart Analysis
+
+  // ── 圖表分析（Chart Analysis）──
   chartItems:       [''],
   chartType:        'box',
   chartSpecs:       {},               // { item: { lsl, typical, usl } }
   chartSplitStep:   '',               // legacy single-step (kept for compat)
   chartSplitSteps:  [],               // multi-step selection for combined grouping
   chartSplitMode:   'individual',     // 'individual' | 'combined'
-  // Count/Pct Distribution Split
+
+  // ── Count / % 分布（Distribution）──
   cntSplitSteps:    [],               // selected split steps for Count dist
   cntSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
   pctSplitSteps:    [],               // selected split steps for Pct dist
   pctSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
-  // Split Association Analysis
+
+  // ── Split 關聯分析（Split Association）──
   splitProfiles:    {},               // { profileName: { lots, rows, groups, procNames } }
   splitLotMaps:     {},               // { profileName: { splitLotId: loadedLotName } }
   activeProfile:    '',               // currently active profile name (split panel)
   chartSplitProfile: '',              // profile used for chart split coloring
   splitItems:       [''],             // selected measurement items for split analysis
   splitEditMode:    true,             // true = editable inputs, false = read-only display
-  // Template Designer
+  // ── 模板設計器（Template Designer）──
   splitTemplates:      {},            // { name: { rows: [{stepNo, procName, condition}] } }
   activeTemplate:      '',            // currently selected template in designer
   splitBatchTemplates: {},            // { profName: templateName } — links batches to templates
   splitBatchLocked:    {},            // { profName: bool } — lock display mode per batch
-  // Wafer coordinate mask
+
+  // ── 晶圓座標遮罩（Wafer Mask）──
   maskSet:     {},     // { [lot]: Set<"x,y"> } masked die positions per lot
   maskModeOn:  false,  // whether click-to-mask mode is active
 };
