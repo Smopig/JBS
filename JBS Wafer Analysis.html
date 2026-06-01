@@ -740,6 +740,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
             📥 載入
             <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
           </label>
+          <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
         </div>
       </div>
     </div>
@@ -3751,8 +3753,25 @@ function makeHist(data,edges) {
   return counts;
 }
 function binCenters(edges) { return edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2); }
+// Memoized per-Lot row index. Replaces repeated O(n) `getLotRows(lot)`
+// scans (called once per lot per render) with a single O(n) build cached until S.data changes.
+// Invalidated automatically when S.data is reassigned (new ref) or its length changes (append).
+// NOTE: returned arrays are shared — callers must treat them as read-only.
+const _lotRowIndex = { ref: null, len: -1, map: null };
+function getLotRows(lot) {
+  if (_lotRowIndex.ref !== S.data || _lotRowIndex.len !== S.data.length) {
+    const m = new Map();
+    for (const r of S.data) {
+      let a = m.get(r.Lot);
+      if (!a) { a = []; m.set(r.Lot, a); }
+      a.push(r);
+    }
+    _lotRowIndex.ref = S.data; _lotRowIndex.len = S.data.length; _lotRowIndex.map = m;
+  }
+  return _lotRowIndex.map.get(lot) || [];
+}
 function validData(lot,item) {
-  return (lot ? S.data.filter(r=>r.Lot===lot) : S.data)
+  return (lot ? getLotRows(lot) : S.data)
     .filter(r => !_isMasked(r.Lot, r.Xpos, r.Ypos))
     .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
 }
@@ -4126,7 +4145,7 @@ function applyCircleMask() {
   const radius = parseFloat(document.getElementById('mapMaskRadius').value);
   if (isNaN(radius) || radius <= 0) { Toast.warn('請輸入有效半徑'); return; }
   getActiveLots().forEach(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     const xs = rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v));
     const ys = rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v));
     if (!xs.length) return;
@@ -4173,7 +4192,7 @@ function renderMap() {
   grid.innerHTML = '';
 
   getActiveLots().forEach(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
     const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
 
@@ -4286,7 +4305,7 @@ function doExportMapExcel() {
   // 1) 長格式總表（不上色）
   const longRows = [];
   lots.forEach(lot => {
-    S.data.filter(r => r.Lot === lot).forEach(r => {
+    getLotRows(lot).forEach(r => {
       const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
       const row = { Lot: r.Lot, Wafer: r.Wafer ?? '', Xpos: r.Xpos, Ypos: r.Ypos };
       S.items.forEach(it => { row[it] = (r[it] === '' || r[it] == null) ? null : parseFloat(r[it]); });
@@ -4310,7 +4329,7 @@ function doExportMapExcel() {
     // 該 item 跨所有作用中 wafer、未遮罩數值的 min/max（自動範圍）
     let vMin = Infinity, vMax = -Infinity;
     lots.forEach(lot => {
-      S.data.filter(r => r.Lot === lot).forEach(r => {
+      getLotRows(lot).forEach(r => {
         const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
         if (isNaN(x) || isNaN(y) || _isMasked(lot, x, y)) return;
         const v = parseFloat(r[item]);
@@ -4322,7 +4341,7 @@ function doExportMapExcel() {
     const aoa = [];
     const colorCells = [];  // {r,c,v}
     lots.forEach(lot => {
-      const rows = S.data.filter(r => r.Lot === lot);
+      const rows = getLotRows(lot);
       if (!rows.length) return;
       let xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
       let ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
@@ -5783,7 +5802,7 @@ function caScatter(items, grid) {
       groups.forEach(grp => {
         const traces = grp.lots.map(lot => {
           const li = activeLots.indexOf(lot);
-          const rows = S.data.filter(r => r.Lot === lot);
+          const rows = getLotRows(lot);
           const pts  = rows.map((r, idx) => {
             const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
                     : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
@@ -5811,7 +5830,7 @@ function caScatter(items, grid) {
       });
     } else {
       activeLots.forEach((lot, li) => {
-        const rows = S.data.filter(r => r.Lot === lot);
+        const rows = getLotRows(lot);
         const pts  = rows.map((r, idx) => {
           const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
                   : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
@@ -6145,7 +6164,7 @@ function caSPC(items, grid) {
   items.forEach(item => {
     const spec = S.chartSpecs[item] || {};
     const allRows = xAxisKey === 'lot'
-      ? aLots.flatMap(lot => S.data.filter(r => r.Lot === lot))
+      ? aLots.flatMap(lot => getLotRows(lot))
       : activeData;
     const pairs = allRows.map((r, idx) => {
       const y = parseFloat(r[item]);
@@ -6291,7 +6310,7 @@ function caCorr(items, grid) {
 
     const rawPairs = activeLots.flatMap(lot => {
       const li = aLots.indexOf(lot);
-      return S.data.filter(r => r.Lot === lot).map(r => {
+      return getLotRows(lot).map(r => {
         const x = parseFloat(r[item]);
         const y = parseFloat(r[yItem]);
         return isNaN(x)||isNaN(y) ? null : {x, y, lot, li};
@@ -6637,7 +6656,7 @@ function renderDashboard() {
       };
     });
     const overall = activeLots.map(lot => {
-      const lotRows = S.data.filter(r => r.Lot === lot);
+      const lotRows = getLotRows(lot);
       const total = lotRows.length;
       let pass = 0;
       const failByItem = {};
@@ -7123,6 +7142,34 @@ function exportSession() {
     download: `jbs_session_${new Date().toISOString().slice(0,10)}.json`
   });
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+// 將目前載入的全部量測資料以 CSV 複製到剪貼簿（含 meta 欄位 + 各量測項目）
+function copyDataCsv() {
+  if (!S.data.length) { Toast.info('尚無量測資料可複製，請先載入檔案。'); return; }
+  const metaCols = ['Lot','Wafer','Site','Bin','SBin','Xpos','Ypos']
+    .filter(c => S.data.some(r => r[c] != null && r[c] !== ''));
+  const cols = [...metaCols, ...S.items.filter(i => !metaCols.includes(i))];
+  const esc = v => {
+    v = (v == null ? '' : String(v));
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  const lines = [cols.join(',')];
+  for (const r of S.data) lines.push(cols.map(c => esc(r[c])).join(','));
+  navigator.clipboard.writeText(lines.join('\n')).then(
+    () => Toast.success(`已複製 ${S.data.length} 列資料（CSV）到剪貼簿`),
+    () => Toast.error('複製失敗，剪貼簿不可用（請改用「匯出 Excel」）')
+  );
+}
+
+// 清除 localStorage 內所有已儲存設定（不影響目前已載入的資料）
+async function resetSettings() {
+  const ok = await Toast.confirm('確定清除所有已儲存的設定（Split / SPEC / 圖表偏好 / 遮罩等）？目前載入的資料不受影響，重新整理頁面後生效。');
+  if (!ok) return;
+  try {
+    localStorage.removeItem(SETTINGS_KEY);
+    Toast.success('設定已重置，重新整理頁面即可套用預設值。');
+  } catch (e) { Toast.error('重置失敗：' + e.message); }
 }
 
 function importSession(file) {
@@ -8845,7 +8892,7 @@ window.runDataQC = function(){
 
   lots.forEach(lot => {
     items.forEach(item => {
-      const rows = S.data.filter(r => r.Lot===lot);
+      const rows = getLotRows(lot);
       let missCnt = 0;
       const vals = [];
       const rowRefs = [];
@@ -9172,7 +9219,7 @@ window.runWaferPatternClassify = function(){
   const items = S.items;
   // Use specs to mark fail; if no spec, use top/bottom 5% as proxy
   const rowsHtml = lots.map(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     if (!rows.length) return '';
     let xs = rows.map(r => parseFloat(r.Xpos)).filter(v=>!isNaN(v));
     let ys = rows.map(r => parseFloat(r.Ypos)).filter(v=>!isNaN(v));
@@ -9349,7 +9396,7 @@ function _buildSummary(){
     }
   });
   lots.forEach(lot => {
-    const rows = S.data.filter(r => r.Lot===lot);
+    const rows = getLotRows(lot);
     let pass = 0, total = 0;
     rows.forEach(r => {
       let ok = true;
