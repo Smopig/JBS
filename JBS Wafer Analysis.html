@@ -6018,12 +6018,11 @@ function renderChart() {
     setGridCols(grid, getCols('ca'));
     grid.innerHTML = '';
     caDualAxis(items, grid);
-    // 雙軸對比使用自己的左/右軸項目，統計摘要也應依這兩個項目呈現（而非上方量測項目清單）
-    const dualItems = [...new Set([
-      document.getElementById('caDualX').value,
-      document.getElementById('caDualY').value
-    ].filter(Boolean))];
-    _updateSplitStatsCompare(dualItems);
+    // 雙軸對比：統計摘要以左/右軸兩個項目「並排」呈現，共用分組欄
+    _updateSplitStatsCompare(null, {
+      left:  document.getElementById('caDualX').value,
+      right: document.getElementById('caDualY').value
+    });
     setTimeout(() => _applyChartCardEnhancements(grid), 0);
     return;
   }
@@ -6050,11 +6049,12 @@ function renderChart() {
 
 // Render Split group comparison stats table below the chart grid.
 // Uses multi-step combo grouping when multiple steps are selected.
-function _updateSplitStatsCompare(items) {
+function _updateSplitStatsCompare(items, dual) {
   const div = document.getElementById('caStatsCompare');
   if (!div) return;
   const steps = S.chartSplitSteps;
-  if (!steps.length || !items || !items.length) { div.style.display = 'none'; return; }
+  const hasItems = dual ? (dual.left || dual.right) : (items && items.length);
+  if (!steps.length || !hasItems) { div.style.display = 'none'; return; }
 
   // Build groups using same combo-key logic as getChartGroups
   const order = [];
@@ -6098,7 +6098,9 @@ function _updateSplitStatsCompare(items) {
                  title="將統計摘要匯出為 CSV 檔（可用 Excel 開啟）">📑 匯出 CSV</button>
        </div>
      </div>
-     <div id="${tbId}">${buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec)}</div>`;
+     <div id="${tbId}">${dual
+        ? buildDualStatsHtml(dual.left, dual.right, groups, steps.join(' + '), S.chartOnlyInSpec)
+        : buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec)}</div>`;
   div.style.display = '';
 }
 
@@ -8599,13 +8601,11 @@ function renderSplitAnalysis() {
   resultWrap.style.display = '';
 }
 
-function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
-  const liveGroups = groups.filter(g => g.lots.length > 0);
-
-  // 統一的統計欄位順序：N, Mean, Median, Min, Max, Std, 再接自訂公式（若有定義才出現）
+// 統一的統計欄位定義：N, Mean, Median, Min, Max, Std, 再接已定義的自訂公式欄
+function _statMetricCols() {
   const customs = S.customStats || [];
   const cFns    = customs.length ? getAllStatFns() : {};
-  const metricCols = [
+  const cols = [
     { key:'N',      get:v => v.length },
     { key:'Mean',   get:v => v.length ? rd(mean(v),4) : '—' },
     { key:'Median', get:v => v.length ? rd(median(v),4) : '—' },
@@ -8613,7 +8613,7 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
     { key:'Max',    get:v => v.length ? rd(Math.max(...v),4) : '—' },
     { key:'Std',    get:v => v.length >= 2 ? rd(std(v),4) : '—' },
   ];
-  customs.forEach(cs => metricCols.push({
+  customs.forEach(cs => cols.push({
     key: cs.label, custom: true,
     get: (v, spec) => {
       if (!v.length) return '—';
@@ -8621,6 +8621,50 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
       return (typeof r === 'number' && isFinite(r)) ? rd(r,4) : (r == null ? '—' : r);
     }
   }));
+  return cols;
+}
+
+// 雙軸對比：左、右兩個項目各一組統計並排，共用「分組」欄
+function buildDualStatsHtml(leftItem, rightItem, groups, procName, onlyInSpec) {
+  const liveGroups = groups.filter(g => g.lots.length > 0);
+  const metricCols = _statMetricCols();
+  const items = [leftItem, rightItem].filter(Boolean);
+  if (!items.length || !liveGroups.length) return '';
+  const colors = ['#3182ce', '#dd6b20'];
+  const specOf  = item => (S.chartSpecs && S.chartSpecs[item]) || {};
+  const valsFor = (g, item) => _inSpecArr(
+    S.data.filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]),
+    item, onlyInSpec);
+
+  let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（雙軸對比 · 左右並排）</div>`;
+  html += '<div style="overflow:auto;max-height:360px"><table class="stats" style="font-size:11px;white-space:nowrap"><thead>';
+  // 第一列表頭：分組（跨兩列）＋ 各項目橫跨其統計欄
+  html += '<tr><th rowspan="2">分組</th>';
+  items.forEach((it, idx) =>
+    html += `<th colspan="${metricCols.length}" style="color:${colors[idx]};border-left:2px solid var(--border);text-align:center">${escHtml(it)}</th>`);
+  html += '</tr><tr>';
+  items.forEach(() => metricCols.forEach((c, ci) =>
+    html += `<th${ci === 0 ? ' style="border-left:2px solid var(--border)"' : ''}>${escHtml(c.key)}</th>`));
+  html += '</tr></thead><tbody>';
+  liveGroups.forEach(g => {
+    const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color.mk};margin-right:4px;vertical-align:middle"></span>`;
+    html += `<tr><td style="color:${g.color.fg};font-weight:600">${dot}${escHtml(g.label)}</td>`;
+    items.forEach(it => {
+      const v = valsFor(g, it), spec = specOf(it);
+      metricCols.forEach((c, ci) =>
+        html += `<td${ci === 0 ? ' style="border-left:2px solid var(--border)"' : ''}>${c.get(v, spec)}</td>`);
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
+  const liveGroups = groups.filter(g => g.lots.length > 0);
+
+  // 統一的統計欄位順序：N, Mean, Median, Min, Max, Std, 再接自訂公式（若有定義才出現）
+  const metricCols = _statMetricCols();
   const specOf = item => (S.chartSpecs && S.chartSpecs[item]) || {};
 
   if (dispMode === 'individual') {
