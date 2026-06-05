@@ -1373,7 +1373,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
                                    min-width:200px;max-height:280px;overflow-y:auto;
                                    box-shadow:0 6px 24px rgba(0,0,0,.45);padding:4px 0"></div>
       </div>
-      <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；可選整批 Lot 或指定 wafer 作為 X 軸（SPLIT 分組啟用時改依分組）</span>
+      <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；<strong>只選一個項目＝單軸趨勢圖</strong>，兩個都選＝雙軸對比。可選整批 Lot 或指定 wafer 作為 X 軸（SPLIT 分組啟用時改依分組）</span>
     </div>
 
     <!-- 進階設定（樣式 / 色盤 / SPEC 線）— 預設收合以節省畫面空間 -->
@@ -1802,6 +1802,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <ul>
         <li>以<strong>批次 (Lot)</strong>（或 SPLIT 分組）為 X 軸，左右軸各畫一條趨勢折線</li>
         <li><strong>左軸</strong>（藍色）與<strong>右軸</strong>（橘色）各自獨立選擇量測項目與<strong>統計量</strong>（Mean / Median / Min / Max / Std / P5 / P25 / P75 / P95），各有獨立 Y 軸刻度</li>
+        <li><strong>單軸使用</strong>：只選左右其中一個項目（另一個留「-- 選擇 --」），即以單一 Y 軸畫該項目的批次趨勢圖</li>
         <li>適合比較不同量測階段（如 CP 與 FT）同性質參數的批次趨勢一致性</li>
         <li><strong>X 軸</strong>可選「整批 Lot（家族合併）」或「個別 Wafer」，並用 wafer 下拉勾選只納入特定幾片 wafer</li>
         <li>啟用 <strong>SPLIT 分組</strong>時 X 軸改以分組呈現（此時 X 軸選擇器停用）；<strong>僅計算 SPEC 內</strong>開啟時資料先經 SPEC 過濾</li>
@@ -6460,11 +6461,12 @@ function caDualAxis(items, grid) {
   const rightItem = document.getElementById('caDualY').value;
   const leftStat  = document.getElementById('caDualXStat').value || 'Median';
   const rightStat = document.getElementById('caDualYStat').value || 'Median';
-  if (!leftItem || !rightItem) {
+  if (!leftItem && !rightItem) {
     grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">'
-      + '請選擇左軸項目與右軸項目。</div>';
+      + '請至少選擇左軸或右軸其中一個項目（兩者皆選＝雙軸對比，只選一個＝單軸趨勢）。</div>';
     return;
   }
+  const hasL = !!leftItem, hasR = !!rightItem;
   const fnL = STAT_FNS[leftStat], fnR = STAT_FNS[rightStat];
 
   const xs = [], yL = [], yR = [];
@@ -6503,27 +6505,41 @@ function caDualAxis(items, grid) {
   }
 
   const cL = '#3182ce', cR = '#dd6b20';
+  const dual = hasL && hasR;          // true = 雙軸；false = 單軸趨勢
   const id = uid('ca', leftItem + rightItem + 'dual');
   grid.insertAdjacentHTML('beforeend',
     `<div class="chart-card"><div id="${id}" style="height:400px"></div></div>`);
-  Plotly.newPlot(id, [
-    { type:'scatter', mode:'lines+markers', name:`${leftItem} (${leftStat})`,
-      x:xs, y:yL, yaxis:'y', connectgaps:true,
-      marker:{color:cL, size:9}, line:{color:cL, width:2} },
-    { type:'scatter', mode:'lines+markers', name:`${rightItem} (${rightStat})`,
-      x:xs, y:yR, yaxis:'y2', connectgaps:true,
-      marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} }
-  ], {
-    title:{text:`${escHtml(leftItem)} (${leftStat}) 與 ${escHtml(rightItem)} (${rightStat}) 批次趨勢對比`, font:{size:13}},
-    margin:{t:50, b:60, l:64, r:64}, height:400,
+
+  const traces = [];
+  if (hasL) traces.push({
+    type:'scatter', mode:'lines+markers', name:`${leftItem} (${leftStat})`,
+    x:xs, y:yL, yaxis:'y', connectgaps:true,
+    marker:{color:cL, size:9}, line:{color:cL, width:2} });
+  if (hasR) traces.push({
+    type:'scatter', mode:'lines+markers', name:`${rightItem} (${rightStat})`,
+    // 單軸（只選右軸）時也畫在主 Y 軸上
+    x:xs, y:yR, yaxis: dual ? 'y2' : 'y', connectgaps:true,
+    marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} });
+
+  const title = dual
+    ? `${escHtml(leftItem)} (${leftStat}) 與 ${escHtml(rightItem)} (${rightStat}) 批次趨勢對比`
+    : (hasL ? `${escHtml(leftItem)} (${leftStat})` : `${escHtml(rightItem)} (${rightStat})`) + ' 批次趨勢';
+  // 單軸時，主 Y 軸標題/顏色取被選的那一邊
+  const primItem = hasL ? leftItem : rightItem;
+  const primColor = hasL ? cL : cR;
+  const layout = {
+    title:{text:title, font:{size:13}},
+    margin:{t:50, b:60, l:64, r:dual ? 64 : 24}, height:400,
     legend:{orientation:'h', y:-0.2, x:0.5, xanchor:'center'},
+    showlegend:dual,
     xaxis:{title:{text:S.chartSplitSteps.length ? '分組'
             : (document.getElementById('caDualXMode').value === 'wafer' ? 'Wafer' : '批次 (Lot)'),
             font:{size:11}}, type:'category'},
-    yaxis:{title:{text:escHtml(leftItem), font:{size:11, color:cL}}, tickfont:{color:cL}},
-    yaxis2:{title:{text:escHtml(rightItem), font:{size:11, color:cR}}, tickfont:{color:cR},
-            overlaying:'y', side:'right'}
-  }, {responsive:true, displayModeBar:false});
+    yaxis:{title:{text:escHtml(primItem), font:{size:11, color:primColor}}, tickfont:{color:primColor}}
+  };
+  if (dual) layout.yaxis2 = {title:{text:escHtml(rightItem), font:{size:11, color:cR}},
+            tickfont:{color:cR}, overlaying:'y', side:'right'};
+  Plotly.newPlot(id, traces, layout, {responsive:true, displayModeBar:false});
 }
 
 // ── Bar + Error Bar ──
