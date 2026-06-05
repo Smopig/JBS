@@ -23,17 +23,30 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .tab-btn:hover  { color: #1a365d; }
 .tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.content   { padding: 18px 22px; }
+.content   { padding: 14px 18px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
 /* Upload */
-.upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 32px; text-align: center;
-               cursor: pointer; background: white; transition: all .2s; }
-.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: #ebf8ff; }
-.upload-icon { font-size: 40px; margin-bottom: 8px; }
-.upload-text { font-size: 15px; color: #4a5568; }
-.upload-hint { font-size: 11px; color: #a0aec0; margin-top: 4px; }
+.upload-top { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin-bottom: 8px; }
+.upload-area { border: 1.5px dashed var(--border-2, #cbd5e0); border-radius: 8px; padding: 12px 18px;
+               cursor: pointer; background: var(--bg-2, #f7fafc); transition: all .15s;
+               display: flex; align-items: center; gap: 14px; text-align: left; flex: 1; min-width: 280px; }
+.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: var(--accent-glow, #ebf8ff); }
+.upload-icon { font-size: 26px; margin: 0; line-height: 1; }
+.upload-text { font-size: 14px; color: var(--text, #4a5568); font-weight: 600; }
+.upload-hint { font-size: 11px; color: var(--text-3, #a0aec0); margin-top: 2px; }
+/* Session toolbar + parse-settings card (data-load page) */
+.session-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+               padding: 6px 12px; background: var(--bg-1); border: 1px solid var(--border);
+               border-radius: var(--radius-lg); margin-bottom: 8px; }
+.session-lbl { font-size: 11px; color: var(--text-2); font-weight: 600;
+               text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+.load-card { background: var(--bg-1); border: 1px solid var(--border);
+             border-radius: var(--radius-lg); padding: 12px 14px; margin-bottom: 10px; }
+.load-card-hd { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 10px;
+                display: flex; align-items: center; gap: 8px; }
+.load-card-hd .summary-hint { font-weight: 400; font-size: 11px; color: var(--text-3); }
 
 /* Settings row */
 .settings-row { display: flex; align-items: flex-end; gap: 16px; margin: 14px 0; flex-wrap: wrap; }
@@ -523,6 +536,38 @@ body.density-cozy .chart-grid { gap: 20px; }
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+/* ── 資料載入頁：可收折區塊 ── */
+.load-acc { background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); margin-bottom: 8px; overflow: hidden; }
+.load-acc > summary { list-style: none; cursor: pointer; user-select: none;
+  padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 8px; background: var(--bg-2); }
+.load-acc > summary::-webkit-details-marker { display: none; }
+.load-acc > summary::before { content: '▸'; color: var(--text-3); font-size: 11px; }
+.load-acc[open] > summary::before { content: '▾'; }
+.load-acc > summary:hover { color: var(--accent); }
+.load-acc > summary .summary-hint { font-weight: 400; font-size: 11px;
+  color: var(--text-3); margin-left: auto; }
+.load-acc-body { padding: 10px 14px; }
+#panel-upload .settings-row { margin: 0; }
+
+/* ── 圖表分析控制列：更緊湊的排版，減少佔用畫面高度 ── */
+#panel-chart .ctrl { padding: 6px 12px; margin-bottom: 6px; gap: 8px 10px; }
+#panel-chart .ctrl select,
+#panel-chart .ctrl input[type=number],
+#panel-chart .ctrl input[type=text] { padding: 4px 8px; }
+/* 進階設定（樣式 / 色盤 / SPEC 線）摺疊區，預設收合 */
+#panel-chart .ca-adv { background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); margin-bottom: 6px; }
+#panel-chart .ca-adv > summary { cursor: pointer; list-style: none; padding: 7px 12px;
+  font-size: 12px; font-weight: 700; color: var(--text-2); user-select: none; }
+#panel-chart .ca-adv > summary::-webkit-details-marker { display: none; }
+#panel-chart .ca-adv > summary::before { content: '▸ '; color: var(--text-3); }
+#panel-chart .ca-adv[open] > summary::before { content: '▾ '; }
+#panel-chart .ca-adv > summary:hover { color: var(--text); }
+#panel-chart .ca-adv .ctrl { border: none; border-radius: 0; margin-bottom: 0;
+  border-top: 1px solid var(--border); }
+
 /* ── Chart cards ── */
 .chart-card {
   background: var(--bg-1); border: 1px solid var(--border);
@@ -694,82 +739,92 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <div id="panel-upload" class="tab-panel active">
     <div id="libError"></div>
 
-    <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
-      <div class="upload-icon">📁</div>
-      <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
-      <div class="upload-hint">支援 .xls / .xlsx / .csv ｜ 自動辨識多種 CP 格式（JUNO XLS、POWORLD CSV、dlogTDO 等）</div>
+    <!-- ── 上傳區（拖曳）＋ 載入模式：永遠顯示 ── -->
+    <div class="upload-top">
+      <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
+        <div class="upload-icon">📁</div>
+        <div>
+          <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
+          <div class="upload-hint">支援 .xls / .xlsx / .csv ｜ 自動辨識多種 CP 格式（JUNO XLS、POWORLD CSV、dlogTDO 等）</div>
+        </div>
+      </div>
+      <div class="load-mode-bar" style="margin:0">
+        <span class="lbl">載入模式</span>
+        <div class="seg" id="loadModeSeg">
+          <button class="on" type="button" onclick="setLoadMode('overwrite',this)">↺ 覆蓋上次</button>
+          <button type="button" onclick="setLoadMode('append',this)">＋ 附加（保留既有）</button>
+        </div>
+        <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
+      </div>
     </div>
     <input type="file" id="fi" multiple accept=".xls,.xlsx,.csv" style="display:none"
            onchange="handleFiles(this.files)">
 
-    <!-- 載入模式 (覆蓋/附加) -->
-    <div class="load-mode-bar">
-      <span class="lbl">載入模式</span>
-      <div class="seg" id="loadModeSeg">
-        <button class="on" type="button" onclick="setLoadMode('overwrite',this)">↺ 覆蓋上次</button>
-        <button type="button" onclick="setLoadMode('append',this)">＋ 附加（保留既有）</button>
-      </div>
-      <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
+    <!-- ── 工作階段工具列：永遠顯示（可在空白頁面載入先前 session） ── -->
+    <div class="session-bar">
+      <span class="session-lbl">工作階段</span>
+      <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
+        📥 載入工作階段
+        <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
+      </label>
+      <button class="btn btn-gray" style="font-size:12px" onclick="exportSession()" id="btnExpSession" disabled>📤 匯出工作階段</button>
+      <button class="btn btn-green" style="font-size:12px" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
+      <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:auto" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
     </div>
+    <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin:-4px 0 10px"></div>
 
-    <div class="settings-row">
-      <div class="sg">
-        <label>格式偵測</label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);cursor:pointer">
-          <input type="checkbox" id="autoDetectChk" checked onchange="onAutoDetectChange(this)">
-          <span>自動偵測（依檔案內容判別 Template）</span>
-        </label>
+    <details id="fileListSection" class="load-acc" style="display:none" open>
+      <summary>📄 已載入的檔案<span class="summary-hint" id="fileListHint"></span></summary>
+      <div class="load-acc-body">
+        <div id="fileList" class="file-list"></div>
       </div>
-      <div class="sg">
-        <label>標題列號 <span style="color:var(--text-3);font-size:10px">（自動模式下會被覆寫）</span></label>
-        <input type="number" id="headerRow" value="13" min="1" max="200" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>資料起始列號</label>
-        <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>USL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
-        <input type="number" id="uslRow" placeholder="auto" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>LSL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
-        <input type="number" id="lslRow" placeholder="auto" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>&nbsp;</label>
-        <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
-          <span class="step-badge">1</span> 載入欄位
-        </button>
-      </div>
-      <div class="sg">
-        <label>&nbsp;</label>
-        <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
-      </div>
-      <div class="sg" style="margin-left:auto">
-        <label style="font-size:11px;color:var(--text-3)">工作階段</label>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button class="btn btn-gray" style="font-size:12px" onclick="exportSession()" id="btnExpSession" disabled>📤 匯出</button>
-          <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
-            📥 載入
-            <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
-          </label>
-          <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
-          <button class="btn btn-gray" style="font-size:12px" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
-        </div>
-      </div>
-    </div>
-    <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin-top:4px"></div>
-
-    <div id="fileList" class="file-list"></div>
+    </details>
     <div id="upStatus"></div>
 
-    <!-- ── Template detection panel (shown after step 1) ── -->
-    <div id="detectSection" style="display:none;margin-top:10px;padding:10px 12px;
-         background:var(--bg-2);border:1px solid var(--border-2);border-radius:6px">
+    <!-- ── 解析設定：上傳檔案後才出現，可收折 ── -->
+    <details id="parseSection" class="load-acc" style="display:none" open>
+      <summary>⚙ 解析設定<span class="summary-hint">確認設定後點「載入欄位」</span></summary>
+      <div class="load-acc-body">
+      <div class="settings-row">
+        <div class="sg">
+          <label>格式偵測</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);cursor:pointer">
+            <input type="checkbox" id="autoDetectChk" checked onchange="onAutoDetectChange(this)">
+            <span>自動偵測（依檔案內容判別 Template）</span>
+          </label>
+        </div>
+        <div class="sg">
+          <label>標題列號 <span style="color:var(--text-3);font-size:10px">（自動模式下會被覆寫）</span></label>
+          <input type="number" id="headerRow" value="13" min="1" max="200" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>資料起始列號</label>
+          <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>USL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+          <input type="number" id="uslRow" placeholder="auto" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>LSL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+          <input type="number" id="lslRow" placeholder="auto" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg" style="margin-left:auto">
+          <label>&nbsp;</label>
+          <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
+            <span class="step-badge">1</span> 載入欄位
+          </button>
+        </div>
+      </div>
+      </div>
+    </details>
+
+    <!-- ── 區塊 3：格式偵測（步驟 1 後顯示） ── -->
+    <details id="detectSection" class="load-acc" style="display:none" open>
+      <summary>📋 偵測到的 CP 格式<span class="summary-hint">每個檔案可手動切換 Template，再按「載入欄位」重新解析</span></summary>
+      <div class="load-acc-body">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-        <div style="font-weight:600;font-size:13px">📋 偵測到的 CP 格式</div>
-        <span style="font-size:11px;color:var(--text-3)">每個檔案可手動切換 Template，再次按「載入欄位」會重新解析</span>
         <div style="margin-left:auto;display:flex;gap:6px">
           <button class="btn btn-gray" style="font-size:11px" onclick="exportTemplatesJSON()">📤 匯出 Template JSON</button>
           <label class="btn btn-gray" style="font-size:11px;cursor:pointer">📥 匯入
@@ -779,15 +834,17 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         </div>
       </div>
       <div id="detectList" style="display:flex;flex-direction:column;gap:6px"></div>
-    </div>
+      </div>
+    </details>
 
-    <!-- ── Rename section (shown after step 1) ── -->
-    <div id="renameSection" class="rename-section" style="display:none">
+    <!-- ── 區塊 4：欄位命名與分析（步驟 1 後顯示） ── -->
+    <details id="renameSection" class="load-acc" style="display:none" open>
+      <summary><span class="step-badge">2</span> 欄位命名與分析<span class="summary-hint">修改欄位名稱與換算方式，套用後開始分析</span></summary>
+      <div class="load-acc-body">
       <div class="rename-header">
         <div>
-          <div class="title"><span class="step-badge">2</span> 欄位命名</div>
           <div class="hint">
-            修改欄位名稱與換算方式 ｜ <span style="color:#90cdf4">IR_ → ×1,000,000（A→uA）</span>
+            <span style="color:#90cdf4">IR_ → ×1,000,000（A→uA）</span>
             ｜ <span style="color:#9ae6b4">VR_ → round 0.1</span>
             ｜ <span style="color:#fefcbf">VF_ → round 0.001</span>
             ｜ 自訂模式可輸入任意倍數
@@ -867,7 +924,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         </button>
         <span style="font-size:11px; color:#718096">名稱不改也可以直接分析</span>
       </div>
-    </div>
+      </div>
+    </details>
   </div>
 
   <!-- ══ Dashboard ══ -->
@@ -1315,9 +1373,12 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
                                    min-width:200px;max-height:280px;overflow-y:auto;
                                    box-shadow:0 6px 24px rgba(0,0,0,.45);padding:4px 0"></div>
       </div>
-      <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；可選整批 Lot 或指定 wafer 作為 X 軸（SPLIT 分組啟用時改依分組）</span>
+      <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；<strong>只選一個項目＝單軸趨勢圖</strong>，兩個都選＝雙軸對比。可選整批 Lot 或指定 wafer 作為 X 軸（SPLIT 分組啟用時改依分組）</span>
     </div>
 
+    <!-- 進階設定（樣式 / 色盤 / SPEC 線）— 預設收合以節省畫面空間 -->
+    <details class="ca-adv">
+      <summary>⚙ 進階設定（SPEC 線 / 圖表樣式 / 色盤 / 線型）</summary>
     <!-- Row 4: SPEC lines -->
     <div class="ctrl" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
       <label style="font-size:12px;font-weight:700;white-space:nowrap">SPEC 線：</label>
@@ -1367,6 +1428,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <button class="btn btn-gray" style="font-size:11px" onclick="resetChartStyle()">↩ 還原預設</button>
       </div>
     </div>
+    </details>
 
     <!-- Chart output grid -->
     <div id="caGrid" class="chart-grid"></div>
@@ -1740,6 +1802,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <ul>
         <li>以<strong>批次 (Lot)</strong>（或 SPLIT 分組）為 X 軸，左右軸各畫一條趨勢折線</li>
         <li><strong>左軸</strong>（藍色）與<strong>右軸</strong>（橘色）各自獨立選擇量測項目與<strong>統計量</strong>（Mean / Median / Min / Max / Std / P5 / P25 / P75 / P95），各有獨立 Y 軸刻度</li>
+        <li><strong>單軸使用</strong>：只選左右其中一個項目（另一個留「-- 選擇 --」），即以單一 Y 軸畫該項目的批次趨勢圖</li>
         <li>適合比較不同量測階段（如 CP 與 FT）同性質參數的批次趨勢一致性</li>
         <li><strong>X 軸</strong>可選「整批 Lot（家族合併）」或「個別 Wafer」，並用 wafer 下拉勾選只納入特定幾片 wafer</li>
         <li>啟用 <strong>SPLIT 分組</strong>時 X 軸改以分組呈現（此時 X 軸選擇器停用）；<strong>僅計算 SPEC 內</strong>開啟時資料先經 SPEC 過濾</li>
@@ -2611,6 +2674,7 @@ function renderDetectionPanel() {
   }
   list.innerHTML = html;
   sec.style.display = 'block';
+  if (sec.tagName === 'DETAILS') sec.open = true;
 }
 
 async function setGroupRowOverride(groupKey, key, val) {
@@ -2677,6 +2741,47 @@ async function importTemplatesJSON(file) {
       font:  cs.getPropertyValue('--ff-sans').trim() || 'Noto Sans TC, sans-serif',
     };
   }
+  function _autoFitPlotLayout(lay, data) {
+    if (!Array.isArray(data) || !data.length) return;
+
+    // 1) 蒐集 X 軸類別標籤（box/violin 以 trace.name 當類別；其餘看字串型 x 值）
+    const xLabels = new Set();
+    data.forEach(t => {
+      if (!t) return;
+      const tp = t.type || 'scatter';
+      if ((tp === 'box' || tp === 'violin') && t.x == null && t.name != null) xLabels.add(String(t.name));
+      if (Array.isArray(t.x)) t.x.forEach(v => { if (typeof v === 'string') xLabels.add(v); });
+    });
+    const xArr   = [...xLabels];
+    const xMax   = xArr.reduce((m, s) => Math.max(m, s.length), 0);
+    // 長標籤或數量多 → 旋轉並讓 Plotly 自動保留底部空間，所有類別都顯示得出來
+    if (xArr.length && (xMax > 10 || xArr.length > 8)) {
+      const xa = lay.xaxis = lay.xaxis || {};
+      if (xa.tickangle == null) xa.tickangle = -40;
+      xa.automargin = true;
+      xa.tickfont = Object.assign({ size: 9 }, xa.tickfont);
+    }
+
+    // 2) 圖例：多 trace 時預設為右側可捲動垂直圖例；置於底部的水平圖例也改到右側，
+    //    避免與旋轉後的長 X 標籤重疊（截圖中的批次趨勢對比即此情況）
+    const legTraces = data.filter(t => t && t.showlegend !== false && t.name != null);
+    const showLeg   = lay.showlegend !== false && legTraces.length > 1;
+    if (showLeg) {
+      const lg = lay.legend;
+      const isUnset   = !lg || (lg.orientation == null && lg.x == null);
+      const isBottomH = lg && lg.orientation === 'h' && lg.y != null && lg.y < 0.2;
+      if (isUnset || isBottomH) {
+        lay.legend = Object.assign({}, lg || {}, {
+          orientation: 'v', x: 1.02, xanchor: 'left', y: 1, yanchor: 'top'
+        });
+        const legMax = legTraces.reduce((m, t) => Math.max(m, String(t.name).length), 0);
+        const need   = Math.min(240, 70 + legMax * 6);   // 依名稱長度預留右側寬度
+        lay.margin = Object.assign({}, lay.margin);
+        if (lay.margin.r == null || lay.margin.r < need) lay.margin.r = need;
+      }
+    }
+  }
+
   Plotly.newPlot = function(div, data, layout, config) {
     const c = getThemeColors();
     const lay = Object.assign({
@@ -2693,6 +2798,11 @@ async function importTemplatesJSON(file) {
         }, lay[k]);
       }
     });
+    // ── Auto-fit: long X category labels + crowded / bottom legends ──
+    // Keeps every chart readable when there are many groups or long names:
+    //  · 長 X 類別標籤 → 旋轉 + automargin，避免被截斷或與圖例重疊
+    //  · 圖例過多 / 置於底部 → 改為右側可捲動垂直圖例（Plotly 會自動加捲軸）
+    try { _autoFitPlotLayout(lay, data); } catch (e) { /* never block plotting */ }
     if (lay.legend) lay.legend = Object.assign({ font:{ color: c.text, size: 10 } }, lay.legend);
     const cfg = Object.assign({ displaylogo:false, responsive:true }, config || {});
     return _newPlot.call(this, div, data, lay, cfg);
@@ -2803,6 +2913,13 @@ function renderFileList() {
       </div>`;
     }).join('');
   document.getElementById('btnLoad').disabled = S.files.length === 0;
+  // 已載入檔案區 / 解析設定 僅在已選取檔案後顯示
+  const fls = document.getElementById('fileListSection');
+  if (fls) fls.style.display = S.files.length ? '' : 'none';
+  const flh = document.getElementById('fileListHint');
+  if (flh) flh.textContent = S.files.length ? `共 ${S.files.length} 個檔案` : '';
+  const ps = document.getElementById('parseSection');
+  if (ps) ps.style.display = S.files.length ? '' : 'none';
   document.getElementById('upStatus').innerHTML = S.files.length
     ? `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「步驟 1：載入欄位」</div>`
     : '';
@@ -2948,7 +3065,7 @@ async function loadColumns() {
   if (S._renameScope !== '*' && !_formatGroups().some(g => g.key === S._renameScope)) S._renameScope = '*';
 
   buildRenameTable();
-  document.getElementById('renameSection').style.display = 'block';
+  (function(rs){ rs.style.display = 'block'; if (rs.tagName === 'DETAILS') rs.open = true; })(document.getElementById('renameSection'));
   refreshNamingUI();
 
   renderDetectionPanel();
@@ -4098,6 +4215,38 @@ function addCustomStat() {
   document.getElementById('stFnLabel').value = '';
   document.getElementById('stFnFormula').value = '';
   renderCustomStatTags(); renderStatChips(); renderStats();
+}
+// ── 圖表分析「統計摘要」就地新增/刪除自訂公式欄 ──
+function addChartCustomStat() {
+  const label = prompt('自訂統計欄位名稱（例如：Cpk、Range、Cp）：');
+  if (label == null) return;
+  const lab = label.trim();
+  if (!lab) return;
+  if (!S.customStats) S.customStats = [];
+  if (S.customStats.some(cs => cs.label === lab)) { alert(`已存在同名欄位「${lab}」`); return; }
+  const formula = prompt(
+    '請輸入公式，可用變數：\n' +
+    'Count, Min, Max, Mean, Median, Std, LSL, USL, Typical\n\n' +
+    '範例：\n' +
+    '· Range → Max - Min\n' +
+    '· Cpk   → Math.min((USL-Mean),(Mean-LSL))/(3*Std)\n' +
+    '· Cp    → (USL-LSL)/(6*Std)');
+  if (formula == null) return;
+  const f = formula.trim();
+  if (!f) return;
+  S.customStats.push({ label: lab, formula: f });
+  if (typeof renderCustomStatTags === 'function') renderCustomStatTags();
+  if (typeof debounceSave === 'function') debounceSave();
+  renderChart();
+}
+function removeChartCustomStat(i) {
+  if (!S.customStats || !S.customStats[i]) return;
+  const label = S.customStats[i].label;
+  S.customStats.splice(i, 1);
+  S.activeStats = (S.activeStats || []).filter(k => k !== label);
+  if (typeof renderCustomStatTags === 'function') renderCustomStatTags();
+  if (typeof debounceSave === 'function') debounceSave();
+  renderChart();
 }
 function removeCustomFormula(i) {
   const label = S.customStats[i].label;
@@ -5322,7 +5471,16 @@ function _applyChartCardEnhancements(grid) {
         b.style.cssText = 'font-size:10px;padding:1px 8px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:3px;cursor:pointer';
         b.onclick = () => {
           try {
-            Plotly.downloadImage(plotDiv, { format: fmt, filename: 'chart_' + Date.now(), scale: 2 });
+            const fl = plotDiv._fullLayout || {};
+            const baseW = fl.width  || plotDiv.offsetWidth  || 700;
+            const baseH = fl.height || plotDiv.offsetHeight || 320;
+            // 匯出時把畫布加高，讓「右側捲動圖例」的所有項目都完整入鏡（不再被截斷）
+            const nLeg  = (plotDiv.data || []).filter(t => t && t.showlegend !== false && t.name != null).length;
+            const needH = Math.max(baseH, 70 + nLeg * 20 + 40);
+            Plotly.downloadImage(plotDiv, {
+              format: fmt, filename: 'chart_' + Date.now(), scale: 2,
+              width: baseW, height: needH
+            });
           } catch(e) { alert('匯出失敗：' + (e && e.message || e)); }
         };
         return b;
@@ -5910,6 +6068,11 @@ function renderChart() {
     setGridCols(grid, getCols('ca'));
     grid.innerHTML = '';
     caDualAxis(items, grid);
+    // 雙軸對比：統計摘要以左/右軸兩個項目「並排」呈現，共用分組欄
+    _updateSplitStatsCompare(null, {
+      left:  document.getElementById('caDualX').value,
+      right: document.getElementById('caDualY').value
+    });
     setTimeout(() => _applyChartCardEnhancements(grid), 0);
     return;
   }
@@ -5936,11 +6099,12 @@ function renderChart() {
 
 // Render Split group comparison stats table below the chart grid.
 // Uses multi-step combo grouping when multiple steps are selected.
-function _updateSplitStatsCompare(items) {
+function _updateSplitStatsCompare(items, dual) {
   const div = document.getElementById('caStatsCompare');
   if (!div) return;
   const steps = S.chartSplitSteps;
-  if (!steps.length || !items || !items.length) { div.style.display = 'none'; return; }
+  const hasItems = dual ? (dual.left || dual.right) : (items && items.length);
+  if (!steps.length || !hasItems) { div.style.display = 'none'; return; }
 
   // Build groups using same combo-key logic as getChartGroups
   const order = [];
@@ -5959,7 +6123,34 @@ function _updateSplitStatsCompare(items) {
   if (!order.length) { div.style.display = 'none'; return; }
 
   const groups = order.map(k => map[k]);
-  div.innerHTML = buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec);
+  const tbId = 'caStatsCompareInner';
+  const chips = (S.customStats || []).map((cs, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-2);border:1px solid var(--border-2);
+                  border-radius:4px;padding:2px 6px;font-size:11px;white-space:nowrap">
+       <b>${escHtml(cs.label)}</b><code style="color:var(--accent)">${escHtml(cs.formula)}</code>
+       <button onclick="removeChartCustomStat(${i})" title="刪除此自訂公式欄"
+               style="border:none;background:none;cursor:pointer;color:#fc8181;font-size:14px;line-height:1;padding:0 2px">×</button>
+     </span>`).join('');
+  div.innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+         <button onclick="addChartCustomStat()"
+                 style="font-size:11px;padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer"
+                 title="新增一欄自訂公式（可用 Count/Min/Max/Mean/Median/Std/LSL/USL/Typical）">➕ 自訂公式欄</button>
+         ${chips}
+       </div>
+       <div style="display:flex;gap:6px">
+         <button onclick="exportStatsTableImage('${tbId}','統計摘要')"
+                 style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+                 title="將統計摘要存成 PNG 圖片">📷 存成圖片</button>
+         <button onclick="exportStatsTableCsv('${tbId}','統計摘要')"
+                 style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+                 title="將統計摘要匯出為 CSV 檔（可用 Excel 開啟）">📑 匯出 CSV</button>
+       </div>
+     </div>
+     <div id="${tbId}">${dual
+        ? buildDualStatsHtml(dual.left, dual.right, groups, steps.join(' + '), S.chartOnlyInSpec)
+        : buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec)}</div>`;
   div.style.display = '';
 }
 
@@ -6270,11 +6461,12 @@ function caDualAxis(items, grid) {
   const rightItem = document.getElementById('caDualY').value;
   const leftStat  = document.getElementById('caDualXStat').value || 'Median';
   const rightStat = document.getElementById('caDualYStat').value || 'Median';
-  if (!leftItem || !rightItem) {
+  if (!leftItem && !rightItem) {
     grid.innerHTML = '<div style="padding:20px;color:#718096;font-size:13px">'
-      + '請選擇左軸項目與右軸項目。</div>';
+      + '請至少選擇左軸或右軸其中一個項目（兩者皆選＝雙軸對比，只選一個＝單軸趨勢）。</div>';
     return;
   }
+  const hasL = !!leftItem, hasR = !!rightItem;
   const fnL = STAT_FNS[leftStat], fnR = STAT_FNS[rightStat];
 
   const xs = [], yL = [], yR = [];
@@ -6313,27 +6505,41 @@ function caDualAxis(items, grid) {
   }
 
   const cL = '#3182ce', cR = '#dd6b20';
+  const dual = hasL && hasR;          // true = 雙軸；false = 單軸趨勢
   const id = uid('ca', leftItem + rightItem + 'dual');
   grid.insertAdjacentHTML('beforeend',
     `<div class="chart-card"><div id="${id}" style="height:400px"></div></div>`);
-  Plotly.newPlot(id, [
-    { type:'scatter', mode:'lines+markers', name:`${leftItem} (${leftStat})`,
-      x:xs, y:yL, yaxis:'y', connectgaps:true,
-      marker:{color:cL, size:9}, line:{color:cL, width:2} },
-    { type:'scatter', mode:'lines+markers', name:`${rightItem} (${rightStat})`,
-      x:xs, y:yR, yaxis:'y2', connectgaps:true,
-      marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} }
-  ], {
-    title:{text:`${escHtml(leftItem)} (${leftStat}) 與 ${escHtml(rightItem)} (${rightStat}) 批次趨勢對比`, font:{size:13}},
-    margin:{t:50, b:60, l:64, r:64}, height:400,
+
+  const traces = [];
+  if (hasL) traces.push({
+    type:'scatter', mode:'lines+markers', name:`${leftItem} (${leftStat})`,
+    x:xs, y:yL, yaxis:'y', connectgaps:true,
+    marker:{color:cL, size:9}, line:{color:cL, width:2} });
+  if (hasR) traces.push({
+    type:'scatter', mode:'lines+markers', name:`${rightItem} (${rightStat})`,
+    // 單軸（只選右軸）時也畫在主 Y 軸上
+    x:xs, y:yR, yaxis: dual ? 'y2' : 'y', connectgaps:true,
+    marker:{color:cR, size:9, symbol:'square'}, line:{color:cR, width:2} });
+
+  const title = dual
+    ? `${escHtml(leftItem)} (${leftStat}) 與 ${escHtml(rightItem)} (${rightStat}) 批次趨勢對比`
+    : (hasL ? `${escHtml(leftItem)} (${leftStat})` : `${escHtml(rightItem)} (${rightStat})`) + ' 批次趨勢';
+  // 單軸時，主 Y 軸標題/顏色取被選的那一邊
+  const primItem = hasL ? leftItem : rightItem;
+  const primColor = hasL ? cL : cR;
+  const layout = {
+    title:{text:title, font:{size:13}},
+    margin:{t:50, b:60, l:64, r:dual ? 64 : 24}, height:400,
     legend:{orientation:'h', y:-0.2, x:0.5, xanchor:'center'},
+    showlegend:dual,
     xaxis:{title:{text:S.chartSplitSteps.length ? '分組'
             : (document.getElementById('caDualXMode').value === 'wafer' ? 'Wafer' : '批次 (Lot)'),
             font:{size:11}}, type:'category'},
-    yaxis:{title:{text:escHtml(leftItem), font:{size:11, color:cL}}, tickfont:{color:cL}},
-    yaxis2:{title:{text:escHtml(rightItem), font:{size:11, color:cR}}, tickfont:{color:cR},
-            overlaying:'y', side:'right'}
-  }, {responsive:true, displayModeBar:false});
+    yaxis:{title:{text:escHtml(primItem), font:{size:11, color:primColor}}, tickfont:{color:primColor}}
+  };
+  if (dual) layout.yaxis2 = {title:{text:escHtml(rightItem), font:{size:11, color:cR}},
+            tickfont:{color:cR}, overlaying:'y', side:'right'};
+  Plotly.newPlot(id, traces, layout, {responsive:true, displayModeBar:false});
 }
 
 // ── Bar + Error Bar ──
@@ -7131,6 +7337,67 @@ function exportYieldImage(which) {
       if (actions) actions.style.display = prevDisp;
       alert('圖片匯出失敗：' + (e && e.message || e));
     });
+}
+
+// 將指定容器內的統計表存成 PNG 圖片
+function exportStatsTableImage(containerId, tag) {
+  const el = document.getElementById(containerId);
+  if (!el) { alert('沒有可匯出的統計表'); return; }
+  if (typeof html2canvas === 'undefined') { alert('圖片匯出工具尚未載入'); return; }
+  const bgIsLight = document.body.classList.contains('theme-light');
+  html2canvas(el, { backgroundColor: bgIsLight ? '#ffffff' : '#161b22', scale: 2, useCORS: true, logging: false })
+    .then(canvas => {
+      const a = document.createElement('a');
+      a.download = `${tag || '統計表'}_${new Date().toISOString().slice(0,10)}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }).catch(e => alert('圖片匯出失敗：' + (e && e.message || e)));
+}
+
+// 將指定容器內的 <table> 匯出為 CSV（讀 DOM，寬式/直長式皆適用；含 BOM 供 Excel 正確顯示中文）
+function exportStatsTableCsv(containerId, tag) {
+  const el = document.getElementById(containerId);
+  const table = el && el.querySelector('table');
+  if (!table) { alert('沒有可匯出的統計表'); return; }
+  const esc = v => {
+    const s = String(v).replace(/\s+/g, ' ').trim();
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const cellText = td => {
+    const inp = td.querySelector('input,select');
+    return esc(inp ? inp.value : td.textContent);
+  };
+  // 以網格填入方式正確處理 rowspan / colspan，避免欄位錯位
+  const grid = [];   // grid[r][c] = value
+  const trs = [...table.querySelectorAll('tr')];
+  trs.forEach((tr, r) => {
+    if (!grid[r]) grid[r] = [];
+    let c = 0;
+    [...tr.querySelectorAll('th,td')].forEach(td => {
+      while (grid[r][c] !== undefined) c++;           // 跳過上方 rowspan 佔用的欄
+      const rs = parseInt(td.getAttribute('rowspan')) || 1;
+      const cs = parseInt(td.getAttribute('colspan')) || 1;
+      const val = cellText(td);
+      for (let i = 0; i < rs; i++) {
+        const rr = r + i;
+        if (!grid[rr]) grid[rr] = [];
+        for (let j = 0; j < cs; j++) grid[rr][c + j] = val;   // 合併儲存格往下/右重複，每列自成完整資料
+      }
+      c += cs;
+    });
+  });
+  const width = grid.reduce((m, row) => Math.max(m, row.length), 0);
+  const lines = grid.map(row => {
+    const cells = [];
+    for (let i = 0; i < width; i++) cells.push(row[i] !== undefined ? row[i] : '');
+    return cells.join(',');
+  });
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${tag || '統計表'}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // 舊函式名相容
@@ -8399,14 +8666,79 @@ function renderSplitAnalysis() {
   resultWrap.style.display = '';
 }
 
+// 統一的統計欄位定義：N, Mean, Median, Min, Max, Std, 再接已定義的自訂公式欄
+function _statMetricCols() {
+  const customs = S.customStats || [];
+  const cFns    = customs.length ? getAllStatFns() : {};
+  const cols = [
+    { key:'N',      get:v => v.length },
+    { key:'Mean',   get:v => v.length ? rd(mean(v),4) : '—' },
+    { key:'Median', get:v => v.length ? rd(median(v),4) : '—' },
+    { key:'Min',    get:v => v.length ? rd(Math.min(...v),4) : '—' },
+    { key:'Max',    get:v => v.length ? rd(Math.max(...v),4) : '—' },
+    { key:'Std',    get:v => v.length >= 2 ? rd(std(v),4) : '—' },
+  ];
+  customs.forEach(cs => cols.push({
+    key: cs.label, custom: true,
+    get: (v, spec) => {
+      if (!v.length) return '—';
+      const r = cFns[cs.label](v, spec);
+      return (typeof r === 'number' && isFinite(r)) ? rd(r,4) : (r == null ? '—' : r);
+    }
+  }));
+  return cols;
+}
+
+// 雙軸對比：左、右兩個項目各一組統計並排，共用「分組」欄
+function buildDualStatsHtml(leftItem, rightItem, groups, procName, onlyInSpec) {
+  const liveGroups = groups.filter(g => g.lots.length > 0);
+  const metricCols = _statMetricCols();
+  const items = [leftItem, rightItem].filter(Boolean);
+  if (!items.length || !liveGroups.length) return '';
+  const colors = ['#3182ce', '#dd6b20'];
+  const specOf  = item => (S.chartSpecs && S.chartSpecs[item]) || {};
+  const valsFor = (g, item) => _inSpecArr(
+    S.data.filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item])).map(r => +r[item]),
+    item, onlyInSpec);
+
+  let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（雙軸對比 · 左右並排）</div>`;
+  html += '<div style="overflow:auto;max-height:360px"><table class="stats" style="font-size:11px;white-space:nowrap"><thead>';
+  // 第一列表頭：分組（跨兩列）＋ 各項目橫跨其統計欄
+  html += '<tr><th rowspan="2">分組</th>';
+  items.forEach((it, idx) =>
+    html += `<th colspan="${metricCols.length}" style="color:${colors[idx]};border-left:2px solid var(--border);text-align:center">${escHtml(it)}</th>`);
+  html += '</tr><tr>';
+  items.forEach(() => metricCols.forEach((c, ci) =>
+    html += `<th${ci === 0 ? ' style="border-left:2px solid var(--border)"' : ''}>${escHtml(c.key)}</th>`));
+  html += '</tr></thead><tbody>';
+  liveGroups.forEach(g => {
+    const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color.mk};margin-right:4px;vertical-align:middle"></span>`;
+    html += `<tr><td style="color:${g.color.fg};font-weight:600">${dot}${escHtml(g.label)}</td>`;
+    items.forEach(it => {
+      const v = valsFor(g, it), spec = specOf(it);
+      metricCols.forEach((c, ci) =>
+        html += `<td${ci === 0 ? ' style="border-left:2px solid var(--border)"' : ''}>${c.get(v, spec)}</td>`);
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
 function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
   const liveGroups = groups.filter(g => g.lots.length > 0);
+
+  // 統一的統計欄位順序：N, Mean, Median, Min, Max, Std, 再接自訂公式（若有定義才出現）
+  const metricCols = _statMetricCols();
+  const specOf = item => (S.chartSpecs && S.chartSpecs[item]) || {};
+
   if (dispMode === 'individual') {
     // Per-lot breakdown grouped by condition
     let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（個別 Lot）</div>`;
     html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
-    html += '<th>量測項目</th><th>條件</th><th>Lot</th><th>n</th><th>Mean</th><th>Std</th><th>Median</th><th>Min</th><th>Max</th></tr></thead><tbody>';
+    html += '<th>量測項目</th><th>條件</th><th>Lot</th>' + metricCols.map(c => `<th>${escHtml(c.key)}</th>`).join('') + '</tr></thead><tbody>';
     items.forEach(item => {
+      const spec = specOf(item);
       let first = true;
       liveGroups.forEach(g => {
         g.lots.forEach((lotName, li) => {
@@ -8418,12 +8750,7 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
             ${first ? `<td rowspan="${liveGroups.reduce((s,gx)=>s+gx.lots.length,0)}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
             ${li === 0 ? `<td rowspan="${g.lots.length}" style="color:${g.color.fg};font-weight:600;vertical-align:top">${dot}${escHtml(g.label)}</td>` : ''}
             <td>${escHtml(lotName)}</td>
-            <td>${vals.length}</td>
-            <td>${vals.length ? rd(mean(vals),4) : '—'}</td>
-            <td>${vals.length>=2 ? rd(std(vals),4) : '—'}</td>
-            <td>${vals.length ? rd(median(vals),4) : '—'}</td>
-            <td>${vals.length ? rd(Math.min(...vals),4) : '—'}</td>
-            <td>${vals.length ? rd(Math.max(...vals),4) : '—'}</td>
+            ${metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('')}
           </tr>`;
           first = false;
         });
@@ -8432,18 +8759,49 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
     html += '</tbody></table></div>';
     return html;
   }
+
+  // 組別多時，寬表（每組多欄）會橫向爆寬難以一目了然。
+  // 改用「直長式」：每列＝一個分組，欄位固定，組別再多也只需垂直捲動。
+  const TIDY_THRESHOLD = 4;
+  if (liveGroups.length > TIDY_THRESHOLD) {
+    let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（${liveGroups.length} 組 · 直長式）</div>`;
+    html += '<div style="overflow:auto;max-height:340px"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
+    html += '<th>量測項目</th><th>分組</th>' + metricCols.map(c => `<th>${escHtml(c.key)}</th>`).join('') + '</tr></thead><tbody>';
+    items.forEach(item => {
+      const spec = specOf(item);
+      liveGroups.forEach((g, gi) => {
+        const vals = _inSpecArr(
+          S.data
+            .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
+            .map(r => +r[item]),
+          item, onlyInSpec);
+        const dot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${g.color.mk};margin-right:4px;vertical-align:middle"></span>`;
+        html += `<tr>
+          ${gi === 0 ? `<td rowspan="${liveGroups.length}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
+          <td style="color:${g.color.fg};font-weight:600">${dot}${escHtml(g.label)}</td>
+          ${metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('')}
+        </tr>`;
+      });
+    });
+    html += '</tbody></table></div>';
+    return html;
+  }
+
+  // 寬表（≤4 組）：每組一個欄組，第一欄帶分組名稱
   let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}</div>`;
   html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr><th>量測項目</th>';
   liveGroups.forEach(g => {
-    html += `<th style="color:${g.color.fg}">Count<br><small>${escHtml(g.label)}</small></th>`;
-    html += `<th style="color:${g.color.fg}">Mean</th>`;
-    html += `<th style="color:${g.color.fg}">Std</th>`;
-    html += `<th style="color:${g.color.fg}">Median</th>`;
+    metricCols.forEach((c, ci) => {
+      html += ci === 0
+        ? `<th style="color:${g.color.fg}">${escHtml(c.key)}<br><small>${escHtml(g.label)}</small></th>`
+        : `<th style="color:${g.color.fg}">${escHtml(c.key)}</th>`;
+    });
   });
   if (liveGroups.length === 2) html += '<th>Δ Mean<br><small>(G2−G1)</small></th>';
   html += '</tr></thead><tbody>';
 
   items.forEach(item => {
+    const spec = specOf(item);
     html += `<tr><td style="font-weight:600">${escHtml(item)}</td>`;
     const gMeans = [];
     liveGroups.forEach(g => {
@@ -8452,12 +8810,8 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
           .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
           .map(r => +r[item]),
         item, onlyInSpec);
-      const m = vals.length ? mean(vals) : null;
-      gMeans.push(m);
-      const fmt = v => v != null ? rd(v, 4) : '—';
-      html += `<td>${vals.length}</td><td>${fmt(m)}</td>`;
-      html += `<td>${vals.length >= 2 ? fmt(std(vals)) : '—'}</td>`;
-      html += `<td>${vals.length ? fmt(median(vals)) : '—'}</td>`;
+      gMeans.push(vals.length ? mean(vals) : null);
+      html += metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('');
     });
     if (liveGroups.length === 2 && gMeans[0] != null && gMeans[1] != null) {
       const delta = gMeans[1] - gMeans[0];
