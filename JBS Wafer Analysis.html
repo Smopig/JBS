@@ -523,6 +523,23 @@ body.density-cozy .chart-grid { gap: 20px; }
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+/* ── 圖表分析控制列：更緊湊的排版，減少佔用畫面高度 ── */
+#panel-chart .ctrl { padding: 6px 12px; margin-bottom: 6px; gap: 8px 10px; }
+#panel-chart .ctrl select,
+#panel-chart .ctrl input[type=number],
+#panel-chart .ctrl input[type=text] { padding: 4px 8px; }
+/* 進階設定（樣式 / 色盤 / SPEC 線）摺疊區，預設收合 */
+#panel-chart .ca-adv { background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); margin-bottom: 6px; }
+#panel-chart .ca-adv > summary { cursor: pointer; list-style: none; padding: 7px 12px;
+  font-size: 12px; font-weight: 700; color: var(--text-2); user-select: none; }
+#panel-chart .ca-adv > summary::-webkit-details-marker { display: none; }
+#panel-chart .ca-adv > summary::before { content: '▸ '; color: var(--text-3); }
+#panel-chart .ca-adv[open] > summary::before { content: '▾ '; }
+#panel-chart .ca-adv > summary:hover { color: var(--text); }
+#panel-chart .ca-adv .ctrl { border: none; border-radius: 0; margin-bottom: 0;
+  border-top: 1px solid var(--border); }
+
 /* ── Chart cards ── */
 .chart-card {
   background: var(--bg-1); border: 1px solid var(--border);
@@ -1318,6 +1335,9 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <span style="font-size:11px;color:#718096">左右軸各自選項目與統計量；可選整批 Lot 或指定 wafer 作為 X 軸（SPLIT 分組啟用時改依分組）</span>
     </div>
 
+    <!-- 進階設定（樣式 / 色盤 / SPEC 線）— 預設收合以節省畫面空間 -->
+    <details class="ca-adv">
+      <summary>⚙ 進階設定（SPEC 線 / 圖表樣式 / 色盤 / 線型）</summary>
     <!-- Row 4: SPEC lines -->
     <div class="ctrl" style="gap:8px;flex-wrap:wrap;align-items:flex-start">
       <label style="font-size:12px;font-weight:700;white-space:nowrap">SPEC 線：</label>
@@ -1367,6 +1387,7 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <button class="btn btn-gray" style="font-size:11px" onclick="resetChartStyle()">↩ 還原預設</button>
       </div>
     </div>
+    </details>
 
     <!-- Chart output grid -->
     <div id="caGrid" class="chart-grid"></div>
@@ -5368,7 +5389,16 @@ function _applyChartCardEnhancements(grid) {
         b.style.cssText = 'font-size:10px;padding:1px 8px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:3px;cursor:pointer';
         b.onclick = () => {
           try {
-            Plotly.downloadImage(plotDiv, { format: fmt, filename: 'chart_' + Date.now(), scale: 2 });
+            const fl = plotDiv._fullLayout || {};
+            const baseW = fl.width  || plotDiv.offsetWidth  || 700;
+            const baseH = fl.height || plotDiv.offsetHeight || 320;
+            // 匯出時把畫布加高，讓「右側捲動圖例」的所有項目都完整入鏡（不再被截斷）
+            const nLeg  = (plotDiv.data || []).filter(t => t && t.showlegend !== false && t.name != null).length;
+            const needH = Math.max(baseH, 70 + nLeg * 20 + 40);
+            Plotly.downloadImage(plotDiv, {
+              format: fmt, filename: 'chart_' + Date.now(), scale: 2,
+              width: baseW, height: needH
+            });
           } catch(e) { alert('匯出失敗：' + (e && e.message || e)); }
         };
         return b;
@@ -6005,7 +6035,17 @@ function _updateSplitStatsCompare(items) {
   if (!order.length) { div.style.display = 'none'; return; }
 
   const groups = order.map(k => map[k]);
-  div.innerHTML = buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec);
+  const tbId = 'caStatsCompareInner';
+  div.innerHTML =
+    `<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px">
+       <button onclick="exportStatsTableImage('${tbId}','統計摘要')"
+               style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+               title="將統計摘要存成 PNG 圖片">📷 存成圖片</button>
+       <button onclick="exportStatsTableCsv('${tbId}','統計摘要')"
+               style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+               title="將統計摘要匯出為 CSV 檔（可用 Excel 開啟）">📑 匯出 CSV</button>
+     </div>
+     <div id="${tbId}">${buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec)}</div>`;
   div.style.display = '';
 }
 
@@ -7177,6 +7217,46 @@ function exportYieldImage(which) {
       if (actions) actions.style.display = prevDisp;
       alert('圖片匯出失敗：' + (e && e.message || e));
     });
+}
+
+// 將指定容器內的統計表存成 PNG 圖片
+function exportStatsTableImage(containerId, tag) {
+  const el = document.getElementById(containerId);
+  if (!el) { alert('沒有可匯出的統計表'); return; }
+  if (typeof html2canvas === 'undefined') { alert('圖片匯出工具尚未載入'); return; }
+  const bgIsLight = document.body.classList.contains('theme-light');
+  html2canvas(el, { backgroundColor: bgIsLight ? '#ffffff' : '#161b22', scale: 2, useCORS: true, logging: false })
+    .then(canvas => {
+      const a = document.createElement('a');
+      a.download = `${tag || '統計表'}_${new Date().toISOString().slice(0,10)}.png`;
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    }).catch(e => alert('圖片匯出失敗：' + (e && e.message || e)));
+}
+
+// 將指定容器內的 <table> 匯出為 CSV（讀 DOM，寬式/直長式皆適用；含 BOM 供 Excel 正確顯示中文）
+function exportStatsTableCsv(containerId, tag) {
+  const el = document.getElementById(containerId);
+  const table = el && el.querySelector('table');
+  if (!table) { alert('沒有可匯出的統計表'); return; }
+  const esc = v => {
+    const s = String(v).replace(/\s+/g, ' ').trim();
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [];
+  table.querySelectorAll('tr').forEach(tr => {
+    const cells = [...tr.querySelectorAll('th,td')].map(td => {
+      const inp = td.querySelector('input,select');
+      return esc(inp ? inp.value : td.textContent);
+    });
+    if (cells.length) lines.push(cells.join(','));
+  });
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${tag || '統計表'}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 // 舊函式名相容
