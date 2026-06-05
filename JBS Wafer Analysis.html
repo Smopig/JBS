@@ -4166,6 +4166,38 @@ function addCustomStat() {
   document.getElementById('stFnFormula').value = '';
   renderCustomStatTags(); renderStatChips(); renderStats();
 }
+// ── 圖表分析「統計摘要」就地新增/刪除自訂公式欄 ──
+function addChartCustomStat() {
+  const label = prompt('自訂統計欄位名稱（例如：Cpk、Range、Cp）：');
+  if (label == null) return;
+  const lab = label.trim();
+  if (!lab) return;
+  if (!S.customStats) S.customStats = [];
+  if (S.customStats.some(cs => cs.label === lab)) { alert(`已存在同名欄位「${lab}」`); return; }
+  const formula = prompt(
+    '請輸入公式，可用變數：\n' +
+    'Count, Min, Max, Mean, Median, Std, LSL, USL, Typical\n\n' +
+    '範例：\n' +
+    '· Range → Max - Min\n' +
+    '· Cpk   → Math.min((USL-Mean),(Mean-LSL))/(3*Std)\n' +
+    '· Cp    → (USL-LSL)/(6*Std)');
+  if (formula == null) return;
+  const f = formula.trim();
+  if (!f) return;
+  S.customStats.push({ label: lab, formula: f });
+  if (typeof renderCustomStatTags === 'function') renderCustomStatTags();
+  if (typeof debounceSave === 'function') debounceSave();
+  renderChart();
+}
+function removeChartCustomStat(i) {
+  if (!S.customStats || !S.customStats[i]) return;
+  const label = S.customStats[i].label;
+  S.customStats.splice(i, 1);
+  S.activeStats = (S.activeStats || []).filter(k => k !== label);
+  if (typeof renderCustomStatTags === 'function') renderCustomStatTags();
+  if (typeof debounceSave === 'function') debounceSave();
+  renderChart();
+}
 function removeCustomFormula(i) {
   const label = S.customStats[i].label;
   S.customStats.splice(i, 1);
@@ -5986,6 +6018,12 @@ function renderChart() {
     setGridCols(grid, getCols('ca'));
     grid.innerHTML = '';
     caDualAxis(items, grid);
+    // 雙軸對比使用自己的左/右軸項目，統計摘要也應依這兩個項目呈現（而非上方量測項目清單）
+    const dualItems = [...new Set([
+      document.getElementById('caDualX').value,
+      document.getElementById('caDualY').value
+    ].filter(Boolean))];
+    _updateSplitStatsCompare(dualItems);
     setTimeout(() => _applyChartCardEnhancements(grid), 0);
     return;
   }
@@ -6036,14 +6074,29 @@ function _updateSplitStatsCompare(items) {
 
   const groups = order.map(k => map[k]);
   const tbId = 'caStatsCompareInner';
+  const chips = (S.customStats || []).map((cs, i) =>
+    `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-2);border:1px solid var(--border-2);
+                  border-radius:4px;padding:2px 6px;font-size:11px;white-space:nowrap">
+       <b>${escHtml(cs.label)}</b><code style="color:var(--accent)">${escHtml(cs.formula)}</code>
+       <button onclick="removeChartCustomStat(${i})" title="刪除此自訂公式欄"
+               style="border:none;background:none;cursor:pointer;color:#fc8181;font-size:14px;line-height:1;padding:0 2px">×</button>
+     </span>`).join('');
   div.innerHTML =
-    `<div style="display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px">
-       <button onclick="exportStatsTableImage('${tbId}','統計摘要')"
-               style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
-               title="將統計摘要存成 PNG 圖片">📷 存成圖片</button>
-       <button onclick="exportStatsTableCsv('${tbId}','統計摘要')"
-               style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
-               title="將統計摘要匯出為 CSV 檔（可用 Excel 開啟）">📑 匯出 CSV</button>
+    `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+         <button onclick="addChartCustomStat()"
+                 style="font-size:11px;padding:3px 10px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer"
+                 title="新增一欄自訂公式（可用 Count/Min/Max/Mean/Median/Std/LSL/USL/Typical）">➕ 自訂公式欄</button>
+         ${chips}
+       </div>
+       <div style="display:flex;gap:6px">
+         <button onclick="exportStatsTableImage('${tbId}','統計摘要')"
+                 style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+                 title="將統計摘要存成 PNG 圖片">📷 存成圖片</button>
+         <button onclick="exportStatsTableCsv('${tbId}','統計摘要')"
+                 style="font-size:11px;padding:3px 10px;background:var(--bg-2);color:var(--text-2);border:1px solid var(--border-2);border-radius:4px;cursor:pointer"
+                 title="將統計摘要匯出為 CSV 檔（可用 Excel 開啟）">📑 匯出 CSV</button>
+       </div>
      </div>
      <div id="${tbId}">${buildSplitStatsHtml(items, groups, steps.join(' + '), 'combined', S.chartOnlyInSpec)}</div>`;
   div.style.display = '';
