@@ -774,7 +774,12 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     </div>
     <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin:-4px 0 10px"></div>
 
-    <div id="fileList" class="file-list"></div>
+    <details id="fileListSection" class="load-acc" style="display:none" open>
+      <summary>📄 已載入的檔案<span class="summary-hint" id="fileListHint"></span></summary>
+      <div class="load-acc-body">
+        <div id="fileList" class="file-list"></div>
+      </div>
+    </details>
     <div id="upStatus"></div>
 
     <!-- ── 解析設定：上傳檔案後才出現，可收折 ── -->
@@ -2907,7 +2912,11 @@ function renderFileList() {
       </div>`;
     }).join('');
   document.getElementById('btnLoad').disabled = S.files.length === 0;
-  // 解析設定（格式偵測 / 列號 / 載入欄位）僅在已選取檔案後顯示
+  // 已載入檔案區 / 解析設定 僅在已選取檔案後顯示
+  const fls = document.getElementById('fileListSection');
+  if (fls) fls.style.display = S.files.length ? '' : 'none';
+  const flh = document.getElementById('fileListHint');
+  if (flh) flh.textContent = S.files.length ? `共 ${S.files.length} 個檔案` : '';
   const ps = document.getElementById('parseSection');
   if (ps) ps.style.display = S.files.length ? '' : 'none';
   document.getElementById('upStatus').innerHTML = S.files.length
