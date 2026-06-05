@@ -167,6 +167,20 @@ table.stats tbody tr:hover           { background: #ebf8ff; }
 @media (max-width: 800px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: repeat(2,1fr); } }
 @media (max-width: 500px) { .cols-4,.cols-6,.cols-3 { grid-template-columns: 1fr; } }
 
+/* ── P1: keyboard accessibility — visible focus ring for keyboard users only ── */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab-btn:focus-visible, .btn:focus-visible, label.btn:focus-visible,
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── P1: small-screen layout — let control groups wrap to full width ── */
+@media (max-width: 640px) {
+  .sg { flex: 1 1 100%; }
+  .ctrl, .settings-row { flex-wrap: wrap; }
+}
+
 /* Chart analysis */
 .ca-type-btn { padding:5px 13px; border-radius:20px; border:2px solid #e2e8f0; cursor:pointer;
                font-size:12px; font-weight:600; background:white; color:#4a5568;
@@ -656,21 +670,21 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   </div>
 </div>
 
-<div class="tab-nav">
-  <button class="tab-btn active"  onclick="switchTab('upload',this)">📂 資料載入</button>
-  <button class="tab-btn" id="tb-dashboard" onclick="switchTab('dashboard',this)" disabled>🏠 總覽</button>
-  <button class="tab-btn" id="tb-map"   onclick="switchTab('map',this)"   disabled>🗺 Wafer MAP</button>
-  <button class="tab-btn" id="tb-count" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
-  <button class="tab-btn" id="tb-pct"   onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
-  <button class="tab-btn" id="tb-stats" onclick="switchTab('stats',this)" disabled>📋 統計</button>
-  <button class="tab-btn" id="tb-yield" onclick="switchTab('yield',this)" disabled>🎯 良率</button>
-  <button class="tab-btn" id="tb-filter" onclick="switchTab('filter',this)" disabled>🔍 篩選</button>
-  <button class="tab-btn" id="tb-split" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
-  <button class="tab-btn" id="tb-chart" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
-  <button class="tab-btn" id="tb-qc"      onclick="switchTab('qc',this)"      disabled>🧪 Data QC</button>
-  <button class="tab-btn" id="tb-speccenter" onclick="switchTab('speccenter',this)" disabled>🎚 SPEC 中心</button>
-  <button class="tab-btn" id="tb-ai"      onclick="switchTab('ai',this)"      disabled>🤖 智能分析</button>
-  <button class="tab-btn" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
+<div class="tab-nav" role="tablist" aria-label="分析分頁">
+  <button class="tab-btn active" role="tab" aria-selected="true"  onclick="switchTab('upload',this)">📂 資料載入</button>
+  <button class="tab-btn" id="tb-dashboard" role="tab" aria-selected="false" onclick="switchTab('dashboard',this)" disabled>🏠 總覽</button>
+  <button class="tab-btn" id="tb-map"   role="tab" aria-selected="false" onclick="switchTab('map',this)"   disabled>🗺 Wafer MAP</button>
+  <button class="tab-btn" id="tb-count" role="tab" aria-selected="false" onclick="switchTab('count',this)" disabled>📊 Count 分布</button>
+  <button class="tab-btn" id="tb-pct"   role="tab" aria-selected="false" onclick="switchTab('pct',this)"   disabled>📈 % 分布</button>
+  <button class="tab-btn" id="tb-stats" role="tab" aria-selected="false" onclick="switchTab('stats',this)" disabled>📋 統計</button>
+  <button class="tab-btn" id="tb-yield" role="tab" aria-selected="false" onclick="switchTab('yield',this)" disabled>🎯 良率</button>
+  <button class="tab-btn" id="tb-filter" role="tab" aria-selected="false" onclick="switchTab('filter',this)" disabled>🔍 篩選</button>
+  <button class="tab-btn" id="tb-split" role="tab" aria-selected="false" onclick="switchTab('split',this)" disabled>🔗 關聯分析</button>
+  <button class="tab-btn" id="tb-chart" role="tab" aria-selected="false" onclick="switchTab('chart',this)" disabled>📉 圖表分析<span class="badge">主</span></button>
+  <button class="tab-btn" id="tb-qc"      role="tab" aria-selected="false" onclick="switchTab('qc',this)"      disabled>🧪 Data QC</button>
+  <button class="tab-btn" id="tb-speccenter" role="tab" aria-selected="false" onclick="switchTab('speccenter',this)" disabled>🎚 SPEC 中心</button>
+  <button class="tab-btn" id="tb-ai"      role="tab" aria-selected="false" onclick="switchTab('ai',this)"      disabled>🤖 智能分析</button>
+  <button class="tab-btn" role="tab" aria-selected="false" onclick="switchTab('manual',this)" style="margin-left:auto">📖 操作手冊</button>
   <button class="tab-btn" onclick="window.print()" title="列印目前分頁或另存為 PDF" style="padding:0 12px;font-size:13px">🖨</button>
 </div>
 
@@ -740,6 +754,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
             📥 載入
             <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
           </label>
+          <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
+          <button class="btn btn-gray" style="font-size:12px" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
         </div>
       </div>
     </div>
@@ -916,15 +932,27 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <button class="btn btn-red" onclick="clearAllMasks()" style="font-size:12px;margin-left:8px">清除全部遮罩</button>
       <span id="mapMaskCount" style="font-size:12px;color:#718096;margin-left:12px"></span>
     </div>
+    <div class="ctrl" style="border-top:1px solid var(--border);padding-top:10px;flex-wrap:wrap">
+      <label style="font-weight:700">🔀 Wafer Delta：</label>
+      <select id="mapDeltaA" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <span style="font-size:13px;color:#718096">−</span>
+      <select id="mapDeltaB" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px"></select>
+      <button class="btn btn-blue" style="font-size:12px;margin-left:8px" onclick="renderDeltaMap()">產生差異圖</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:4px" onclick="document.getElementById('mapDeltaArea').innerHTML=''">清除</button>
+      <span style="font-size:11px;color:var(--text-3);margin-left:8px">以目前「量測項目」對兩 Lot 同座標相減（對稱色階，0=無差異）</span>
+    </div>
+    <div id="mapDeltaArea"></div>
     <div id="mapGrid" class="chart-grid cols-4"></div>
   </div>
 
   <!-- Wafer map Excel export options modal -->
-  <div id="mapExpModal" style="display:none;position:fixed;inset:0;z-index:1000;
+  <div id="mapExpModal" role="dialog" aria-modal="true" aria-labelledby="mapExpTitle"
+       onclick="if(event.target===this)closeMapExpModal()"
+       style="display:none;position:fixed;inset:0;z-index:1000;
        background:rgba(0,0,0,.45);align-items:center;justify-content:center">
     <div style="background:var(--bg-1,#fff);color:var(--text,#1a202c);border-radius:8px;
          padding:20px 24px;min-width:300px;box-shadow:0 10px 40px rgba(0,0,0,.35)">
-      <div style="font-size:15px;font-weight:700;margin-bottom:14px">匯出地圖 Excel — 軸方向</div>
+      <div id="mapExpTitle" style="font-size:15px;font-weight:700;margin-bottom:14px">匯出地圖 Excel — 軸方向</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <label style="width:48px;font-size:13px">X 軸：</label>
         <select id="mapExpXDir" style="flex:1;padding:5px 9px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px">
@@ -1228,6 +1256,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         <option value="2">±2σ</option>
         <option value="3" selected>±3σ</option>
       </select>
+      <label style="margin-left:12px;font-size:12px;display:inline-flex;align-items:center;gap:4px"
+             title="標示 Western Electric / Nelson run rules 違反點（僅 Index / Lot 分組軸有效）">
+        <input type="checkbox" id="caSPCrunRules" onchange="renderChart()"> Run rules
+      </label>
     </div>
 
     <!-- Row 3e: Correlation contextual -->
@@ -1358,6 +1390,19 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       </select>
     </div>
     <div id="yieldArea"></div>
+
+    <!-- ── Bin Pareto（依 Bin 代碼統計失效分佈）── -->
+    <div class="ctrl" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+      <label style="font-weight:700">📉 Bin Pareto：</label>
+      <select id="binParetoField" onchange="renderBinPareto()" style="padding:4px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+        <option value="Bin">Hard Bin</option>
+        <option value="SBin">Soft Bin</option>
+      </select>
+      <label style="margin-left:12px;font-size:12px;display:inline-flex;align-items:center;gap:4px">
+        <input type="checkbox" id="binParetoExcludePass" onchange="renderBinPareto()"> 排除 Pass Bin（Bin 1）
+      </label>
+    </div>
+    <div id="binParetoArea"></div>
   </div>
 
   <!-- ══ Global Filter ══ -->
@@ -1828,14 +1873,18 @@ const N_BINS        = 25;
 const DEFAULT_STATS = ['Count','Min','Max','Mean','Median','Std'];
 
 // ══════════════════════════════════════════════════
-// STATE
+// STATE — 全域應用狀態（依關注點分群，見 ARCHITECTURE.md）
+// 分群為文件性註解，屬性命名與順序維持不變以確保行為相容。
 // ══════════════════════════════════════════════════
 const S = {
+  // ── 資料模型（Data Model）：解析後的量測資料與衍生索引 ──
   files: [], data: [], lots: [], items: [], globalBins: {},
   activeLots: null,   // null = show all; array = filtered subset
   loadMode: 'overwrite',     // 'overwrite' | 'append'
   batchCounter: 0,           // increments each successful append
   lotColors: {},             // Lot → color index 0..5
+
+  // ── 載入 / 解析（Parsing）：檔案解析快取、模板與欄位處理設定 ──
   _rawCols: [], _colSamples: {}, _headerIdx: 12, _dataStartIdx: 29,
   _parsed: [],                  // per-file parse result cache (see parseUploadedFiles)
   _activeTemplates: {},         // { fileIdx → templateId } user override
@@ -1844,6 +1893,8 @@ const S = {
   _colSpecsUser: {},            // { origCol → {lsl, usl} } 使用者手動修改後的 SPEC (顯示單位)
   _excludedCols:    new Set(),   // original col names to skip in analysis
   _colConvOverrides: {},         // origColName → {type, factor?}
+
+  // ── 統計分頁（Statistics）──
   activeStats:      [...DEFAULT_STATS],
   statsOnlyInSpec:  false,            // 統計分頁:僅計算 SPEC 內量測點
   cntOnlyInSpec:    false,            // Count 分布:僅計算 SPEC 內量測點
@@ -1854,31 +1905,35 @@ const S = {
   statFormats:      {},
   statItems:        [''],              // list of selected measurement items
   itemRemovedStats: {},               // { item: Set<statKey> }  per-item hidden rows
-  // Chart Analysis
+
+  // ── 圖表分析（Chart Analysis）──
   chartItems:       [''],
   chartType:        'box',
   chartSpecs:       {},               // { item: { lsl, typical, usl } }
   chartSplitStep:   '',               // legacy single-step (kept for compat)
   chartSplitSteps:  [],               // multi-step selection for combined grouping
   chartSplitMode:   'individual',     // 'individual' | 'combined'
-  // Count/Pct Distribution Split
+
+  // ── Count / % 分布（Distribution）──
   cntSplitSteps:    [],               // selected split steps for Count dist
   cntSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
   pctSplitSteps:    [],               // selected split steps for Pct dist
   pctSplitMode:     'combined',       // 'combined' | 'individual' | 'overlay'
-  // Split Association Analysis
+
+  // ── Split 關聯分析（Split Association）──
   splitProfiles:    {},               // { profileName: { lots, rows, groups, procNames } }
   splitLotMaps:     {},               // { profileName: { splitLotId: loadedLotName } }
   activeProfile:    '',               // currently active profile name (split panel)
   chartSplitProfile: '',              // profile used for chart split coloring
   splitItems:       [''],             // selected measurement items for split analysis
   splitEditMode:    true,             // true = editable inputs, false = read-only display
-  // Template Designer
+  // ── 模板設計器（Template Designer）──
   splitTemplates:      {},            // { name: { rows: [{stepNo, procName, condition}] } }
   activeTemplate:      '',            // currently selected template in designer
   splitBatchTemplates: {},            // { profName: templateName } — links batches to templates
   splitBatchLocked:    {},            // { profName: bool } — lock display mode per batch
-  // Wafer coordinate mask
+
+  // ── 晶圓座標遮罩（Wafer Mask）──
   maskSet:     {},     // { [lot]: Set<"x,y"> } masked die positions per lot
   maskModeOn:  false,  // whether click-to-mask mode is active
 };
@@ -2648,9 +2703,13 @@ async function importTemplatesJSON(file) {
 // TAB NAVIGATION
 // ══════════════════════════════════════════════════
 function switchTab(name, btn) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('active');
+    if (b.getAttribute('role') === 'tab') b.setAttribute('aria-selected', 'false');
+  });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
+  if (btn.getAttribute('role') === 'tab') btn.setAttribute('aria-selected', 'true');
   document.getElementById('panel-' + name).classList.add('active');
   if (name === 'yield') renderYield();
   if (name === 'filter') renderFilterPanel();
@@ -3751,8 +3810,25 @@ function makeHist(data,edges) {
   return counts;
 }
 function binCenters(edges) { return edges.slice(0,-1).map((e,i)=>(e+edges[i+1])/2); }
+// Memoized per-Lot row index. Replaces repeated O(n) `getLotRows(lot)`
+// scans (called once per lot per render) with a single O(n) build cached until S.data changes.
+// Invalidated automatically when S.data is reassigned (new ref) or its length changes (append).
+// NOTE: returned arrays are shared — callers must treat them as read-only.
+const _lotRowIndex = { ref: null, len: -1, map: null };
+function getLotRows(lot) {
+  if (_lotRowIndex.ref !== S.data || _lotRowIndex.len !== S.data.length) {
+    const m = new Map();
+    for (const r of S.data) {
+      let a = m.get(r.Lot);
+      if (!a) { a = []; m.set(r.Lot, a); }
+      a.push(r);
+    }
+    _lotRowIndex.ref = S.data; _lotRowIndex.len = S.data.length; _lotRowIndex.map = m;
+  }
+  return _lotRowIndex.map.get(lot) || [];
+}
 function validData(lot,item) {
-  return (lot ? S.data.filter(r=>r.Lot===lot) : S.data)
+  return (lot ? getLotRows(lot) : S.data)
     .filter(r => !_isMasked(r.Lot, r.Xpos, r.Ypos))
     .map(r=>parseFloat(r[item])).filter(v=>!isNaN(v));
 }
@@ -4126,7 +4202,7 @@ function applyCircleMask() {
   const radius = parseFloat(document.getElementById('mapMaskRadius').value);
   if (isNaN(radius) || radius <= 0) { Toast.warn('請輸入有效半徑'); return; }
   getActiveLots().forEach(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     const xs = rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v));
     const ys = rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v));
     if (!xs.length) return;
@@ -4169,11 +4245,12 @@ function renderMap() {
   const zmax       = zmaxRaw !== '' ? parseFloat(zmaxRaw) : undefined;
   const grid = document.getElementById('mapGrid');
   if(!item) return;
+  _populateDeltaSelectors();
   setGridCols(grid, getCols('map'));
   grid.innerHTML = '';
 
   getActiveLots().forEach(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     const xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
     const ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b) => a-b);
 
@@ -4242,6 +4319,97 @@ function renderMap() {
   });
 }
 
+// 以目前作用中的 Lot 填充 Wafer Delta 的兩個下拉選單（保留既有選擇）
+function _populateDeltaSelectors() {
+  const lots = getActiveLots();
+  ['mapDeltaA', 'mapDeltaB'].forEach((id, idx) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = lots.map(l => `<option value="${escHtml(l)}">${escHtml(l)}</option>`).join('');
+    if (lots.includes(prev)) sel.value = prev;
+    else if (lots.length > idx) sel.value = lots[idx];   // 預設 A=第1片、B=第2片
+  });
+}
+
+// Wafer-to-Wafer Delta Map：對兩 Lot 在相同 (Xpos,Ypos) 的目前量測項目相減，
+// 以對稱色階（0=無差異）呈現系統性偏移。
+function renderDeltaMap() {
+  const area = document.getElementById('mapDeltaArea');
+  if (!area) return;
+  const item = document.getElementById('mapItem').value;
+  const lotA = document.getElementById('mapDeltaA').value;
+  const lotB = document.getElementById('mapDeltaB').value;
+  if (!item) { Toast.warn('請先選擇量測項目'); return; }
+  if (!lotA || !lotB) { Toast.warn('請選擇兩個 Lot'); return; }
+  if (lotA === lotB) { Toast.warn('請選擇兩個不同的 Lot'); return; }
+
+  const xDesc = document.getElementById('mapXDir').value === 'desc';
+  const yDesc = document.getElementById('mapYDir').value === 'desc';
+
+  // 建立 (x,y) → 值 對照（套用遮罩）
+  const buildMap = lot => {
+    const m = new Map();
+    for (const r of getLotRows(lot)) {
+      const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
+      if (isNaN(x) || isNaN(y) || _isMasked(lot, x, y)) continue;
+      const v = parseFloat(r[item]);
+      if (!isNaN(v)) m.set(x + ',' + y, v);
+    }
+    return m;
+  };
+  const mapA = buildMap(lotA), mapB = buildMap(lotB);
+
+  const xSet = new Set(), ySet = new Set();
+  let overlap = 0;
+  for (const k of mapA.keys()) {
+    if (mapB.has(k)) {
+      overlap++;
+      const [x, y] = k.split(',').map(Number);
+      xSet.add(x); ySet.add(y);
+    }
+  }
+  if (!overlap) {
+    area.innerHTML = `<div style="padding:20px;text-align:center;color:var(--text-3);font-size:13px">⚠️ ${escHtml(lotA)} 與 ${escHtml(lotB)} 無相同座標的有效量測點，無法產生差異圖。</div>`;
+    return;
+  }
+  const xs = [...xSet].sort((a, b) => a - b);
+  const ys = [...ySet].sort((a, b) => a - b);
+
+  const z = ys.map(y => xs.map(x => {
+    const k = x + ',' + y;
+    return (mapA.has(k) && mapB.has(k)) ? mapA.get(k) - mapB.get(k) : null;
+  }));
+  const diffs = z.flat().filter(v => v !== null && !isNaN(v));
+  const absMax = Math.max(...diffs.map(Math.abs)) || 1;
+
+  const yMin = ys[0], yMax = ys[ys.length - 1];
+  const yPad = (yMax - yMin) * 0.03 || 0.5;
+  const id = uid('mapdelta', lotA + '_' + lotB);
+  area.innerHTML =
+    `<div style="padding:10px">
+       <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">
+         ${escHtml(lotA)} − ${escHtml(lotB)} ｜ ${escHtml(item)} ｜ 共同座標 N=${overlap}
+         ｜ Δ Mean=${rd(mean(diffs),4)}  σ=${rd(std(diffs),4)}  範圍=±${rd(absMax,4)}
+       </div>
+       <div id="${id}" style="min-height:380px"></div>
+     </div>`;
+
+  Plotly.newPlot(id, [{
+    type: 'heatmap', z, x: xs, y: ys,
+    colorscale: COLORSCALES.RdBu, zmid: 0, zmin: -absMax, zmax: absMax,
+    hoverongaps: false,
+    hovertemplate: 'X=%{x}<br>Y=%{y}<br>Δ=%{z}<extra></extra>',
+    colorbar: { title: { text: 'Δ', side: 'right' } },
+  }], {
+    title: { text: `Wafer Delta：${escHtml(lotA)} − ${escHtml(lotB)}`, font: { size: 13 } },
+    margin: { t: 46, b: 40, l: 48, r: 10 },
+    xaxis: { title: { text: 'Xpos', font: { size: 10 } }, autorange: xDesc ? 'reversed' : true },
+    yaxis: { title: { text: 'Ypos', font: { size: 10 } },
+             range: yDesc ? [yMax + yPad, yMin - yPad] : [yMin - yPad, yMax + yPad] },
+  }, { responsive: true, displayModeBar: 'hover' });
+}
+
 // 在色階 scaleArr ([stop,'#hex']) 上線性內插，t∈[0,1]，回傳 'RRGGBB'
 function _scaleColorHex(t, scaleArr) {
   t = Math.max(0, Math.min(1, t));
@@ -4267,11 +4435,20 @@ function exportMapExcel() {
   if (!getActiveLots().length) { alert('沒有作用中的 Lot/Wafer'); return; }
   document.getElementById('mapExpXDir').value = document.getElementById('mapXDir').value;
   document.getElementById('mapExpYDir').value = document.getElementById('mapYDir').value;
-  document.getElementById('mapExpModal').style.display = 'flex';
+  const m = document.getElementById('mapExpModal');
+  m.style.display = 'flex';
+  setTimeout(() => { const f = document.getElementById('mapExpXDir'); if (f) f.focus(); }, 0);
 }
 function closeMapExpModal() {
   document.getElementById('mapExpModal').style.display = 'none';
 }
+// ESC 關閉地圖匯出彈窗（無障礙）
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const m = document.getElementById('mapExpModal');
+    if (m && m.style.display !== 'none' && m.style.display !== '') closeMapExpModal();
+  }
+});
 
 // 依彈窗選擇實際匯出：長格式總表 + 每個量測項目一個工作表（各 wafer 矩陣堆疊、依色階上色）
 function doExportMapExcel() {
@@ -4286,7 +4463,7 @@ function doExportMapExcel() {
   // 1) 長格式總表（不上色）
   const longRows = [];
   lots.forEach(lot => {
-    S.data.filter(r => r.Lot === lot).forEach(r => {
+    getLotRows(lot).forEach(r => {
       const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
       const row = { Lot: r.Lot, Wafer: r.Wafer ?? '', Xpos: r.Xpos, Ypos: r.Ypos };
       S.items.forEach(it => { row[it] = (r[it] === '' || r[it] == null) ? null : parseFloat(r[it]); });
@@ -4310,7 +4487,7 @@ function doExportMapExcel() {
     // 該 item 跨所有作用中 wafer、未遮罩數值的 min/max（自動範圍）
     let vMin = Infinity, vMax = -Infinity;
     lots.forEach(lot => {
-      S.data.filter(r => r.Lot === lot).forEach(r => {
+      getLotRows(lot).forEach(r => {
         const x = parseFloat(r.Xpos), y = parseFloat(r.Ypos);
         if (isNaN(x) || isNaN(y) || _isMasked(lot, x, y)) return;
         const v = parseFloat(r[item]);
@@ -4322,7 +4499,7 @@ function doExportMapExcel() {
     const aoa = [];
     const colorCells = [];  // {r,c,v}
     lots.forEach(lot => {
-      const rows = S.data.filter(r => r.Lot === lot);
+      const rows = getLotRows(lot);
       if (!rows.length) return;
       let xSet = [...new Set(rows.map(r => parseFloat(r.Xpos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
       let ySet = [...new Set(rows.map(r => parseFloat(r.Ypos)).filter(v => !isNaN(v)))].sort((a,b)=>a-b);
@@ -4629,6 +4806,7 @@ function renderYield() {
 
   if (!specItems.length) {
     area.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-3);font-size:14px">⚠️ 尚無 SPEC 設定，請先在「統計」或「圖表分析」分頁設定 LSL / USL。</div>';
+    renderBinPareto();
     return;
   }
 
@@ -4682,6 +4860,82 @@ function renderYield() {
     xaxis: { tickangle: -40, tickfont: { size: 10 } },
     yaxis: { tickfont: { size: 10 } },
     colorbar: { title: { text: fmt === 'pct' ? '良率%' : '失敗數', side: 'right' }, tickfont: { size: 10 } },
+  }, { responsive: true, displayModeBar: 'hover' });
+
+  renderBinPareto();
+}
+
+// ── Bin Pareto：依 Bin / SBin 代碼統計 die 數，由高到低排序並繪累積百分比 ──
+function renderBinPareto() {
+  const area = document.getElementById('binParetoArea');
+  if (!area) return;
+  area.innerHTML = '';
+
+  const field = document.getElementById('binParetoField')?.value || 'Bin';
+  const excludePass = !!document.getElementById('binParetoExcludePass')?.checked;
+  const activeLots = new Set(getActiveLots());
+
+  // 確認資料是否含該 Bin 欄位
+  const hasField = S.data.some(r => r[field] != null && r[field] !== '');
+  if (!hasField) {
+    area.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px">⚠️ 目前資料不含「${field}」欄位，無法產生 Bin Pareto。</div>`;
+    return;
+  }
+
+  // 統計各 Bin 代碼的 die 數（套用 Lot 篩選與遮罩）
+  const counts = new Map();
+  let totalDie = 0;
+  for (const r of S.data) {
+    if (!activeLots.has(r.Lot)) continue;
+    if (_isMasked(r.Lot, r.Xpos, r.Ypos)) continue;
+    const code = String(r[field]);
+    if (code === '' || code === 'null' || code === 'undefined') continue;
+    totalDie++;
+    if (excludePass && (code === '1' || code === '01')) continue;
+    counts.set(code, (counts.get(code) || 0) + 1);
+  }
+
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (!entries.length) {
+    area.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px">無可顯示的 ${field} 資料（可能皆為 Pass Bin）。</div>`;
+    return;
+  }
+
+  const labels = entries.map(e => `Bin ${e[0]}`);
+  const vals = entries.map(e => e[1]);
+  const sumShown = vals.reduce((a, b) => a + b, 0);
+  let cum = 0;
+  const cumPct = vals.map(v => { cum += v; return cum / sumShown * 100; });
+
+  const plotId = uid('binpareto', field);
+  area.insertAdjacentHTML('beforeend',
+    `<div style="padding:10px">
+       <div style="font-size:12px;color:var(--text-3);margin-bottom:4px">
+         總 die 數：${totalDie}　|　顯示 ${field} 類別：${entries.length}　|　失效率參考（排除 Pass）：依下方累積線
+       </div>
+       <div id="${plotId}" style="min-height:380px"></div>
+     </div>`);
+
+  Plotly.newPlot(plotId, [
+    {
+      type: 'bar', x: labels, y: vals, name: 'Die 數',
+      marker: { color: '#3182ce' },
+      hovertemplate: '%{x}<br>Die 數: %{y}<extra></extra>',
+    },
+    {
+      type: 'scatter', mode: 'lines+markers', x: labels, y: cumPct,
+      name: '累積 %', yaxis: 'y2', line: { color: '#dd6b20', width: 2 },
+      marker: { size: 6 },
+      hovertemplate: '%{x}<br>累積: %{y:.1f}%<extra></extra>',
+    },
+  ], {
+    title: { text: `${field} Pareto`, font: { size: 14 } },
+    margin: { t: 50, b: 90, l: 60, r: 60 },
+    xaxis: { tickangle: -40, tickfont: { size: 10 } },
+    yaxis: { title: { text: 'Die 數' }, tickfont: { size: 10 } },
+    yaxis2: { title: { text: '累積 %' }, overlaying: 'y', side: 'right',
+              range: [0, 105], tickfont: { size: 10 }, showgrid: false },
+    legend: { orientation: 'h', y: 1.12 },
   }, { responsive: true, displayModeBar: 'hover' });
 }
 
@@ -5783,7 +6037,7 @@ function caScatter(items, grid) {
       groups.forEach(grp => {
         const traces = grp.lots.map(lot => {
           const li = activeLots.indexOf(lot);
-          const rows = S.data.filter(r => r.Lot === lot);
+          const rows = getLotRows(lot);
           const pts  = rows.map((r, idx) => {
             const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
                     : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
@@ -5811,7 +6065,7 @@ function caScatter(items, grid) {
       });
     } else {
       activeLots.forEach((lot, li) => {
-        const rows = S.data.filter(r => r.Lot === lot);
+        const rows = getLotRows(lot);
         const pts  = rows.map((r, idx) => {
           const x = xAxisKey === 'xpos' ? parseFloat(r.Xpos)
                   : xAxisKey === 'ypos' ? parseFloat(r.Ypos) : idx + 1;
@@ -6133,10 +6387,52 @@ function caBar(items, grid) {
 }
 
 // ── SPC ──
+// Western Electric / Nelson run rules（僅對有序序列有意義）。
+// 回傳 Map<index, [rule編號...]>，標示每個違反規則的量測點。
+function spcRunRules(y, mu, sg) {
+  const n = y.length;
+  const viol = new Map();
+  const add = (i, r) => { if (!viol.has(i)) viol.set(i, []); if (!viol.get(i).includes(r)) viol.get(i).push(r); };
+  if (sg === 0 || !isFinite(sg)) return viol;
+  const side = y.map(v => v > mu ? 1 : v < mu ? -1 : 0);      // 相對 CL 的側
+  const zone = y.map(v => (v - mu) / sg);                     // 以 σ 為單位
+  // Rule 1：超出 3σ
+  for (let i = 0; i < n; i++) if (Math.abs(zone[i]) > 3) add(i, 1);
+  // Rule 2：連續 3 點中有 2 點 > 2σ（同側）
+  for (let i = 0; i + 2 < n; i++) {
+    for (const s of [1, -1]) {
+      const w = [i, i+1, i+2].filter(j => side[j] === s && Math.abs(zone[j]) > 2);
+      if (w.length >= 2) w.forEach(j => add(j, 2));
+    }
+  }
+  // Rule 3：連續 5 點中有 4 點 > 1σ（同側）
+  for (let i = 0; i + 4 < n; i++) {
+    for (const s of [1, -1]) {
+      const w = [i,i+1,i+2,i+3,i+4].filter(j => side[j] === s && Math.abs(zone[j]) > 1);
+      if (w.length >= 4) w.forEach(j => add(j, 3));
+    }
+  }
+  // Rule 4：連續 8 點位於 CL 同側
+  for (let i = 0; i + 7 < n; i++) {
+    const s = side[i];
+    if (s !== 0 && [i,i+1,i+2,i+3,i+4,i+5,i+6,i+7].every(j => side[j] === s))
+      for (let j = i; j < i + 8; j++) add(j, 4);
+  }
+  // Rule 5：連續 6 點單調遞增或遞減（趨勢）
+  for (let i = 0; i + 5 < n; i++) {
+    let inc = true, dec = true;
+    for (let j = i; j < i + 5; j++) { if (!(y[j+1] > y[j])) inc = false; if (!(y[j+1] < y[j])) dec = false; }
+    if (inc || dec) for (let j = i; j < i + 6; j++) add(j, 5);
+  }
+  return viol;
+}
+
 function caSPC(items, grid) {
   const showSpec = document.getElementById('caShowSpec').checked;
   const xAxisKey = document.getElementById('caSPCxAxis').value;
   const sigma    = parseInt(document.getElementById('caSPCsigma').value) || 3;
+  const useRunRules = !!document.getElementById('caSPCrunRules')?.checked
+                      && (xAxisKey === 'index' || xAxisKey === 'lot');
 
   const aLots = getActiveLots();
   const aSet = new Set(aLots);
@@ -6145,7 +6441,7 @@ function caSPC(items, grid) {
   items.forEach(item => {
     const spec = S.chartSpecs[item] || {};
     const allRows = xAxisKey === 'lot'
-      ? aLots.flatMap(lot => S.data.filter(r => r.Lot === lot))
+      ? aLots.flatMap(lot => getLotRows(lot))
       : activeData;
     const pairs = allRows.map((r, idx) => {
       const y = parseFloat(r[item]);
@@ -6178,7 +6474,16 @@ function caSPC(items, grid) {
       {xref:'paper',x:0.99,yref:'y',y:lcl, text:`LCL(${sigma}σ)`,showarrow:false,xanchor:'right',font:{size:9,color:'#e53e3e'}},
     ];
 
-    const colorArr = pairs.map((p,i) => outOfCtrl[i] ? '#e53e3e' : getLotColor(p.lot, aLots.indexOf(p.lot)));
+    // Run rules 違反（以標準 σ zone 計算，與所選管制線 σ 無關）
+    const ruleViol = useRunRules ? spcRunRules(yVals, mu, sg) : new Map();
+    const colorArr = pairs.map((p,i) =>
+      outOfCtrl[i] ? '#e53e3e'
+      : (ruleViol.has(i) ? '#dd6b20' : getLotColor(p.lot, aLots.indexOf(p.lot))));
+    const sizeArr = pairs.map((p,i) => (ruleViol.has(i) && !outOfCtrl[i]) ? 8 : 5);
+    const symArr  = pairs.map((p,i) => (ruleViol.has(i) && !outOfCtrl[i]) ? 'diamond' : 'circle');
+    const hoverArr = pairs.map((p,i) =>
+      ruleViol.has(i) ? `值=${rd(p.y,4)}<br>違反規則: ${ruleViol.get(i).join(', ')}` : `值=${rd(p.y,4)}`);
+    const nViol = ruleViol.size;
     const id = uid('ca', item+'spc');
     const xLabel = xAxisKey==='xpos'?'Xpos':xAxisKey==='ypos'?'Ypos':'Index';
     grid.insertAdjacentHTML('beforeend',
@@ -6186,9 +6491,10 @@ function caSPC(items, grid) {
     Plotly.newPlot(id, [{
       type:'scatter', mode:'markers', name:item,
       x:pairs.map(p=>p.x), y:pairs.map(p=>p.y),
-      marker:{color:colorArr, size:5}
+      marker:{color:colorArr, size:sizeArr, symbol:symArr},
+      text:hoverArr, hovertemplate:'%{text}<extra></extra>'
     }], {
-      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}</sup>`,
+      title:{text:`${escHtml(item)} SPC<br><sup>CL=${rd(mu,4)}  UCL=${rd(ucl,4)}  LCL=${rd(lcl,4)}${useRunRules?`　|　Run rules 違反: ${nViol}`:''}</sup>`,
              font:{size:10}},
       margin:{t:52,b:36,l:44,r:10}, showlegend:false,
       shapes, annotations:annots, height:340,
@@ -6291,7 +6597,7 @@ function caCorr(items, grid) {
 
     const rawPairs = activeLots.flatMap(lot => {
       const li = aLots.indexOf(lot);
-      return S.data.filter(r => r.Lot === lot).map(r => {
+      return getLotRows(lot).map(r => {
         const x = parseFloat(r[item]);
         const y = parseFloat(r[yItem]);
         return isNaN(x)||isNaN(y) ? null : {x, y, lot, li};
@@ -6637,7 +6943,7 @@ function renderDashboard() {
       };
     });
     const overall = activeLots.map(lot => {
-      const lotRows = S.data.filter(r => r.Lot === lot);
+      const lotRows = getLotRows(lot);
       const total = lotRows.length;
       let pass = 0;
       const failByItem = {};
@@ -7123,6 +7429,34 @@ function exportSession() {
     download: `jbs_session_${new Date().toISOString().slice(0,10)}.json`
   });
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+// 將目前載入的全部量測資料以 CSV 複製到剪貼簿（含 meta 欄位 + 各量測項目）
+function copyDataCsv() {
+  if (!S.data.length) { Toast.info('尚無量測資料可複製，請先載入檔案。'); return; }
+  const metaCols = ['Lot','Wafer','Site','Bin','SBin','Xpos','Ypos']
+    .filter(c => S.data.some(r => r[c] != null && r[c] !== ''));
+  const cols = [...metaCols, ...S.items.filter(i => !metaCols.includes(i))];
+  const esc = v => {
+    v = (v == null ? '' : String(v));
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  };
+  const lines = [cols.join(',')];
+  for (const r of S.data) lines.push(cols.map(c => esc(r[c])).join(','));
+  navigator.clipboard.writeText(lines.join('\n')).then(
+    () => Toast.success(`已複製 ${S.data.length} 列資料（CSV）到剪貼簿`),
+    () => Toast.error('複製失敗，剪貼簿不可用（請改用「匯出 Excel」）')
+  );
+}
+
+// 清除 localStorage 內所有已儲存設定（不影響目前已載入的資料）
+async function resetSettings() {
+  const ok = await Toast.confirm('確定清除所有已儲存的設定（Split / SPEC / 圖表偏好 / 遮罩等）？目前載入的資料不受影響，重新整理頁面後生效。');
+  if (!ok) return;
+  try {
+    localStorage.removeItem(SETTINGS_KEY);
+    Toast.success('設定已重置，重新整理頁面即可套用預設值。');
+  } catch (e) { Toast.error('重置失敗：' + e.message); }
 }
 
 function importSession(file) {
@@ -8845,7 +9179,7 @@ window.runDataQC = function(){
 
   lots.forEach(lot => {
     items.forEach(item => {
-      const rows = S.data.filter(r => r.Lot===lot);
+      const rows = getLotRows(lot);
       let missCnt = 0;
       const vals = [];
       const rowRefs = [];
@@ -9172,7 +9506,7 @@ window.runWaferPatternClassify = function(){
   const items = S.items;
   // Use specs to mark fail; if no spec, use top/bottom 5% as proxy
   const rowsHtml = lots.map(lot => {
-    const rows = S.data.filter(r => r.Lot === lot);
+    const rows = getLotRows(lot);
     if (!rows.length) return '';
     let xs = rows.map(r => parseFloat(r.Xpos)).filter(v=>!isNaN(v));
     let ys = rows.map(r => parseFloat(r.Ypos)).filter(v=>!isNaN(v));
@@ -9349,7 +9683,7 @@ function _buildSummary(){
     }
   });
   lots.forEach(lot => {
-    const rows = S.data.filter(r => r.Lot===lot);
+    const rows = getLotRows(lot);
     let pass = 0, total = 0;
     rows.forEach(r => {
       let ok = true;
