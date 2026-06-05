@@ -28,12 +28,25 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .tab-panel.active { display: block; }
 
 /* Upload */
-.upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 32px; text-align: center;
-               cursor: pointer; background: white; transition: all .2s; }
-.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: #ebf8ff; }
-.upload-icon { font-size: 40px; margin-bottom: 8px; }
-.upload-text { font-size: 15px; color: #4a5568; }
-.upload-hint { font-size: 11px; color: #a0aec0; margin-top: 4px; }
+.upload-top { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; margin-bottom: 10px; }
+.upload-area { border: 1.5px dashed var(--border-2, #cbd5e0); border-radius: 8px; padding: 12px 18px;
+               cursor: pointer; background: var(--bg-2, #f7fafc); transition: all .15s;
+               display: flex; align-items: center; gap: 14px; text-align: left; flex: 1; min-width: 280px; }
+.upload-area:hover, .upload-area.drag-over { border-color: #4299e1; background: var(--accent-glow, #ebf8ff); }
+.upload-icon { font-size: 26px; margin: 0; line-height: 1; }
+.upload-text { font-size: 14px; color: var(--text, #4a5568); font-weight: 600; }
+.upload-hint { font-size: 11px; color: var(--text-3, #a0aec0); margin-top: 2px; }
+/* Session toolbar + parse-settings card (data-load page) */
+.session-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+               padding: 8px 12px; background: var(--bg-1); border: 1px solid var(--border);
+               border-radius: var(--radius-lg); margin-bottom: 10px; }
+.session-lbl { font-size: 11px; color: var(--text-2); font-weight: 600;
+               text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
+.load-card { background: var(--bg-1); border: 1px solid var(--border);
+             border-radius: var(--radius-lg); padding: 12px 14px; margin-bottom: 10px; }
+.load-card-hd { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 10px;
+                display: flex; align-items: center; gap: 8px; }
+.load-card-hd .summary-hint { font-weight: 400; font-size: 11px; color: var(--text-3); }
 
 /* Settings row */
 .settings-row { display: flex; align-items: flex-end; gap: 16px; margin: 14px 0; flex-wrap: wrap; }
@@ -725,87 +738,79 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <div id="panel-upload" class="tab-panel active">
     <div id="libError"></div>
 
-    <!-- ── 區塊 1：檔案上傳 ── -->
-    <details class="load-acc" open>
-      <summary>📁 檔案上傳<span class="summary-hint">拖曳或點擊上傳 CP 資料檔</span></summary>
-      <div class="load-acc-body">
-    <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
-      <div class="upload-icon">📁</div>
-      <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
-      <div class="upload-hint">支援 .xls / .xlsx / .csv ｜ 自動辨識多種 CP 格式（JUNO XLS、POWORLD CSV、dlogTDO 等）</div>
+    <!-- ── 上傳區（拖曳）＋ 載入模式：永遠顯示 ── -->
+    <div class="upload-top">
+      <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
+        <div class="upload-icon">📁</div>
+        <div>
+          <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
+          <div class="upload-hint">支援 .xls / .xlsx / .csv ｜ 自動辨識多種 CP 格式（JUNO XLS、POWORLD CSV、dlogTDO 等）</div>
+        </div>
+      </div>
+      <div class="load-mode-bar" style="margin:0">
+        <span class="lbl">載入模式</span>
+        <div class="seg" id="loadModeSeg">
+          <button class="on" type="button" onclick="setLoadMode('overwrite',this)">↺ 覆蓋上次</button>
+          <button type="button" onclick="setLoadMode('append',this)">＋ 附加（保留既有）</button>
+        </div>
+        <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
+      </div>
     </div>
     <input type="file" id="fi" multiple accept=".xls,.xlsx,.csv" style="display:none"
            onchange="handleFiles(this.files)">
 
-    <!-- 載入模式 (覆蓋/附加) -->
-    <div class="load-mode-bar">
-      <span class="lbl">載入模式</span>
-      <div class="seg" id="loadModeSeg">
-        <button class="on" type="button" onclick="setLoadMode('overwrite',this)">↺ 覆蓋上次</button>
-        <button type="button" onclick="setLoadMode('append',this)">＋ 附加（保留既有）</button>
-      </div>
-      <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
+    <!-- ── 工作階段工具列：永遠顯示（可在空白頁面載入先前 session） ── -->
+    <div class="session-bar">
+      <span class="session-lbl">工作階段</span>
+      <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
+        📥 載入工作階段
+        <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
+      </label>
+      <button class="btn btn-gray" style="font-size:12px" onclick="exportSession()" id="btnExpSession" disabled>📤 匯出工作階段</button>
+      <button class="btn btn-green" style="font-size:12px" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
+      <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
+      <button class="btn btn-gray" style="font-size:12px;margin-left:auto" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
     </div>
+    <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin:-4px 0 10px"></div>
 
     <div id="fileList" class="file-list"></div>
     <div id="upStatus"></div>
-      </div>
-    </details>
 
-    <!-- ── 區塊 2：解析設定與工作階段 ── -->
-    <details class="load-acc" open>
-      <summary>⚙ 解析設定與工作階段<span class="summary-hint">格式偵測 / 列號設定 / 載入欄位 / 匯出</span></summary>
-      <div class="load-acc-body">
-    <div class="settings-row">
-      <div class="sg">
-        <label>格式偵測</label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);cursor:pointer">
-          <input type="checkbox" id="autoDetectChk" checked onchange="onAutoDetectChange(this)">
-          <span>自動偵測（依檔案內容判別 Template）</span>
-        </label>
-      </div>
-      <div class="sg">
-        <label>標題列號 <span style="color:var(--text-3);font-size:10px">（自動模式下會被覆寫）</span></label>
-        <input type="number" id="headerRow" value="13" min="1" max="200" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>資料起始列號</label>
-        <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>USL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
-        <input type="number" id="uslRow" placeholder="auto" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>LSL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
-        <input type="number" id="lslRow" placeholder="auto" min="1" max="500" style="width:80px">
-      </div>
-      <div class="sg">
-        <label>&nbsp;</label>
-        <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
-          <span class="step-badge">1</span> 載入欄位
-        </button>
-      </div>
-      <div class="sg">
-        <label>&nbsp;</label>
-        <button class="btn btn-green" onclick="exportExcel()" id="btnExp" disabled>💾 匯出 Excel</button>
-      </div>
-      <div class="sg" style="margin-left:auto">
-        <label style="font-size:11px;color:var(--text-3)">工作階段</label>
-        <div style="display:flex;gap:6px;align-items:center">
-          <button class="btn btn-gray" style="font-size:12px" onclick="exportSession()" id="btnExpSession" disabled>📤 匯出</button>
-          <label class="btn btn-gray" style="font-size:12px;cursor:pointer">
-            📥 載入
-            <input type="file" id="sessionFileInput" accept=".json" style="display:none" onchange="importSession(this.files[0]);this.value=''">
+    <!-- ── 解析設定：上傳檔案後才出現 ── -->
+    <div id="parseSection" class="load-card" style="display:none">
+      <div class="load-card-hd">⚙ 解析設定<span class="summary-hint">確認設定後點「載入欄位」</span></div>
+      <div class="settings-row">
+        <div class="sg">
+          <label>格式偵測</label>
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-2);cursor:pointer">
+            <input type="checkbox" id="autoDetectChk" checked onchange="onAutoDetectChange(this)">
+            <span>自動偵測（依檔案內容判別 Template）</span>
           </label>
-          <button class="btn btn-gray" style="font-size:12px" onclick="copyDataCsv()" title="將目前載入的全部量測資料以 CSV 複製到剪貼簿">📋 複製資料 CSV</button>
-          <button class="btn btn-gray" style="font-size:12px" onclick="resetSettings()" title="清除所有已儲存的設定（不影響目前載入的資料），重新整理後套用預設值">♻ 重置設定</button>
+        </div>
+        <div class="sg">
+          <label>標題列號 <span style="color:var(--text-3);font-size:10px">（自動模式下會被覆寫）</span></label>
+          <input type="number" id="headerRow" value="13" min="1" max="200" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>資料起始列號</label>
+          <input type="number" id="dataStart" value="30" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>USL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+          <input type="number" id="uslRow" placeholder="auto" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg">
+          <label>LSL 列號 <span style="color:var(--text-3);font-size:10px">（空白=自動）</span></label>
+          <input type="number" id="lslRow" placeholder="auto" min="1" max="500" style="width:80px">
+        </div>
+        <div class="sg" style="margin-left:auto">
+          <label>&nbsp;</label>
+          <button class="btn btn-blue" onclick="loadColumns()" id="btnLoad" disabled>
+            <span class="step-badge">1</span> 載入欄位
+          </button>
         </div>
       </div>
     </div>
-    <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin-top:4px"></div>
-      </div>
-    </details>
 
     <!-- ── 區塊 3：格式偵測（步驟 1 後顯示） ── -->
     <details id="detectSection" class="load-acc" style="display:none" open>
@@ -2899,6 +2904,9 @@ function renderFileList() {
       </div>`;
     }).join('');
   document.getElementById('btnLoad').disabled = S.files.length === 0;
+  // 解析設定（格式偵測 / 列號 / 載入欄位）僅在已選取檔案後顯示
+  const ps = document.getElementById('parseSection');
+  if (ps) ps.style.display = S.files.length ? '' : 'none';
   document.getElementById('upStatus').innerHTML = S.files.length
     ? `<div class="status">已選取 ${S.files.length} 個檔案，確認設定後點擊「步驟 1：載入欄位」</div>`
     : '';
