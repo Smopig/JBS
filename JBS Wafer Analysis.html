@@ -7243,13 +7243,34 @@ function exportStatsTableCsv(containerId, tag) {
     const s = String(v).replace(/\s+/g, ' ').trim();
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const lines = [];
-  table.querySelectorAll('tr').forEach(tr => {
-    const cells = [...tr.querySelectorAll('th,td')].map(td => {
-      const inp = td.querySelector('input,select');
-      return esc(inp ? inp.value : td.textContent);
+  const cellText = td => {
+    const inp = td.querySelector('input,select');
+    return esc(inp ? inp.value : td.textContent);
+  };
+  // 以網格填入方式正確處理 rowspan / colspan，避免欄位錯位
+  const grid = [];   // grid[r][c] = value
+  const trs = [...table.querySelectorAll('tr')];
+  trs.forEach((tr, r) => {
+    if (!grid[r]) grid[r] = [];
+    let c = 0;
+    [...tr.querySelectorAll('th,td')].forEach(td => {
+      while (grid[r][c] !== undefined) c++;           // 跳過上方 rowspan 佔用的欄
+      const rs = parseInt(td.getAttribute('rowspan')) || 1;
+      const cs = parseInt(td.getAttribute('colspan')) || 1;
+      const val = cellText(td);
+      for (let i = 0; i < rs; i++) {
+        const rr = r + i;
+        if (!grid[rr]) grid[rr] = [];
+        for (let j = 0; j < cs; j++) grid[rr][c + j] = val;   // 合併儲存格往下/右重複，每列自成完整資料
+      }
+      c += cs;
     });
-    if (cells.length) lines.push(cells.join(','));
+  });
+  const width = grid.reduce((m, row) => Math.max(m, row.length), 0);
+  const lines = grid.map(row => {
+    const cells = [];
+    for (let i = 0; i < width; i++) cells.push(row[i] !== undefined ? row[i] : '');
+    return cells.join(',');
   });
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
@@ -8527,12 +8548,35 @@ function renderSplitAnalysis() {
 
 function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
   const liveGroups = groups.filter(g => g.lots.length > 0);
+
+  // 統一的統計欄位順序：N, Mean, Median, Min, Max, Std, 再接自訂公式（若有定義才出現）
+  const customs = S.customStats || [];
+  const cFns    = customs.length ? getAllStatFns() : {};
+  const metricCols = [
+    { key:'N',      get:v => v.length },
+    { key:'Mean',   get:v => v.length ? rd(mean(v),4) : '—' },
+    { key:'Median', get:v => v.length ? rd(median(v),4) : '—' },
+    { key:'Min',    get:v => v.length ? rd(Math.min(...v),4) : '—' },
+    { key:'Max',    get:v => v.length ? rd(Math.max(...v),4) : '—' },
+    { key:'Std',    get:v => v.length >= 2 ? rd(std(v),4) : '—' },
+  ];
+  customs.forEach(cs => metricCols.push({
+    key: cs.label, custom: true,
+    get: (v, spec) => {
+      if (!v.length) return '—';
+      const r = cFns[cs.label](v, spec);
+      return (typeof r === 'number' && isFinite(r)) ? rd(r,4) : (r == null ? '—' : r);
+    }
+  }));
+  const specOf = item => (S.chartSpecs && S.chartSpecs[item]) || {};
+
   if (dispMode === 'individual') {
     // Per-lot breakdown grouped by condition
     let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（個別 Lot）</div>`;
     html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
-    html += '<th>量測項目</th><th>條件</th><th>Lot</th><th>n</th><th>Mean</th><th>Std</th><th>Median</th><th>Min</th><th>Max</th></tr></thead><tbody>';
+    html += '<th>量測項目</th><th>條件</th><th>Lot</th>' + metricCols.map(c => `<th>${escHtml(c.key)}</th>`).join('') + '</tr></thead><tbody>';
     items.forEach(item => {
+      const spec = specOf(item);
       let first = true;
       liveGroups.forEach(g => {
         g.lots.forEach((lotName, li) => {
@@ -8544,12 +8588,7 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
             ${first ? `<td rowspan="${liveGroups.reduce((s,gx)=>s+gx.lots.length,0)}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
             ${li === 0 ? `<td rowspan="${g.lots.length}" style="color:${g.color.fg};font-weight:600;vertical-align:top">${dot}${escHtml(g.label)}</td>` : ''}
             <td>${escHtml(lotName)}</td>
-            <td>${vals.length}</td>
-            <td>${vals.length ? rd(mean(vals),4) : '—'}</td>
-            <td>${vals.length>=2 ? rd(std(vals),4) : '—'}</td>
-            <td>${vals.length ? rd(median(vals),4) : '—'}</td>
-            <td>${vals.length ? rd(Math.min(...vals),4) : '—'}</td>
-            <td>${vals.length ? rd(Math.max(...vals),4) : '—'}</td>
+            ${metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('')}
           </tr>`;
           first = false;
         });
@@ -8558,14 +8597,16 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
     html += '</tbody></table></div>';
     return html;
   }
-  // 組別多時，寬表（每組 4 欄 Count/Mean/Std/Median）會橫向爆寬難以一目了然。
-  // 改用「直長式」：每列＝一個分組，固定 6 欄，組別再多也只需垂直捲動。
+
+  // 組別多時，寬表（每組多欄）會橫向爆寬難以一目了然。
+  // 改用「直長式」：每列＝一個分組，欄位固定，組別再多也只需垂直捲動。
   const TIDY_THRESHOLD = 4;
   if (liveGroups.length > TIDY_THRESHOLD) {
     let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}（${liveGroups.length} 組 · 直長式）</div>`;
     html += '<div style="overflow:auto;max-height:340px"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr>';
-    html += '<th>量測項目</th><th>分組</th><th>n</th><th>Mean</th><th>Std</th><th>Median</th></tr></thead><tbody>';
+    html += '<th>量測項目</th><th>分組</th>' + metricCols.map(c => `<th>${escHtml(c.key)}</th>`).join('') + '</tr></thead><tbody>';
     items.forEach(item => {
+      const spec = specOf(item);
       liveGroups.forEach((g, gi) => {
         const vals = _inSpecArr(
           S.data
@@ -8576,10 +8617,7 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
         html += `<tr>
           ${gi === 0 ? `<td rowspan="${liveGroups.length}" style="font-weight:700;vertical-align:top">${escHtml(item)}</td>` : ''}
           <td style="color:${g.color.fg};font-weight:600">${dot}${escHtml(g.label)}</td>
-          <td>${vals.length}</td>
-          <td>${vals.length ? rd(mean(vals),4) : '—'}</td>
-          <td>${vals.length >= 2 ? rd(std(vals),4) : '—'}</td>
-          <td>${vals.length ? rd(median(vals),4) : '—'}</td>
+          ${metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('')}
         </tr>`;
       });
     });
@@ -8587,18 +8625,21 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
     return html;
   }
 
+  // 寬表（≤4 組）：每組一個欄組，第一欄帶分組名稱
   let html = `<div style="font-size:12px;font-weight:700;margin-bottom:6px;color:var(--text-2)">統計摘要 — 製程：${escHtml(procName)}</div>`;
   html += '<div style="overflow:auto"><table class="stats" style="font-size:11px;white-space:nowrap"><thead><tr><th>量測項目</th>';
   liveGroups.forEach(g => {
-    html += `<th style="color:${g.color.fg}">Count<br><small>${escHtml(g.label)}</small></th>`;
-    html += `<th style="color:${g.color.fg}">Mean</th>`;
-    html += `<th style="color:${g.color.fg}">Std</th>`;
-    html += `<th style="color:${g.color.fg}">Median</th>`;
+    metricCols.forEach((c, ci) => {
+      html += ci === 0
+        ? `<th style="color:${g.color.fg}">${escHtml(c.key)}<br><small>${escHtml(g.label)}</small></th>`
+        : `<th style="color:${g.color.fg}">${escHtml(c.key)}</th>`;
+    });
   });
   if (liveGroups.length === 2) html += '<th>Δ Mean<br><small>(G2−G1)</small></th>';
   html += '</tr></thead><tbody>';
 
   items.forEach(item => {
+    const spec = specOf(item);
     html += `<tr><td style="font-weight:600">${escHtml(item)}</td>`;
     const gMeans = [];
     liveGroups.forEach(g => {
@@ -8607,12 +8648,8 @@ function buildSplitStatsHtml(items, groups, procName, dispMode, onlyInSpec) {
           .filter(r => g.lots.includes(r.Lot) && r[item] != null && isFinite(r[item]))
           .map(r => +r[item]),
         item, onlyInSpec);
-      const m = vals.length ? mean(vals) : null;
-      gMeans.push(m);
-      const fmt = v => v != null ? rd(v, 4) : '—';
-      html += `<td>${vals.length}</td><td>${fmt(m)}</td>`;
-      html += `<td>${vals.length >= 2 ? fmt(std(vals)) : '—'}</td>`;
-      html += `<td>${vals.length ? fmt(median(vals)) : '—'}</td>`;
+      gMeans.push(vals.length ? mean(vals) : null);
+      html += metricCols.map(c => `<td>${c.get(vals, spec)}</td>`).join('');
     });
     if (liveGroups.length === 2 && gMeans[0] != null && gMeans[1] != null) {
       const delta = gMeans[1] - gMeans[0];
