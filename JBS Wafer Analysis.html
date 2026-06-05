@@ -523,6 +523,20 @@ body.density-cozy .chart-grid { gap: 20px; }
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+/* ── 資料載入頁：可收折區塊 ── */
+.load-acc { background: var(--bg-1); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); margin-bottom: 10px; overflow: hidden; }
+.load-acc > summary { list-style: none; cursor: pointer; user-select: none;
+  padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--text);
+  display: flex; align-items: center; gap: 8px; background: var(--bg-2); }
+.load-acc > summary::-webkit-details-marker { display: none; }
+.load-acc > summary::before { content: '▸'; color: var(--text-3); font-size: 11px; }
+.load-acc[open] > summary::before { content: '▾'; }
+.load-acc > summary:hover { color: var(--accent); }
+.load-acc > summary .summary-hint { font-weight: 400; font-size: 11px;
+  color: var(--text-3); margin-left: auto; }
+.load-acc-body { padding: 12px 14px; }
+
 /* ── 圖表分析控制列：更緊湊的排版，減少佔用畫面高度 ── */
 #panel-chart .ctrl { padding: 6px 12px; margin-bottom: 6px; gap: 8px 10px; }
 #panel-chart .ctrl select,
@@ -711,6 +725,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
   <div id="panel-upload" class="tab-panel active">
     <div id="libError"></div>
 
+    <!-- ── 區塊 1：檔案上傳 ── -->
+    <details class="load-acc" open>
+      <summary>📁 檔案上傳<span class="summary-hint">拖曳或點擊上傳 CP 資料檔</span></summary>
+      <div class="load-acc-body">
     <div class="upload-area" id="dropZone" onclick="document.getElementById('fi').click()">
       <div class="upload-icon">📁</div>
       <div class="upload-text">點擊或拖曳上傳 CP 資料檔</div>
@@ -729,6 +747,15 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       <span class="load-mode-hint" id="loadModeHint">新檔案會取代既有資料</span>
     </div>
 
+    <div id="fileList" class="file-list"></div>
+    <div id="upStatus"></div>
+      </div>
+    </details>
+
+    <!-- ── 區塊 2：解析設定與工作階段 ── -->
+    <details class="load-acc" open>
+      <summary>⚙ 解析設定與工作階段<span class="summary-hint">格式偵測 / 列號設定 / 載入欄位 / 匯出</span></summary>
+      <div class="load-acc-body">
     <div class="settings-row">
       <div class="sg">
         <label>格式偵測</label>
@@ -777,16 +804,14 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
       </div>
     </div>
     <div id="sessionStatus" style="font-size:11px;color:var(--text-3);margin-top:4px"></div>
+      </div>
+    </details>
 
-    <div id="fileList" class="file-list"></div>
-    <div id="upStatus"></div>
-
-    <!-- ── Template detection panel (shown after step 1) ── -->
-    <div id="detectSection" style="display:none;margin-top:10px;padding:10px 12px;
-         background:var(--bg-2);border:1px solid var(--border-2);border-radius:6px">
+    <!-- ── 區塊 3：格式偵測（步驟 1 後顯示） ── -->
+    <details id="detectSection" class="load-acc" style="display:none" open>
+      <summary>📋 偵測到的 CP 格式<span class="summary-hint">每個檔案可手動切換 Template，再按「載入欄位」重新解析</span></summary>
+      <div class="load-acc-body">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-        <div style="font-weight:600;font-size:13px">📋 偵測到的 CP 格式</div>
-        <span style="font-size:11px;color:var(--text-3)">每個檔案可手動切換 Template，再次按「載入欄位」會重新解析</span>
         <div style="margin-left:auto;display:flex;gap:6px">
           <button class="btn btn-gray" style="font-size:11px" onclick="exportTemplatesJSON()">📤 匯出 Template JSON</button>
           <label class="btn btn-gray" style="font-size:11px;cursor:pointer">📥 匯入
@@ -796,15 +821,17 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         </div>
       </div>
       <div id="detectList" style="display:flex;flex-direction:column;gap:6px"></div>
-    </div>
+      </div>
+    </details>
 
-    <!-- ── Rename section (shown after step 1) ── -->
-    <div id="renameSection" class="rename-section" style="display:none">
+    <!-- ── 區塊 4：欄位命名與分析（步驟 1 後顯示） ── -->
+    <details id="renameSection" class="load-acc" style="display:none" open>
+      <summary><span class="step-badge">2</span> 欄位命名與分析<span class="summary-hint">修改欄位名稱與換算方式，套用後開始分析</span></summary>
+      <div class="load-acc-body">
       <div class="rename-header">
         <div>
-          <div class="title"><span class="step-badge">2</span> 欄位命名</div>
           <div class="hint">
-            修改欄位名稱與換算方式 ｜ <span style="color:#90cdf4">IR_ → ×1,000,000（A→uA）</span>
+            <span style="color:#90cdf4">IR_ → ×1,000,000（A→uA）</span>
             ｜ <span style="color:#9ae6b4">VR_ → round 0.1</span>
             ｜ <span style="color:#fefcbf">VF_ → round 0.001</span>
             ｜ 自訂模式可輸入任意倍數
@@ -884,7 +911,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
         </button>
         <span style="font-size:11px; color:#718096">名稱不改也可以直接分析</span>
       </div>
-    </div>
+      </div>
+    </details>
   </div>
 
   <!-- ══ Dashboard ══ -->
@@ -2632,6 +2660,7 @@ function renderDetectionPanel() {
   }
   list.innerHTML = html;
   sec.style.display = 'block';
+  if (sec.tagName === 'DETAILS') sec.open = true;
 }
 
 async function setGroupRowOverride(groupKey, key, val) {
@@ -3015,7 +3044,7 @@ async function loadColumns() {
   if (S._renameScope !== '*' && !_formatGroups().some(g => g.key === S._renameScope)) S._renameScope = '*';
 
   buildRenameTable();
-  document.getElementById('renameSection').style.display = 'block';
+  (function(rs){ rs.style.display = 'block'; if (rs.tagName === 'DETAILS') rs.open = true; })(document.getElementById('renameSection'));
   refreshNamingUI();
 
   renderDetectionPanel();
