@@ -23,12 +23,12 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .tab-btn:hover  { color: #1a365d; }
 .tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.content   { padding: 18px 22px; }
+.content   { padding: 14px 18px; }
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
 /* Upload */
-.upload-top { display: flex; gap: 12px; align-items: stretch; flex-wrap: wrap; margin-bottom: 10px; }
+.upload-top { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin-bottom: 8px; }
 .upload-area { border: 1.5px dashed var(--border-2, #cbd5e0); border-radius: 8px; padding: 12px 18px;
                cursor: pointer; background: var(--bg-2, #f7fafc); transition: all .15s;
                display: flex; align-items: center; gap: 14px; text-align: left; flex: 1; min-width: 280px; }
@@ -38,8 +38,8 @@ body { font-family: 'Segoe UI', Arial, sans-serif; background: #f0f2f5; color: #
 .upload-hint { font-size: 11px; color: var(--text-3, #a0aec0); margin-top: 2px; }
 /* Session toolbar + parse-settings card (data-load page) */
 .session-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-               padding: 8px 12px; background: var(--bg-1); border: 1px solid var(--border);
-               border-radius: var(--radius-lg); margin-bottom: 10px; }
+               padding: 6px 12px; background: var(--bg-1); border: 1px solid var(--border);
+               border-radius: var(--radius-lg); margin-bottom: 8px; }
 .session-lbl { font-size: 11px; color: var(--text-2); font-weight: 600;
                text-transform: uppercase; letter-spacing: .04em; margin-right: 2px; }
 .load-card { background: var(--bg-1); border: 1px solid var(--border);
@@ -538,9 +538,9 @@ body.density-cozy .chart-grid { gap: 20px; }
 
 /* ── 資料載入頁：可收折區塊 ── */
 .load-acc { background: var(--bg-1); border: 1px solid var(--border);
-  border-radius: var(--radius-lg); margin-bottom: 10px; overflow: hidden; }
+  border-radius: var(--radius-lg); margin-bottom: 8px; overflow: hidden; }
 .load-acc > summary { list-style: none; cursor: pointer; user-select: none;
-  padding: 10px 14px; font-size: 13px; font-weight: 700; color: var(--text);
+  padding: 8px 14px; font-size: 13px; font-weight: 700; color: var(--text);
   display: flex; align-items: center; gap: 8px; background: var(--bg-2); }
 .load-acc > summary::-webkit-details-marker { display: none; }
 .load-acc > summary::before { content: '▸'; color: var(--text-3); font-size: 11px; }
@@ -548,7 +548,8 @@ body.density-cozy .chart-grid { gap: 20px; }
 .load-acc > summary:hover { color: var(--accent); }
 .load-acc > summary .summary-hint { font-weight: 400; font-size: 11px;
   color: var(--text-3); margin-left: auto; }
-.load-acc-body { padding: 12px 14px; }
+.load-acc-body { padding: 10px 14px; }
+#panel-upload .settings-row { margin: 0; }
 
 /* ── 圖表分析控制列：更緊湊的排版，減少佔用畫面高度 ── */
 #panel-chart .ctrl { padding: 6px 12px; margin-bottom: 6px; gap: 8px 10px; }
@@ -776,9 +777,10 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
     <div id="fileList" class="file-list"></div>
     <div id="upStatus"></div>
 
-    <!-- ── 解析設定：上傳檔案後才出現 ── -->
-    <div id="parseSection" class="load-card" style="display:none">
-      <div class="load-card-hd">⚙ 解析設定<span class="summary-hint">確認設定後點「載入欄位」</span></div>
+    <!-- ── 解析設定：上傳檔案後才出現，可收折 ── -->
+    <details id="parseSection" class="load-acc" style="display:none" open>
+      <summary>⚙ 解析設定<span class="summary-hint">確認設定後點「載入欄位」</span></summary>
+      <div class="load-acc-body">
       <div class="settings-row">
         <div class="sg">
           <label>格式偵測</label>
@@ -810,7 +812,8 @@ body.theme-light .js-plotly-plot text { fill: #14181f !important; }
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </details>
 
     <!-- ── 區塊 3：格式偵測（步驟 1 後顯示） ── -->
     <details id="detectSection" class="load-acc" style="display:none" open>
